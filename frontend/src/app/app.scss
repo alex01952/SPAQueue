@@ -1,0 +1,410 @@
+:host {
+	display: block;
+	min-height: 100dvh;
+	color: var(--text-primary);
+}
+
+.shell {
+	max-width: 1200px;
+	margin: 0 auto;
+	padding: 32px 20px 48px;
+}
+
+.card {
+	background: rgba(255, 250, 242, 0.82);
+	border: 1px solid rgba(103, 70, 41, 0.1);
+	border-radius: 24px;
+	box-shadow: 0 20px 60px rgba(76, 51, 31, 0.12);
+	backdrop-filter: blur(14px);
+}
+
+.hero {
+	display: flex;
+	justify-content: space-between;
+	gap: 24px;
+	padding: 32px;
+	align-items: end;
+	margin-bottom: 18px;
+}
+
+.hero h1,
+.section-heading h2,
+.player-row h3,
+.team-card h3,
+.game-card h3,
+.history-row h3 {
+	margin: 0;
+}
+
+.hero h1 {
+	font-size: clamp(2.4rem, 5vw, 4.6rem);
+	line-height: 0.95;
+	max-width: 10ch;
+}
+
+.lede,
+.subtle,
+.player-row p,
+.game-card p,
+.history-row p,
+.empty-state,
+.metric span,
+.eligible-row,
+.team-player,
+.status-banner {
+	color: var(--text-secondary);
+}
+
+.eyebrow {
+	text-transform: uppercase;
+	letter-spacing: 0.2em;
+	font-size: 0.72rem;
+	font-weight: 700;
+	color: var(--accent-dark);
+	margin: 0 0 12px;
+}
+
+.hero-actions,
+.metrics,
+.layout,
+.history-grid,
+.section-heading,
+.preview-actions,
+.player-meta,
+.versus,
+.teams,
+.court-heading {
+	display: flex;
+}
+
+.hero-actions,
+.player-meta {
+	gap: 12px;
+	align-items: center;
+}
+
+.hero-actions label {
+	display: grid;
+	gap: 6px;
+	font-size: 0.85rem;
+	color: var(--text-secondary);
+}
+
+.hero-actions select {
+	min-width: 88px;
+	border-radius: 999px;
+	border: 1px solid rgba(103, 70, 41, 0.14);
+	padding: 10px 14px;
+	background: rgba(255, 255, 255, 0.78);
+	color: var(--text-primary);
+	font: inherit;
+}
+
+input {
+	border-radius: 999px;
+	border: 1px solid rgba(103, 70, 41, 0.14);
+	padding: 10px 14px;
+	background: rgba(255, 255, 255, 0.78);
+	color: var(--text-primary);
+	font: inherit;
+	width: 72px;
+}
+
+.metrics {
+	gap: 16px;
+	margin-bottom: 18px;
+}
+
+.metric {
+	flex: 1;
+	padding: 22px 24px;
+}
+
+.metric strong {
+	display: block;
+	font-size: 2rem;
+	margin-top: 8px;
+}
+
+.layout,
+.history-grid {
+	gap: 18px;
+}
+
+.layout {
+	align-items: start;
+}
+
+.roster {
+	flex: 1.2;
+}
+
+.preview {
+	flex: 0.9;
+}
+
+.roster,
+.preview,
+.history-grid > .card {
+	padding: 24px;
+}
+
+.section-heading {
+	justify-content: space-between;
+	align-items: start;
+	margin-bottom: 18px;
+}
+
+.preview-actions {
+	gap: 12px;
+	align-items: center;
+}
+
+.player-list,
+.eligible-list,
+.game-card,
+.history-row {
+	display: grid;
+	gap: 12px;
+}
+
+.player-row,
+.eligible-row,
+.history-row {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	align-items: center;
+}
+
+.player-row {
+	padding: 16px 0;
+	border-top: 1px solid rgba(103, 70, 41, 0.1);
+}
+
+.player-row.playing {
+	opacity: 0.78;
+}
+
+.badge {
+	display: inline-flex;
+	align-items: center;
+	border-radius: 999px;
+	padding: 8px 12px;
+	font-size: 0.82rem;
+	font-weight: 700;
+}
+
+.badge.ready {
+	background: rgba(54, 123, 84, 0.14);
+	color: #2a6f4f;
+}
+
+.badge.in-game {
+	background: rgba(200, 95, 56, 0.14);
+	color: #b6542f;
+}
+
+.badge.waiting {
+	background: rgba(73, 87, 108, 0.12);
+	color: #4c5b71;
+}
+
+button {
+	border: 0;
+	border-radius: 999px;
+	padding: 12px 18px;
+	font: inherit;
+	cursor: pointer;
+	transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+button:hover:not(:disabled) {
+	transform: translateY(-1px);
+}
+
+button:disabled {
+	cursor: not-allowed;
+	opacity: 0.5;
+}
+
+.primary {
+	background: linear-gradient(135deg, #cb5d33, #ed9d3b);
+	color: #fff9f1;
+	box-shadow: 0 16px 30px rgba(203, 93, 51, 0.25);
+}
+
+.secondary,
+.toggle {
+	background: rgba(255, 255, 255, 0.7);
+	color: var(--text-primary);
+	border: 1px solid rgba(103, 70, 41, 0.14);
+}
+
+.ghost {
+	background: transparent;
+	color: var(--accent-dark);
+	border: 1px dashed rgba(140, 75, 47, 0.4);
+}
+
+.teams,
+.versus {
+	gap: 14px;
+}
+
+.court-stack {
+	display: grid;
+	gap: 14px;
+	margin-bottom: 18px;
+}
+
+.court-card {
+	padding: 16px;
+	border-radius: 18px;
+	background: rgba(255, 255, 255, 0.55);
+	border: 1px solid rgba(103, 70, 41, 0.08);
+}
+
+.court-heading {
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 12px;
+}
+
+.score-entry {
+	display: flex;
+	gap: 12px;
+	align-items: end;
+	flex-wrap: wrap;
+}
+
+.score-entry label {
+	display: grid;
+	gap: 6px;
+	font-size: 0.85rem;
+	color: var(--text-secondary);
+}
+
+.teams {
+	margin-bottom: 18px;
+}
+
+.team-card,
+.versus-team {
+	flex: 1;
+	padding: 16px;
+	border-radius: 18px;
+	background: rgba(255, 255, 255, 0.7);
+	border: 1px solid rgba(103, 70, 41, 0.08);
+}
+
+.team-player,
+.versus-team {
+	display: grid;
+	gap: 8px;
+}
+
+.swap-chip,
+.swap-row {
+	width: 100%;
+	text-align: left;
+	justify-content: space-between;
+	align-items: center;
+	border-radius: 16px;
+	border: 1px solid transparent;
+	background: rgba(255, 255, 255, 0.7);
+	box-shadow: none;
+	padding: 12px 14px;
+}
+
+.swap-row {
+	display: grid;
+	grid-template-columns: minmax(120px, 1.2fr) minmax(110px, 0.9fr) minmax(80px, 0.7fr);
+	gap: 12px;
+	border-top: 1px solid rgba(103, 70, 41, 0.08);
+	border-radius: 0;
+	background: transparent;
+	padding-inline: 0;
+}
+
+.swap-row:first-of-type {
+	border-top: 0;
+}
+
+.swap-in-suggested {
+	font-weight: 700;
+}
+
+.swap-selected {
+	border-color: rgba(203, 93, 51, 0.55);
+	background: rgba(203, 93, 51, 0.14);
+}
+
+.swap-target {
+	border-color: rgba(103, 70, 41, 0.18);
+	background: rgba(255, 255, 255, 0.92);
+}
+
+.eligible-list {
+	margin-top: 18px;
+}
+
+.eligible-list h3 {
+	margin: 0;
+}
+
+.game-card,
+.history-row {
+	padding: 16px 0;
+	border-top: 1px solid rgba(103, 70, 41, 0.1);
+}
+
+.history-copy {
+	flex: 1;
+}
+
+.score-pill {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 72px;
+	padding: 8px 12px;
+	border-radius: 999px;
+	background: rgba(203, 93, 51, 0.14);
+	color: #b6542f;
+}
+
+.status-banner,
+.loading {
+	margin-bottom: 18px;
+	padding: 16px 20px;
+}
+
+@media (max-width: 960px) {
+	.hero,
+	.layout,
+	.history-grid,
+	.metrics,
+	.teams,
+	.versus,
+	.preview-actions {
+		flex-direction: column;
+	}
+
+	.hero-actions,
+	.player-row,
+	.history-row,
+	.swap-row {
+		align-items: start;
+	}
+
+	.player-row,
+	.history-row,
+	.swap-row {
+		flex-direction: column;
+	}
+
+	.swap-row {
+		display: flex;
+	}
+}

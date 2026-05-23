@@ -1,0 +1,265 @@
+<main class="shell">
+  <section class="hero card">
+    <div>
+      <p class="eyebrow">Pickleball queue</p>
+      <h1>Run the next game without double-booking the court.</h1>
+      <p class="lede">
+        Players marked ready are eligible. Ongoing games are excluded automatically.
+      </p>
+    </div>
+
+    <div class="hero-actions">
+      <label>
+        Courts in use
+        <select [value]="courtCount()" (change)="setCourtCount(($any($event.target)).value)">
+          @for (count of [1, 2, 3, 4, 5, 6]; track count) {
+            <option [value]="count">{{ count }}</option>
+          }
+        </select>
+      </label>
+      <button type="button" class="secondary" (click)="refresh()">Refresh</button>
+      <button
+        type="button"
+        class="primary"
+        [disabled]="(snapshot()?.nextGame?.courts?.length ?? 0) !== courtCount() || isMutating()"
+        (click)="startNextGame()"
+      >
+        Start suggested games
+      </button>
+    </div>
+  </section>
+
+  @if (errorMessage()) {
+    <section class="status-banner">{{ errorMessage() }}</section>
+  }
+
+  <section class="metrics">
+    <article class="metric card">
+      <span>Registered players</span>
+      <strong>{{ snapshot()?.players?.length ?? 0 }}</strong>
+    </article>
+    <article class="metric card">
+      <span>Checked in</span>
+      <strong>{{ readyCount() }}</strong>
+    </article>
+    <article class="metric card">
+      <span>Available now</span>
+      <strong>{{ availableCount() }}</strong>
+    </article>
+    <article class="metric card">
+      <span>Players needed</span>
+      <strong>{{ requiredPlayers() }}</strong>
+    </article>
+  </section>
+
+  @if (isLoading()) {
+    <section class="card loading">Loading live queue data...</section>
+  } @else if (snapshot(); as data) {
+    <section class="layout">
+      <article class="card roster">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Player roster</p>
+            <h2>Check players in or out</h2>
+          </div>
+        </div>
+
+        <div class="player-list">
+          @for (player of data.players; track player.id) {
+            <div class="player-row" [class.playing]="player.isPlaying">
+              <div>
+                <h3>{{ player.name }}</h3>
+                <p>DUPR {{ player.dupr === null ? 'NR' : (player.dupr | number: '1.2-2') }}</p>
+              </div>
+
+              <div class="player-meta">
+                @if (player.isPlaying) {
+                  <span class="badge in-game">In game</span>
+                } @else if (player.isReady) {
+                  <span class="badge ready">Ready</span>
+                } @else {
+                  <span class="badge waiting">Not ready</span>
+                }
+
+                <button
+                  type="button"
+                  class="toggle"
+                  [disabled]="player.isPlaying || isMutating()"
+                  (click)="toggleReady(player)"
+                >
+                  {{ player.isReady ? 'Check out' : 'Check in' }}
+                </button>
+              </div>
+            </div>
+          }
+        </div>
+      </article>
+
+      <article class="card preview">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Queue output</p>
+            <h2>Suggested next courts</h2>
+          </div>
+          <div class="preview-actions">
+            <span class="subtle">{{ data.nextGame.eligiblePlayers.length }} eligible</span>
+            @if (swapSelection()) {
+              <button type="button" class="ghost" (click)="clearSwapSelection()">Cancel swap</button>
+            }
+          </div>
+        </div>
+
+        @if (selectedPreviewCourts().length) {
+          <div class="court-stack">
+            @for (court of selectedPreviewCourts(); track court.courtNumber) {
+              <section class="court-card">
+                <div class="court-heading">
+                  <h3>Court {{ court.courtNumber }}</h3>
+                  <span>{{ court.players.length }} players</span>
+                </div>
+                <div class="teams">
+                  @for (team of court.teams; track team.name) {
+                    <section class="team-card">
+                      <h3>{{ team.name }}</h3>
+                      @for (player of team.players; track player.id) {
+                        <button
+                          type="button"
+                          class="team-player swap-chip"
+                          [class.swap-selected]="isSwapSelected(player.id)"
+                          [class.swap-target]="!isSwapSelected(player.id) && swapSelection() !== null"
+                          (click)="pickSwapPlayer(player.id)"
+                        >
+                          <span>{{ player.name }}</span>
+                          <strong>{{ player.dupr === null ? 'NR' : (player.dupr | number: '1.2-2') }}</strong>
+                        </button>
+                      }
+                    </section>
+                  }
+                </div>
+              </section>
+            }
+          </div>
+        } @else {
+          <p class="empty-state">Check in at least {{ requiredPlayers() }} players who are not already playing.</p>
+        }
+
+        <div class="eligible-list">
+          <h3>Eligible queue</h3>
+          @for (player of eligiblePlayerOrder(); track player.id) {
+            <button
+              type="button"
+              class="eligible-row swap-row"
+              [class.swap-selected]="isSwapSelected(player.id)"
+              [class.swap-target]="!isSwapSelected(player.id) && swapSelection() !== null"
+              [class.swap-in-suggested]="isInSuggestedPlayers(player.id)"
+              (click)="pickSwapPlayer(player.id)"
+            >
+              <span>{{ player.name }}</span>
+              <span>
+                {{ player.recentGamesPlayed }} recent
+                {{ player.recentGamesPlayed === 1 ? 'game' : 'games' }}
+              </span>
+              <span>{{ player.checkedInAt | date: 'shortTime' }}</span>
+            </button>
+          }
+        </div>
+      </article>
+    </section>
+
+    <section class="history-grid">
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Live courts</p>
+            <h2>Ongoing games</h2>
+          </div>
+        </div>
+
+        @if (data.ongoingGames.length) {
+          @for (game of data.ongoingGames; track game.id) {
+            <div class="game-card">
+              <div>
+                <h3>Game {{ game.id }}</h3>
+                <p>Started {{ game.createdAt | date: 'shortTime' }}</p>
+              </div>
+
+              <div class="score-entry">
+                <label>
+                  {{ game.teams[0].name }}
+                  <input
+                    type="text"
+                    inputmode="numeric"
+                    maxlength="2"
+                    [value]="scoreDrafts()[game.id]?.team1 ?? ''"
+                    (input)="updateScoreDraft(game.id, 'team1', ($any($event.target)).value)"
+                  />
+                </label>
+                <label>
+                  {{ game.teams[1].name }}
+                  <input
+                    type="text"
+                    inputmode="numeric"
+                    maxlength="2"
+                    [value]="scoreDrafts()[game.id]?.team2 ?? ''"
+                    (input)="updateScoreDraft(game.id, 'team2', ($any($event.target)).value)"
+                  />
+                </label>
+                <button
+                  type="button"
+                  class="secondary"
+                  [disabled]="isMutating() || !canCompleteGame(game.id)"
+                  (click)="completeGame(game.id)"
+                >
+                  Save score and complete
+                </button>
+              </div>
+
+              <div class="versus">
+                @for (team of game.teams; track team.name) {
+                  <section class="versus-team">
+                    <h4>{{ team.name }}</h4>
+                    @for (player of team.players; track player.id) {
+                      <span>{{ player.name }}</span>
+                    }
+                  </section>
+                }
+              </div>
+            </div>
+          }
+        } @else {
+          <p class="empty-state">No live games right now.</p>
+        }
+      </article>
+
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">History</p>
+            <h2>Recent games</h2>
+          </div>
+        </div>
+
+        @if (data.recentGames.length) {
+          @for (game of data.recentGames; track game.id) {
+            <div class="history-row">
+              <div>
+                <h3>Game {{ game.id }}</h3>
+                <p>Finished {{ game.completedAt | date: 'shortTime' }}</p>
+              </div>
+              <p class="history-copy">
+                {{ game.teams[0].players[0].name }} / {{ game.teams[0].players[1].name }}
+                vs
+                {{ game.teams[1].players[0].name }} / {{ game.teams[1].players[1].name }}
+              </p>
+              @if (game.score) {
+                <strong class="score-pill">{{ game.score.team1 }} - {{ game.score.team2 }}</strong>
+              }
+            </div>
+          }
+        } @else {
+          <p class="empty-state">Completed games will appear here.</p>
+        }
+      </article>
+    </section>
+  }
+</main>
