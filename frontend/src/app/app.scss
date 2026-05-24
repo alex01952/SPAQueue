@@ -70,6 +70,7 @@
 .history-grid,
 .section-heading,
 .preview-actions,
+.roster-toolbar,
 .player-meta,
 .versus,
 .teams,
@@ -108,6 +109,10 @@ input {
 	color: var(--text-primary);
 	font: inherit;
 	width: 72px;
+}
+
+input[type='search'] {
+	width: 100%;
 }
 
 .metrics {
@@ -160,12 +165,61 @@ input {
 	align-items: center;
 }
 
+.roster-summary {
+	display: flex;
+	justify-content: end;
+	align-items: center;
+	min-width: 96px;
+}
+
+.roster-toolbar {
+	gap: 12px;
+	align-items: center;
+	margin-bottom: 18px;
+}
+
+.search-field {
+	flex: 1;
+}
+
+.search-field input {
+	width: 100%;
+}
+
 .player-list,
 .eligible-list,
 .game-card,
 .history-row {
 	display: grid;
 	gap: 12px;
+}
+
+.scroll-panel {
+	max-height: min(60dvh, 760px);
+	overflow-y: auto;
+	padding-right: 8px;
+	scrollbar-gutter: stable;
+}
+
+.scroll-panel::-webkit-scrollbar {
+	width: 10px;
+}
+
+.scroll-panel::-webkit-scrollbar-thumb {
+	background: rgba(103, 70, 41, 0.2);
+	border-radius: 999px;
+}
+
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
 }
 
 .player-row,
@@ -271,6 +325,24 @@ button:disabled {
 	margin-bottom: 12px;
 }
 
+.court-selector {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	color: var(--text-secondary);
+	font-size: 0.9rem;
+}
+
+.court-selector select {
+	min-width: 76px;
+	border-radius: 999px;
+	border: 1px solid rgba(103, 70, 41, 0.14);
+	padding: 8px 12px;
+	background: rgba(255, 255, 255, 0.78);
+	color: var(--text-primary);
+	font: inherit;
+}
+
 .score-entry {
 	display: flex;
 	gap: 12px;
@@ -304,6 +376,17 @@ button:disabled {
 	gap: 8px;
 }
 
+.player-summary {
+	display: grid;
+	gap: 4px;
+	min-width: 0;
+}
+
+.player-summary small {
+	font-size: 0.82rem;
+	color: var(--text-secondary);
+}
+
 .swap-chip,
 .swap-row {
 	width: 100%;
@@ -325,6 +408,10 @@ button:disabled {
 	border-radius: 0;
 	background: transparent;
 	padding-inline: 0;
+}
+
+.swap-row .player-summary {
+	text-align: left;
 }
 
 .swap-row:first-of-type {
@@ -359,8 +446,14 @@ button:disabled {
 	border-top: 1px solid rgba(103, 70, 41, 0.1);
 }
 
-.history-copy {
+.history-details {
+	display: grid;
+	gap: 6px;
 	flex: 1;
+}
+
+.history-copy {
+	margin: 0;
 }
 
 .score-pill {
@@ -389,6 +482,10 @@ button:disabled {
 	.versus,
 	.preview-actions {
 		flex-direction: column;
+	}
+
+	.roster-toolbar {
+		align-items: stretch;
 	}
 
 	.hero-actions,

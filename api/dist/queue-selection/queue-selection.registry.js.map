@@ -1,0 +1,1 @@
+{"version":3,"file":"queue-selection.registry.js","sourceRoot":"","sources":["../../src/queue-selection/queue-selection.registry.ts"],"names":[],"mappings":";;;AACA,kFAA0F;AAC1F,0FAAkG;AAClG,0EAA8E;AAGjE,QAAA,wBAAwB,GAAuD;IAC1F,gBAAgB,EAAE,IAAI,4DAAkC,EAAE;IAC1D,oBAAoB,EAAE,IAAI,oEAAsC,EAAE;IAClE,YAAY,EAAE,IAAI,gDAA0B,EAAE;CAC/C,CAAC"}

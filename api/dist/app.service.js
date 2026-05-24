@@ -11,43 +11,69 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AppService = void 0;
 const common_1 = require("@nestjs/common");
+const node_fs_1 = require("node:fs");
+const node_path_1 = require("node:path");
 const players_json_1 = __importDefault(require("./data/players.json"));
-const queue_selection_logic_1 = require("./queue-selection.logic");
+const matching_selection_1 = require("./matching-selection");
+const queue_selection_1 = require("./queue-selection");
+const defaultRounds = [
+    {
+        id: 1,
+        roundNumber: 1,
+        status: 'ongoing',
+        createdAt: '2026-05-23T08:15:00.000Z',
+        completedAt: null,
+        games: [
+            {
+                id: 1,
+                courtNumber: 1,
+                status: 'ongoing',
+                playerIds: [1, 2, 3, 5],
+                createdAt: '2026-05-23T08:15:00.000Z',
+                completedAt: null,
+                score: null,
+            },
+        ],
+    },
+    {
+        id: 2,
+        roundNumber: 2,
+        status: 'completed',
+        createdAt: '2026-05-23T07:40:00.000Z',
+        completedAt: '2026-05-23T08:05:00.000Z',
+        games: [
+            {
+                id: 2,
+                courtNumber: 2,
+                status: 'completed',
+                playerIds: [4, 6, 2, 3],
+                createdAt: '2026-05-23T07:40:00.000Z',
+                completedAt: '2026-05-23T08:05:00.000Z',
+                score: { team1: 11, team2: 8 },
+            },
+        ],
+    },
+];
 let AppService = class AppService {
     players = players_json_1.default.map((player) => ({
         ...player,
     }));
-    queueSelectionStrategy = new queue_selection_logic_1.CheckInOrderQueueSelectionStrategy();
-    games = [
-        {
-            id: 1,
-            status: 'ongoing',
-            playerIds: [1, 2, 3, 5],
-            createdAt: '2026-05-23T08:15:00.000Z',
-            completedAt: null,
-            score: null,
-        },
-        {
-            id: 2,
-            status: 'completed',
-            playerIds: [4, 6, 2, 3],
-            createdAt: '2026-05-23T07:40:00.000Z',
-            completedAt: '2026-05-23T08:05:00.000Z',
-            score: { team1: 11, team2: 8 },
-        },
-    ];
-    getQueueSnapshot(courtCount = 1) {
-        const recentCompletedGames = this.getRecentCompletedGames();
-        const playerQueueStates = this.players.map((player) => this.toPlayerQueueState(player, recentCompletedGames));
-        const ongoingGames = this.games
-            .filter((game) => game.status === 'ongoing')
-            .map((game) => this.toGameView(game));
-        const recentGames = recentCompletedGames.map((game) => this.toGameView(game));
+    roundsFilePath = process.env.MATCH_HISTORY_FILE_PATH ?? (0, node_path_1.join)(process.cwd(), 'src', 'data', 'rounds.json');
+    rounds = this.loadRounds();
+    getQueueSnapshot(courtCount = 1, selectionMode = 'queue-line', matchingMode = 'dupr-balance') {
+        const recentCompletedRounds = this.getRecentCompletedRounds();
+        const recentCompletedGames = recentCompletedRounds.flatMap((round) => round.games);
+        const completedGames = this.getAllGames().filter((game) => game.status === 'completed');
+        const playerQueueStates = this.players.map((player) => this.toPlayerQueueState(player, recentCompletedGames, completedGames));
+        const ongoingRounds = this.rounds
+            .filter((round) => round.status === 'ongoing')
+            .map((round) => this.toRoundView(round));
+        const recentRounds = recentCompletedRounds.map((round) => this.toRoundView(round));
         return {
             players: playerQueueStates,
-            ongoingGames,
-            recentGames,
-            nextGame: this.buildNextGamePreview(playerQueueStates, courtCount),
+            ongoingRounds,
+            recentRounds,
+            nextGame: this.buildNextGamePreview(playerQueueStates, courtCount, selectionMode, matchingMode),
         };
     }
     updatePlayerReadyState(playerId, isReady) {
@@ -63,15 +89,33 @@ let AppService = class AppService {
         };
     }
     createGame(playerIds) {
-        return this.createSingleGame(playerIds);
+        return this.createRound([{ courtNumber: 1, playerIds }]);
     }
-    createGames(playerGroups) {
-        if (!playerGroups.length) {
+    createGames(gameAssignments) {
+        if (!gameAssignments.length) {
             throw new common_1.BadRequestException('At least one game is required.');
         }
-        return playerGroups.map((playerIds) => this.createSingleGame(playerIds));
+        return this.createRound(gameAssignments);
     }
-    createSingleGame(playerIds) {
+    createRound(gameAssignments) {
+        const createdAt = new Date().toISOString();
+        const nextGameId = this.getAllGames().reduce((highestId, entry) => Math.max(highestId, entry.id), 0) + 1;
+        this.validateGameAssignments(gameAssignments);
+        const games = gameAssignments.map(({ courtNumber, playerIds }, index) => this.createSingleGame(playerIds, courtNumber, createdAt, nextGameId + index));
+        const round = {
+            id: this.rounds.reduce((highestId, entry) => Math.max(highestId, entry.id), 0) + 1,
+            roundNumber: this.rounds.reduce((highestNumber, entry) => Math.max(highestNumber, entry.roundNumber), 0) +
+                1,
+            status: 'ongoing',
+            createdAt,
+            completedAt: null,
+            games,
+        };
+        this.rounds.unshift(round);
+        this.persistRounds();
+        return this.toRoundView(round);
+    }
+    createSingleGame(playerIds, courtNumber, createdAt, gameId) {
         if (playerIds.length !== 4) {
             throw new common_1.BadRequestException('A pickleball game requires exactly 4 players.');
         }
@@ -91,18 +135,31 @@ let AppService = class AppService {
             throw new common_1.BadRequestException(`${unavailablePlayer.name} is not eligible for a new game.`);
         }
         const game = {
-            id: this.games.reduce((highestId, entry) => Math.max(highestId, entry.id), 0) + 1,
+            id: gameId,
+            courtNumber,
             status: 'ongoing',
             playerIds,
-            createdAt: new Date().toISOString(),
+            createdAt,
             completedAt: null,
             score: null,
         };
-        this.games.unshift(game);
-        return this.toGameView(game);
+        return game;
+    }
+    validateGameAssignments(gameAssignments) {
+        const usedCourtNumbers = new Set();
+        for (const assignment of gameAssignments) {
+            if (!Number.isInteger(assignment.courtNumber) || assignment.courtNumber < 1 || assignment.courtNumber > 10) {
+                throw new common_1.BadRequestException('Court numbers must be whole numbers between 1 and 10.');
+            }
+            if (usedCourtNumbers.has(assignment.courtNumber)) {
+                throw new common_1.BadRequestException('Court numbers must be unique within a batch.');
+            }
+            usedCourtNumbers.add(assignment.courtNumber);
+        }
     }
     completeGame(gameId, score) {
-        const game = this.games.find((entry) => entry.id === gameId);
+        const round = this.rounds.find((entry) => entry.games.some((game) => game.id === gameId));
+        const game = round?.games.find((entry) => entry.id === gameId);
         if (!game) {
             throw new common_1.NotFoundException(`Game ${gameId} was not found.`);
         }
@@ -113,14 +170,53 @@ let AppService = class AppService {
         game.status = 'completed';
         game.completedAt = new Date().toISOString();
         game.score = normalizedScore;
-        return this.toGameView(game);
+        if (round && round.games.every((entry) => entry.status === 'completed')) {
+            round.status = 'completed';
+            round.completedAt = game.completedAt;
+        }
+        this.persistRounds();
+        return this.toRoundView(round);
     }
-    buildNextGamePreview(players, courtCount) {
-        return this.queueSelectionStrategy.selectNextPlayers({
+    loadRounds() {
+        if (!(0, node_fs_1.existsSync)(this.roundsFilePath)) {
+            this.persistRounds(defaultRounds);
+            return defaultRounds.map((round) => ({
+                ...round,
+                games: round.games.map((game) => ({ ...game })),
+            }));
+        }
+        const fileContents = (0, node_fs_1.readFileSync)(this.roundsFilePath, 'utf8');
+        const rounds = JSON.parse(fileContents);
+        return rounds.map((round) => ({
+            ...round,
+            games: round.games.map((game) => ({ ...game })),
+        }));
+    }
+    persistRounds(rounds = this.rounds) {
+        (0, node_fs_1.mkdirSync)((0, node_path_1.dirname)(this.roundsFilePath), { recursive: true });
+        (0, node_fs_1.writeFileSync)(this.roundsFilePath, `${JSON.stringify(rounds, null, 2)}\n`, 'utf8');
+    }
+    buildNextGamePreview(players, courtCount, selectionMode, matchingMode) {
+        const strategy = queue_selection_1.queueSelectionStrategies[selectionMode];
+        if (!strategy) {
+            throw new common_1.BadRequestException(`Unsupported queue selection mode: ${selectionMode}`);
+        }
+        return strategy.selectNextPlayers({
             players,
-            games: this.games,
+            games: this.getAllGames(),
             courtCount,
+            matchingMode,
         });
+    }
+    toRoundView(round) {
+        return {
+            id: round.id,
+            roundNumber: round.roundNumber,
+            status: round.status,
+            createdAt: round.createdAt,
+            completedAt: round.completedAt,
+            games: round.games.map((game) => this.toGameView(game)),
+        };
     }
     toGameView(game) {
         const players = game.playerIds.map((playerId) => {
@@ -132,12 +228,13 @@ let AppService = class AppService {
         });
         return {
             id: game.id,
+            courtNumber: game.courtNumber,
             status: game.status,
             createdAt: game.createdAt,
             completedAt: game.completedAt,
             score: game.score,
             players,
-            teams: (0, queue_selection_logic_1.buildTeams)(players),
+            teams: (0, matching_selection_1.buildTeams)(players),
         };
     }
     normalizeScore(score) {
@@ -148,22 +245,51 @@ let AppService = class AppService {
         }
         return { team1, team2 };
     }
-    toPlayerQueueState(player, recentCompletedGames) {
+    toPlayerQueueState(player, recentCompletedGames, completedGames) {
+        const lastCompletedGameAt = this.getLastCompletedGameAt(player.id, completedGames);
         return {
             ...player,
             isPlaying: this.isPlayerInOngoingGame(player.id),
             recentGamesPlayed: recentCompletedGames.filter((game) => game.playerIds.includes(player.id))
                 .length,
+            lastCompletedGameAt,
+            queueEnteredAt: this.getQueueEnteredAt(player, lastCompletedGameAt),
         };
     }
-    getRecentCompletedGames() {
-        return this.games
-            .filter((game) => game.status === 'completed')
+    getLastCompletedGameAt(playerId, completedGames) {
+        return completedGames.reduce((latestCompletedAt, game) => {
+            if (!game.playerIds.includes(playerId) || !game.completedAt) {
+                return latestCompletedAt;
+            }
+            if (!latestCompletedAt || game.completedAt > latestCompletedAt) {
+                return game.completedAt;
+            }
+            return latestCompletedAt;
+        }, null);
+    }
+    getQueueEnteredAt(player, lastCompletedGameAt) {
+        if (!player.isReady) {
+            return null;
+        }
+        if (!player.checkedInAt) {
+            return lastCompletedGameAt;
+        }
+        if (!lastCompletedGameAt || player.checkedInAt > lastCompletedGameAt) {
+            return player.checkedInAt;
+        }
+        return lastCompletedGameAt;
+    }
+    getRecentCompletedRounds() {
+        return this.rounds
+            .filter((round) => round.status === 'completed')
             .sort((left, right) => (left.completedAt < right.completedAt ? 1 : -1))
             .slice(0, 5);
     }
+    getAllGames() {
+        return this.rounds.flatMap((round) => round.games);
+    }
     isPlayerInOngoingGame(playerId) {
-        return (0, queue_selection_logic_1.isPlayerInOngoingGame)(this.games, playerId);
+        return (0, queue_selection_1.isPlayerInOngoingGame)(this.getAllGames(), playerId);
     }
 };
 exports.AppService = AppService;

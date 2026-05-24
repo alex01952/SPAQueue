@@ -22,7 +22,7 @@ describe('AppController (e2e)', () => {
       .expect(200)
       .expect((response) => {
         expect(response.body.players.length).toBeGreaterThan(0);
-        expect(response.body.ongoingGames.length).toBe(1);
+        expect(response.body.ongoingRounds.length).toBe(1);
         expect(response.body.nextGame.courtCount).toBe(3);
       });
   });
@@ -34,7 +34,7 @@ describe('AppController (e2e)', () => {
       .expect(200)
       .expect((response) => {
         expect(response.body.status).toBe('completed');
-        expect(response.body.score).toEqual({ team1: 11, team2: 7 });
+        expect(response.body.games[0].score).toEqual({ team1: 11, team2: 7 });
       });
   });
 

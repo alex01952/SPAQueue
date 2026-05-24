@@ -1,11 +1,66 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
 describe('AppController', () => {
   let appController: AppController;
+  let roundsFilePath: string;
 
   beforeEach(async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-05-24T09:00:00.000Z'));
+    roundsFilePath = join(mkdtempSync(join(tmpdir(), 'pickleball-queue-')), 'rounds.json');
+    writeFileSync(
+      roundsFilePath,
+      JSON.stringify(
+        [
+          {
+            id: 1,
+            roundNumber: 1,
+            status: 'ongoing',
+            createdAt: '2026-05-23T08:15:00.000Z',
+            completedAt: null,
+            games: [
+              {
+                id: 1,
+                courtNumber: 1,
+                status: 'ongoing',
+                playerIds: [1, 2, 3, 5],
+                createdAt: '2026-05-23T08:15:00.000Z',
+                completedAt: null,
+                score: null,
+              },
+            ],
+          },
+          {
+            id: 2,
+            roundNumber: 2,
+            status: 'completed',
+            createdAt: '2026-05-23T07:40:00.000Z',
+            completedAt: '2026-05-23T08:05:00.000Z',
+            games: [
+              {
+                id: 2,
+                courtNumber: 2,
+                status: 'completed',
+                playerIds: [4, 6, 2, 3],
+                createdAt: '2026-05-23T07:40:00.000Z',
+                completedAt: '2026-05-23T08:05:00.000Z',
+                score: { team1: 11, team2: 8 },
+              },
+            ],
+          },
+        ],
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    process.env.MATCH_HISTORY_FILE_PATH = roundsFilePath;
+
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
       providers: [AppService],
@@ -14,25 +69,170 @@ describe('AppController', () => {
     appController = app.get<AppController>(AppController);
   });
 
+  afterEach(() => {
+    delete process.env.MATCH_HISTORY_FILE_PATH;
+    jest.useRealTimers();
+  });
+
   describe('queue', () => {
     it('should return queue snapshot data', () => {
       const snapshot = appController.getQueueSnapshot(3);
 
       expect(snapshot.players.length).toBeGreaterThan(0);
-      expect(snapshot.ongoingGames.length).toBe(1);
+      expect(snapshot.ongoingRounds.length).toBe(1);
       expect(snapshot.nextGame.courtCount).toBe(3);
+      expect(snapshot.nextGame.selectionMode).toBe('queue-line');
+      expect(snapshot.nextGame.matchingMode).toBe('dupr-balance');
       expect(snapshot.nextGame.eligiblePlayers.every((player) => !player.isPlaying)).toBe(
         true,
       );
     });
+
+    it('should move players who just finished a game to the back of the queue line', () => {
+      appController.updatePlayerReadyState(1, true);
+      jest.setSystemTime(new Date('2026-05-24T09:01:00.000Z'));
+      appController.updatePlayerReadyState(2, true);
+      jest.setSystemTime(new Date('2026-05-24T09:02:00.000Z'));
+      appController.updatePlayerReadyState(3, true);
+      jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
+      appController.updatePlayerReadyState(5, true);
+      jest.setSystemTime(new Date('2026-05-24T09:04:00.000Z'));
+      appController.updatePlayerReadyState(9, true);
+      jest.setSystemTime(new Date('2026-05-24T09:05:00.000Z'));
+      appController.updatePlayerReadyState(10, true);
+      jest.setSystemTime(new Date('2026-05-24T09:06:00.000Z'));
+      appController.completeGame(1, { team1: 11, team2: 9 });
+
+      const queueLineSnapshot = appController.getQueueSnapshot(1, 'queue-line');
+      const checkInOrderSnapshot = appController.getQueueSnapshot(1, 'check-in-order');
+
+      expect(queueLineSnapshot.nextGame.eligiblePlayers.slice(0, 2).map((player) => player.id)).toEqual([
+        9,
+        10,
+      ]);
+      expect(checkInOrderSnapshot.nextGame.eligiblePlayers.slice(0, 2).map((player) => player.id)).toEqual([
+        1,
+        2,
+      ]);
+      expect(
+        queueLineSnapshot.nextGame.eligiblePlayers.find((player) => player.id === 1)?.queueEnteredAt,
+      ).toBe('2026-05-24T09:06:00.000Z');
+    });
+
+    it('should prioritize players with the fewest recent completed games', () => {
+      appController.updatePlayerReadyState(4, true);
+      jest.setSystemTime(new Date('2026-05-24T09:01:00.000Z'));
+      appController.updatePlayerReadyState(6, true);
+      jest.setSystemTime(new Date('2026-05-24T09:02:00.000Z'));
+      appController.updatePlayerReadyState(9, true);
+      jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
+      appController.updatePlayerReadyState(10, true);
+
+      const leastPlayedSnapshot = appController.getQueueSnapshot(1, 'least-played-first');
+
+      expect(leastPlayedSnapshot.nextGame.selectionMode).toBe('least-played-first');
+      expect(leastPlayedSnapshot.nextGame.eligiblePlayers.slice(0, 4).map((player) => player.id)).toEqual([
+        9,
+        10,
+        4,
+        6,
+      ]);
+      expect(leastPlayedSnapshot.nextGame.eligiblePlayers.slice(0, 4).map((player) => player.recentGamesPlayed)).toEqual([
+        0,
+        0,
+        1,
+        1,
+      ]);
+    });
+
+    it('should balance suggested teams by total DUPR rating', () => {
+      appController.updatePlayerReadyState(4, true);
+      jest.setSystemTime(new Date('2026-05-24T09:01:00.000Z'));
+      appController.updatePlayerReadyState(6, true);
+      jest.setSystemTime(new Date('2026-05-24T09:02:00.000Z'));
+      appController.updatePlayerReadyState(9, true);
+      jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
+      appController.updatePlayerReadyState(10, true);
+
+      const snapshot = appController.getQueueSnapshot(1, 'queue-line');
+      const [firstCourt] = snapshot.nextGame.courts;
+
+      expect(firstCourt.teams.map((team) => team.players.map((player) => player.id))).toEqual([
+        [4, 9],
+        [6, 10],
+      ]);
+    });
+
+    it('should treat unrated players as 3.0 DUPR when balancing teams', () => {
+      appController.updatePlayerReadyState(27, true);
+      jest.setSystemTime(new Date('2026-05-24T09:01:00.000Z'));
+      appController.updatePlayerReadyState(4, true);
+      jest.setSystemTime(new Date('2026-05-24T09:02:00.000Z'));
+      appController.updatePlayerReadyState(6, true);
+      jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
+      appController.updatePlayerReadyState(9, true);
+
+      const snapshot = appController.getQueueSnapshot(1, 'queue-line');
+      const [firstCourt] = snapshot.nextGame.courts;
+
+      expect(firstCourt.teams.map((team) => team.players.map((player) => player.id))).toEqual([
+        [27, 6],
+        [4, 9],
+      ]);
+    });
+
+    it('should split mixed skill levels evenly when using skill-balance matching', () => {
+      appController.updatePlayerReadyState(4, true);
+      jest.setSystemTime(new Date('2026-05-24T09:01:00.000Z'));
+      appController.updatePlayerReadyState(8, true);
+      jest.setSystemTime(new Date('2026-05-24T09:02:00.000Z'));
+      appController.updatePlayerReadyState(10, true);
+      jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
+      appController.updatePlayerReadyState(11, true);
+
+      const snapshot = appController.getQueueSnapshot(1, 'least-played-first', 'skill-balance');
+      const [firstCourt] = snapshot.nextGame.courts;
+      const teamSignatures = firstCourt.teams
+        .map((team) => team.players.map((player) => player.id).sort((left, right) => left - right).join('-'))
+        .sort();
+
+      expect(snapshot.nextGame.matchingMode).toBe('skill-balance');
+      expect(teamSignatures).toEqual(['4-10', '8-11']);
+    });
   });
 
   describe('complete game', () => {
-    it('should record the match score', () => {
-      const completedGame = appController.completeGame(1, { team1: 11, team2: 9 });
+    it('should create games on the selected court numbers', () => {
+      appController.updatePlayerReadyState(4, true);
+      jest.setSystemTime(new Date('2026-05-24T09:01:00.000Z'));
+      appController.updatePlayerReadyState(6, true);
+      jest.setSystemTime(new Date('2026-05-24T09:02:00.000Z'));
+      appController.updatePlayerReadyState(9, true);
+      jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
+      appController.updatePlayerReadyState(10, true);
 
-      expect(completedGame.status).toBe('completed');
-      expect(completedGame.score).toEqual({ team1: 11, team2: 9 });
+      const round = appController.createGames([
+        {
+          courtNumber: 7,
+          playerIds: [4, 6, 9, 10],
+        },
+      ]);
+
+      expect(round.games[0].courtNumber).toBe(7);
+    });
+
+    it('should record the match score', () => {
+      const completedRound = appController.completeGame(1, { team1: 11, team2: 9 });
+      const persistedRounds = JSON.parse(readFileSync(roundsFilePath, 'utf8')) as Array<{
+        games: Array<{ id: number; score: { team1: number; team2: number } | null }>;
+      }>;
+      const persistedGame = persistedRounds
+        .flatMap((round) => round.games)
+        .find((game) => game.id === 1);
+
+      expect(completedRound.status).toBe('completed');
+      expect(completedRound.games[0].score).toEqual({ team1: 11, team2: 9 });
+      expect(persistedGame?.score).toEqual({ team1: 11, team2: 9 });
     });
   });
 });

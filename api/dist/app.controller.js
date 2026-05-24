@@ -20,8 +20,8 @@ let AppController = class AppController {
     constructor(appService) {
         this.appService = appService;
     }
-    getQueueSnapshot(courtCount) {
-        return this.appService.getQueueSnapshot(courtCount);
+    getQueueSnapshot(courtCount, selectionMode, matchingMode) {
+        return this.appService.getQueueSnapshot(courtCount, selectionMode, matchingMode);
     }
     updatePlayerReadyState(id, isReady) {
         return this.appService.updatePlayerReadyState(id, isReady);
@@ -29,8 +29,10 @@ let AppController = class AppController {
     createGame(playerIds) {
         return this.appService.createGame(playerIds ?? []);
     }
-    createGames(playerGroups) {
-        return this.appService.createGames(playerGroups ?? []);
+    createGames(gameAssignments, playerGroups) {
+        const normalizedAssignments = gameAssignments ??
+            (playerGroups ?? []).map((group, index) => ({ courtNumber: index + 1, playerIds: group }));
+        return this.appService.createGames(normalizedAssignments);
     }
     completeGame(id, score) {
         return this.appService.completeGame(id, score);
@@ -40,8 +42,10 @@ exports.AppController = AppController;
 __decorate([
     (0, common_1.Get)('queue'),
     __param(0, (0, common_1.Query)('courtCount', new common_1.DefaultValuePipe(1), common_1.ParseIntPipe)),
+    __param(1, (0, common_1.Query)('selectionMode', new common_1.DefaultValuePipe('queue-line'))),
+    __param(2, (0, common_1.Query)('matchingMode', new common_1.DefaultValuePipe('dupr-balance'))),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Number]),
+    __metadata("design:paramtypes", [Number, String, String]),
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "getQueueSnapshot", null);
 __decorate([
@@ -61,9 +65,10 @@ __decorate([
 ], AppController.prototype, "createGame", null);
 __decorate([
     (0, common_1.Post)('games/batch'),
-    __param(0, (0, common_1.Body)('playerGroups')),
+    __param(0, (0, common_1.Body)('gameAssignments')),
+    __param(1, (0, common_1.Body)('playerGroups')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Array]),
+    __metadata("design:paramtypes", [Array, Array]),
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "createGames", null);
 __decorate([

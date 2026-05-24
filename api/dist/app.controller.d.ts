@@ -1,27 +1,44 @@
 import { AppService } from './app.service';
 import { GameScore } from './queue.types';
+import type { QueueSelectionMode, TeamMatchingMode } from './queue.types';
 export declare class AppController {
     private readonly appService;
     constructor(appService: AppService);
-    getQueueSnapshot(courtCount: number): {
+    getQueueSnapshot(courtCount: number, selectionMode: QueueSelectionMode, matchingMode: TeamMatchingMode): {
         players: import("./queue.types").PlayerQueueState[];
-        ongoingGames: {
+        ongoingRounds: {
             id: number;
+            roundNumber: number;
             status: import("./queue.types").GameStatus;
             createdAt: string;
             completedAt: string | null;
-            score: GameScore | null;
-            players: import("./queue.types").Player[];
-            teams: import("./queue.types").Team[];
+            games: {
+                id: number;
+                courtNumber: number;
+                status: import("./queue.types").GameStatus;
+                createdAt: string;
+                completedAt: string | null;
+                score: GameScore | null;
+                players: import("./queue.types").Player[];
+                teams: import("./queue.types").Team[];
+            }[];
         }[];
-        recentGames: {
+        recentRounds: {
             id: number;
+            roundNumber: number;
             status: import("./queue.types").GameStatus;
             createdAt: string;
             completedAt: string | null;
-            score: GameScore | null;
-            players: import("./queue.types").Player[];
-            teams: import("./queue.types").Team[];
+            games: {
+                id: number;
+                courtNumber: number;
+                status: import("./queue.types").GameStatus;
+                createdAt: string;
+                completedAt: string | null;
+                score: GameScore | null;
+                players: import("./queue.types").Player[];
+                teams: import("./queue.types").Team[];
+            }[];
         }[];
         nextGame: import("./queue.types").NextGamePreview;
     };
@@ -30,29 +47,67 @@ export declare class AppController {
         id: number;
         name: string;
         dupr: number | null;
+        gender?: string | null;
+        skillLevel: import("./queue.types").SkillLevel;
         isReady: boolean;
         checkedInAt: string | null;
     };
     createGame(playerIds: number[]): {
         id: number;
+        roundNumber: number;
         status: import("./queue.types").GameStatus;
         createdAt: string;
         completedAt: string | null;
-        score: GameScore | null;
-        players: import("./queue.types").Player[];
-        teams: import("./queue.types").Team[];
+        games: {
+            id: number;
+            courtNumber: number;
+            status: import("./queue.types").GameStatus;
+            createdAt: string;
+            completedAt: string | null;
+            score: GameScore | null;
+            players: import("./queue.types").Player[];
+            teams: import("./queue.types").Team[];
+        }[];
     };
-    createGames(playerGroups: number[][]): {
+    createGames(gameAssignments?: Array<{
+        courtNumber: number;
+        playerIds: number[];
+    }>, playerGroups?: number[][]): {
         id: number;
+        roundNumber: number;
         status: import("./queue.types").GameStatus;
         createdAt: string;
         completedAt: string | null;
-        score: GameScore | null;
-        players: import("./queue.types").Player[];
-        teams: import("./queue.types").Team[];
-    }[];
+        games: {
+            id: number;
+            courtNumber: number;
+            status: import("./queue.types").GameStatus;
+            createdAt: string;
+            completedAt: string | null;
+            score: GameScore | null;
+            players: import("./queue.types").Player[];
+            teams: import("./queue.types").Team[];
+        }[];
+    };
     completeGame(id: number, score: Partial<GameScore>): {
         id: number;
+        roundNumber: number;
+        status: import("./queue.types").GameStatus;
+        createdAt: string;
+        completedAt: string | null;
+        games: {
+            id: number;
+            courtNumber: number;
+            status: import("./queue.types").GameStatus;
+            createdAt: string;
+            completedAt: string | null;
+            score: GameScore | null;
+            players: import("./queue.types").Player[];
+            teams: import("./queue.types").Team[];
+        }[];
+    } | {
+        id: number;
+        courtNumber: number;
         status: import("./queue.types").GameStatus;
         createdAt: string;
         completedAt: string | null;

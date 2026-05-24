@@ -3,245 +3,315 @@
     "id": 1,
     "name": "AB",
     "dupr": null,
+    "skillLevel": "Beginner",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 2,
     "name": "Adam",
     "dupr": 3.006,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 3,
     "name": "Akio",
     "dupr": 3.5,
+    "skillLevel": "High Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 4,
     "name": "AL Deligro",
     "dupr": 2.16,
+    "skillLevel": "Beginner",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 5,
     "name": "Ann",
     "dupr": 2.677,
+    "skillLevel": "Novice",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 6,
     "name": "Annie",
     "dupr": 2.926,
+    "skillLevel": "Novice",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 7,
     "name": "Aya",
     "dupr": 2.29,
+    "skillLevel": "Beginner",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 8,
     "name": "Bea",
     "dupr": 2.113,
+    "skillLevel": "Beginner",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 9,
     "name": "Brian Gabriel",
     "dupr": 3.583,
+    "skillLevel": "High Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 10,
     "name": "Bubs",
     "dupr": 3.174,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 11,
     "name": "Daine",
     "dupr": 3.286,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 12,
     "name": "Dennis Janer",
     "dupr": 2.435,
+    "skillLevel": "Beginner",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 13,
     "name": "Dong",
     "dupr": 3.579,
+    "skillLevel": "High Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 14,
     "name": "Jam",
     "dupr": 3.354,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 15,
     "name": "Jao Olbes",
     "dupr": 2.316,
+    "skillLevel": "Beginner",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 16,
     "name": "Jayson",
     "dupr": 3.993,
+    "skillLevel": "High Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 17,
     "name": "Jethro1",
     "dupr": 3.452,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 18,
     "name": "Jethro2",
     "dupr": 3.7,
+    "skillLevel": "High Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 19,
     "name": "John",
     "dupr": 3.633,
+    "skillLevel": "High Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 20,
     "name": "Jude Dioneda",
     "dupr": 3.113,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 21,
     "name": "Justin",
     "dupr": 3.356,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 22,
     "name": "Kevin",
     "dupr": 3.2,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 23,
     "name": "Kim",
     "dupr": 3.154,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 24,
     "name": "Krish",
     "dupr": 3.362,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 25,
     "name": "Kyla",
     "dupr": 3.2777,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 26,
     "name": "Laurice",
     "dupr": 3.443,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 27,
     "name": "Louie",
     "dupr": null,
+    "skillLevel": "Beginner",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 28,
     "name": "Michael Dy",
     "dupr": 4.013,
+    "skillLevel": "Advanced",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 29,
     "name": "Patrick Rodrigueza",
     "dupr": 2.923,
+    "skillLevel": "Novice",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 30,
     "name": "Romeo",
     "dupr": 2.958,
+    "skillLevel": "Novice",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 31,
     "name": "Scarlett",
     "dupr": 2.003,
+    "skillLevel": "Beginner",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 32,
     "name": "Sean",
     "dupr": 3.638,
+    "skillLevel": "High Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 33,
     "name": "Tere",
     "dupr": 3.035,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 34,
     "name": "Tim",
     "dupr": null,
+    "skillLevel": "Beginner",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   },
   {
     "id": 35,
     "name": "Ysa",
     "dupr": 3,
+    "skillLevel": "Intermediate",
     "isReady": false,
-    "checkedInAt": null
+    "checkedInAt": null,
+    "gender": null
   }
 ]

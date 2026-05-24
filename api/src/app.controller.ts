@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { AppService } from './app.service';
 import { GameScore } from './queue.types';
+import type { QueueSelectionMode, TeamMatchingMode } from './queue.types';
 
 @Controller()
 export class AppController {
@@ -20,8 +21,10 @@ export class AppController {
   @Get('queue')
   getQueueSnapshot(
     @Query('courtCount', new DefaultValuePipe(1), ParseIntPipe) courtCount: number,
+    @Query('selectionMode', new DefaultValuePipe('queue-line')) selectionMode: QueueSelectionMode,
+    @Query('matchingMode', new DefaultValuePipe('dupr-balance')) matchingMode: TeamMatchingMode,
   ) {
-    return this.appService.getQueueSnapshot(courtCount);
+    return this.appService.getQueueSnapshot(courtCount, selectionMode, matchingMode);
   }
 
   @Patch('players/:id/ready')
@@ -38,8 +41,11 @@ export class AppController {
   }
 
   @Post('games/batch')
-  createGames(@Body('playerGroups') playerGroups: number[][]) {
-    return this.appService.createGames(playerGroups ?? []);
+  createGames(@Body('gameAssignments') gameAssignments?: Array<{ courtNumber: number; playerIds: number[] }>, @Body('playerGroups') playerGroups?: number[][]) {
+    const normalizedAssignments = gameAssignments ??
+      (playerGroups ?? []).map((group, index) => ({ courtNumber: index + 1, playerIds: group }));
+
+    return this.appService.createGames(normalizedAssignments);
   }
 
   @Patch('games/:id/complete')
