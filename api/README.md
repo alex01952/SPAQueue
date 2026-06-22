@@ -44,6 +44,85 @@ $ npm run start:dev
 $ npm run start:prod
 ```
 
+## Monthly Participation Data Source
+
+The `GET /participation/monthly` endpoint supports two source modes:
+
+- Local folder (default)
+- Azure Blob Storage container
+
+### Local folder mode (default)
+
+Set `OP_PARTICIPATION_ROOT_PATH` to a local path containing month subfolders (for example `June`, `July`) with `.txt` files:
+
+```bash
+OP_PARTICIPATION_ROOT_PATH=src/data/OPParticipation
+```
+
+### Azure Blob Storage mode
+
+Set the variables below to read from an Azure Storage account container:
+
+```bash
+OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT=seeturtlesphsa
+OP_PARTICIPATION_AZURE_CONTAINER=spa
+OP_PARTICIPATION_AZURE_PREFIX=2026
+```
+
+Notes:
+
+- The container should contain month subfolders under the configured prefix (for example `2026/June`).
+- Each month subfolder should contain `.txt` participation files.
+- If both `OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT` and `OP_PARTICIPATION_AZURE_CONTAINER` are set, Azure mode is used; otherwise local mode is used.
+
+### Local development setup
+
+The API now auto-loads environment variables from `api/.env`.
+
+1. Create `api/.env` from `api/.env.example`.
+2. Set your values:
+
+```bash
+OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT=seeturtlesphsa
+OP_PARTICIPATION_AZURE_CONTAINER=spa
+OP_PARTICIPATION_AZURE_PREFIX=2026
+```
+
+3. Start the API as usual:
+
+```bash
+npm run start:dev
+```
+
+### Reference CSV sync and participant mapping
+
+On queue refresh (`GET /queue`), the API downloads and refreshes local copies of two reference CSV files.
+On participant import (`POST /queue/import-participants`), it refreshes these files first, then maps pasted
+participants using this flow:
+
+1. Match participant name to membership CSV `Reclub Name`.
+2. Read `Skill Level (Self Assesment)` and store it as `skillLevel` (or `N/A` if unmatched/unknown).
+3. Read membership `DUPR ID`.
+4. Match that `DUPR ID` in the DUPR ratings CSV and read `doubles` into `dupr`.
+
+Configuration:
+
+```bash
+OP_PARTICIPATION_DUPR_BLOB_PATH=SPADUPR/members-list-sorsogonpickleballclub.csv
+OP_PARTICIPATION_CLUB_MEMBERSHIP_BLOB_PATH=SPADUPR/Sorsogon Pickleball Club Member Registration (Responses) - Form Responses 1.csv
+
+DUPR_MEMBERS_LOCAL_FILE_PATH=src/data/members-list-sorsogonpickleballclub.csv
+CLUB_MEMBERSHIP_LOCAL_FILE_PATH=src/data/Sorsogon Pickleball Club Member Registration (Responses) - Form Responses 1.csv
+
+PLAYER_LIST_FILE_PATH=src/data/players.json
+```
+
+Notes:
+
+- If no membership row matches a pasted participant, `skillLevel` becomes `N/A` and `dupr` remains `null`.
+- Import resets rounds/matches and overwrites the local players file.
+- Queue refresh sync is best-effort and does not block queue operations if Azure is temporarily unavailable.
+
 ## Run tests
 
 ```bash

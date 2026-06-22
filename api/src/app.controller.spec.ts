@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AppController } from './app.controller';
@@ -8,11 +8,21 @@ import { AppService } from './app.service';
 describe('AppController', () => {
   let appController: AppController;
   let roundsFilePath: string;
+  let participationRootPath: string;
+  let duprCsvPath: string;
+  let membershipCsvPath: string;
+  let playersFilePath: string;
 
   beforeEach(async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-05-24T09:00:00.000Z'));
-    roundsFilePath = join(mkdtempSync(join(tmpdir(), 'pickleball-queue-')), 'rounds.json');
+    const tempDirectory = mkdtempSync(join(tmpdir(), 'pickleball-queue-'));
+    roundsFilePath = join(tempDirectory, 'rounds.json');
+    participationRootPath = join(tempDirectory, 'OPParticipation');
+    duprCsvPath = join(tempDirectory, 'dupr-members.csv');
+    membershipCsvPath = join(tempDirectory, 'club-membership.csv');
+    playersFilePath = join(tempDirectory, 'players.json');
+    mkdirSync(join(participationRootPath, 'June'), { recursive: true });
     writeFileSync(
       roundsFilePath,
       JSON.stringify(
@@ -59,7 +69,53 @@ describe('AppController', () => {
       ),
       'utf8',
     );
+    writeFileSync(
+      join(participationRootPath, 'June', '1_All.txt'),
+      [
+        'Open Play 5PM-9PM 150/head Courts 1,2 and 4',
+        'Mon, Jun 1 @5:00 PM',
+        'X2VC+XH Sorsogon City',
+        '',
+        ' (3) ',
+        ' 1. Sorsogon Pickleball Arena',
+        '2. Lex',
+        '3. Net',
+        '',
+        'Participants (3)',
+        '1. Shayee',
+        '2. Louize',
+        '3. Net',
+        '',
+        'Requested (2)',
+        '1. Shayee',
+        '2. Someone Else',
+      ].join('\n'),
+      'utf8',
+    );
+    writeFileSync(
+      join(participationRootPath, 'June', '2_All.txt'),
+      ['Participants (2)', '1. Shayee', '2. Net'].join('\n'),
+      'utf8',
+    );
+    writeFileSync(
+      duprCsvPath,
+      ['DUPR ID,doubles', 'dupr-1,3.78', 'dupr-2,4.12'].join('\n'),
+      'utf8',
+    );
+    writeFileSync(
+      membershipCsvPath,
+      [
+        'Reclub Name,Skill Level (Self Assesment),DUPR ID',
+        'Alex,Intermediate,dupr-1',
+        'Jordan,Advanced,dupr-2',
+      ].join('\n'),
+      'utf8',
+    );
     process.env.MATCH_HISTORY_FILE_PATH = roundsFilePath;
+    process.env.OP_PARTICIPATION_ROOT_PATH = participationRootPath;
+    process.env.DUPR_MEMBERS_LOCAL_FILE_PATH = duprCsvPath;
+    process.env.CLUB_MEMBERSHIP_LOCAL_FILE_PATH = membershipCsvPath;
+    process.env.PLAYER_LIST_FILE_PATH = playersFilePath;
 
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
@@ -71,7 +127,57 @@ describe('AppController', () => {
 
   afterEach(() => {
     delete process.env.MATCH_HISTORY_FILE_PATH;
+    delete process.env.OP_PARTICIPATION_ROOT_PATH;
+    delete process.env.DUPR_MEMBERS_LOCAL_FILE_PATH;
+    delete process.env.CLUB_MEMBERSHIP_LOCAL_FILE_PATH;
+    delete process.env.PLAYER_LIST_FILE_PATH;
     jest.useRealTimers();
+  });
+
+  describe('monthly participation', () => {
+    it('should count only players listed in the Participants section for each month', async () => {
+      const summary = await appController.getMonthlyParticipationSummary();
+
+      expect(summary).toEqual([
+        {
+          month: 'June',
+          players: [
+            { name: 'Net', count: 2 },
+            { name: 'Shayee', count: 2 },
+            { name: 'Louize', count: 1 },
+          ],
+        },
+      ]);
+    });
+  });
+
+  describe('participants import', () => {
+    it('should import only names under Participants (#), map skill/DUPR, and reset rounds', async () => {
+      const result = await appController.importParticipantsFromText(`
+Open Play 5PM-9PM 150/head Courts 1,2 and 4
+Mon, Jun 1 @5:00 PM
+
+Participants (3)
+1. Alex
+2. Jordan
+3. Morgan
+
+Requested (2)
+1. Ignore One
+2. Ignore Two
+`);
+
+      const snapshot = appController.getQueueSnapshot(1);
+
+      expect(result.importedPlayers).toBe(3);
+      expect(snapshot.players.map((player) => player.name)).toEqual(['Alex', 'Jordan', 'Morgan']);
+      expect(snapshot.players.map((player) => player.skillLevel)).toEqual(['Intermediate', 'Advanced', 'N/A']);
+      expect(snapshot.players.map((player) => player.dupr)).toEqual([3.78, 4.12, null]);
+      expect(snapshot.players.every((player) => !player.isReady)).toBe(true);
+      expect(snapshot.ongoingRounds).toEqual([]);
+      expect(snapshot.recentRounds).toEqual([]);
+      expect(snapshot.nextGame.eligiblePlayers).toEqual([]);
+    });
   });
 
   describe('queue', () => {

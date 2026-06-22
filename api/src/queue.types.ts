@@ -2,6 +2,7 @@ export type GameStatus = 'ongoing' | 'completed';
 export type QueueSelectionMode = 'check-in-order' | 'queue-line' | 'least-played-first';
 export type TeamMatchingMode = 'sequential' | 'dupr-balance' | 'skill-balance';
 export type SkillLevel =
+  | 'N/A'
   | 'Beginner'
   | 'Novice'
   | 'Intermediate'

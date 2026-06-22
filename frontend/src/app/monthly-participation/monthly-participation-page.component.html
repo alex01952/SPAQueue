@@ -1,0 +1,132 @@
+<main class="participation-shell">
+  <section class="hero participation-card">
+    <div>
+      <p class="eyebrow">Open play data</p>
+      <h1>Monthly participation counts from OPParticipation files.</h1>
+      <p class="lede">
+        The API scans each month folder under OPParticipation and counts only the names listed under
+        <strong>Participants (#)</strong> in every text file.
+      </p>
+    </div>
+
+    <div class="hero-note">
+      <strong>Counting rule</strong>
+      <p>Names in sections like Requested are ignored. A player gets one count each time they appear in a file's Participants list.</p>
+    </div>
+  </section>
+
+  <section class="stats-grid">
+    <article class="participation-card stat-card">
+      <span class="stat-label">Months scanned</span>
+      <strong>{{ monthCount() }}</strong>
+    </article>
+    <article class="participation-card stat-card">
+      <span class="stat-label">Unique players</span>
+      <strong>{{ uniquePlayerCount() }}</strong>
+    </article>
+    <article class="participation-card stat-card">
+      <span class="stat-label">Total participations</span>
+      <strong>{{ participationCount() }}</strong>
+    </article>
+  </section>
+
+  <section class="content-grid">
+    <article class="participation-card controls-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Filter</p>
+          <h2>Find a player</h2>
+        </div>
+      </div>
+
+      <label>
+        Player name
+        <input
+          type="search"
+          [value]="playerFilter()"
+          (input)="updatePlayerFilter(($any($event.target)).value)"
+          placeholder="Search across all months"
+        />
+      </label>
+
+      <label>
+        Month
+        <select [value]="selectedMonth()" (change)="updateSelectedMonth(($any($event.target)).value)">
+          <option value="all">All months</option>
+          @for (month of monthOptions(); track month) {
+            <option [value]="month">{{ month }}</option>
+          }
+        </select>
+      </label>
+
+      <button type="button" class="primary" [disabled]="isLoading()" (click)="loadSummaries()">
+        {{ isLoading() ? 'Refreshing...' : 'Refresh summary' }}
+      </button>
+
+      <div class="info-block">
+        <span class="info-label">Data source</span>
+        <p>Configured in API: local OPParticipation folder or Azure Blob Storage container</p>
+      </div>
+
+      <div class="info-block">
+        <span class="info-label">API endpoint</span>
+        <p>http://localhost:3000/participation/monthly</p>
+      </div>
+
+      @if (errorMessage()) {
+        <p class="status-banner error">{{ errorMessage() }}</p>
+      }
+    </article>
+
+    <article class="participation-card results-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Summary</p>
+          <h2>Participation by month</h2>
+        </div>
+      </div>
+
+      @if (isLoading()) {
+        <div class="empty-panel">
+          <p class="empty-state">Loading monthly participation data.</p>
+        </div>
+      } @else if (!filteredSummaries().length) {
+        <div class="empty-panel">
+          <p class="empty-state">No participation entries matched the current filter.</p>
+        </div>
+      } @else {
+        <div class="month-list">
+          @for (summary of filteredSummaries(); track summary.month) {
+            <section class="month-card">
+              <div class="month-header">
+                <div>
+                  <h3>{{ summary.month }}</h3>
+                  <p>{{ summary.players.length }} players • {{ getMonthParticipationTotal(summary) }} participations</p>
+                </div>
+              </div>
+
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (player of summary.players; track player.name) {
+                      <tr>
+                        <td>{{ player.name }}</td>
+                        <td>{{ player.count }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          }
+        </div>
+      }
+    </article>
+  </section>
+</main>

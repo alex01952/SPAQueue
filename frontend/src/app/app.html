@@ -98,6 +98,21 @@
           }
         </div>
 
+        <div class="import-panel">
+          <label>
+            Import from Open Play text
+            <textarea
+              rows="6"
+              [value]="importSourceText()"
+              (input)="updateImportSourceText(($any($event.target)).value)"
+              placeholder="Paste the full event text (for example 1_All.txt). Only Participants (#) entries will be imported."
+            ></textarea>
+          </label>
+          <button type="button" class="secondary" [disabled]="isMutating()" (click)="importParticipants()">
+            Import Players and Refresh Matches
+          </button>
+        </div>
+
         <div #rosterScrollPanel class="player-list scroll-panel">
           @if (filteredPlayers().length) {
             @for (player of filteredPlayers(); track player.id) {

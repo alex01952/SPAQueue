@@ -3,7 +3,28 @@ interface GameAssignmentInput {
     courtNumber: number;
     playerIds: number[];
 }
+export interface MonthlyParticipationPlayer {
+    name: string;
+    count: number;
+}
+export interface MonthlyParticipationSummary {
+    month: string;
+    players: MonthlyParticipationPlayer[];
+}
+export interface ImportParticipantsResult {
+    importedPlayers: number;
+}
 export declare class AppService {
+    private readonly openPlayParticipationRootPath;
+    private readonly azureStorageAccount;
+    private readonly azureContainerName;
+    private readonly azurePrefix;
+    private readonly duprMembersBlobPath;
+    private readonly clubMembershipBlobPath;
+    private readonly duprMembersLocalFilePath;
+    private readonly clubMembershipLocalFilePath;
+    private readonly legacyClubMembershipLocalFilePath;
+    private readonly playersFilePath;
     private readonly players;
     private readonly roundsFilePath;
     private readonly rounds;
@@ -89,9 +110,36 @@ export declare class AppService {
             teams: import("./queue.types").Team[];
         }[];
     };
+    importParticipantsFromText(sourceText: string): Promise<ImportParticipantsResult>;
+    private syncReferenceCsvFiles;
+    private syncCsvBlobToLocalFile;
+    private loadReferenceCsvData;
+    private readFirstExistingFile;
+    private parseCsvRows;
+    private parseCsv;
+    private findHeader;
+    private normalizeHeader;
+    private normalizeName;
+    private toSkillLevel;
+    private toDuprValue;
+    private persistPlayers;
+    getMonthlyParticipationSummary(): Promise<MonthlyParticipationSummary[]>;
     private createRound;
     private createSingleGame;
     private validateGameAssignments;
+    private getMonthlyParticipationPlayers;
+    private loadMonthsFromLocalFilesystem;
+    private loadMonthsFromAzureBlobStorage;
+    private getRelativeBlobPath;
+    private listBlobNames;
+    private fetchBlobListXml;
+    private fetchBlobText;
+    private getAzureContainerBaseUrl;
+    private encodeBlobPath;
+    private extractFirstXmlTagValue;
+    private decodeXmlEntities;
+    private extractParticipantNames;
+    private compareMonthNames;
     completeGame(gameId: number, score: Partial<GameScore>): {
         id: number;
         courtNumber: number;

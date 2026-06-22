@@ -7,7 +7,7 @@ interface Player {
   name: string;
   dupr: number | null;
   gender?: string | null;
-  skillLevel: 'Beginner' | 'Novice' | 'Intermediate' | 'High Intermediate' | 'Advanced';
+  skillLevel: 'N/A' | 'Beginner' | 'Novice' | 'Intermediate' | 'High Intermediate' | 'Advanced';
   isReady: boolean;
   checkedInAt: string | null;
   isPlaying: boolean;
@@ -81,6 +81,10 @@ interface QueueSnapshot {
   };
 }
 
+interface ImportParticipantsResponse {
+  importedPlayers: number;
+}
+
 @Component({
   selector: 'app-root',
   imports: [DatePipe, DecimalPipe],
@@ -100,6 +104,7 @@ export class App implements OnInit {
   protected readonly courtCount = signal(1);
   protected readonly selectionMode = signal<QueueSelectionMode>('queue-line');
   protected readonly matchingMode = signal<TeamMatchingMode>('dupr-balance');
+  protected readonly importSourceText = signal('');
   protected readonly previewCourts = signal<CourtAssignment[]>([]);
   protected readonly playerSearch = signal('');
   protected readonly scoreDrafts = signal<Record<number, ScoreDraft>>({});
@@ -307,6 +312,29 @@ export class App implements OnInit {
 
   protected clearPlayerSearch() {
     this.playerSearch.set('');
+  }
+
+  protected updateImportSourceText(value: string) {
+    this.importSourceText.set(value);
+  }
+
+  protected importParticipants() {
+    const sourceText = this.importSourceText().trim();
+
+    if (!sourceText) {
+      this.errorMessage.set('Paste text containing a Participants (#) section before importing.');
+      return;
+    }
+
+    this.runMutation(
+      this.http.post<ImportParticipantsResponse>(`${this.apiBaseUrl}/queue/import-participants`, {
+        sourceText,
+      }),
+      () => {
+        this.importSourceText.set('');
+        this.playerSearch.set('');
+      },
+    );
   }
 
   protected pickSwapPlayer(playerId: number) {
@@ -689,6 +717,8 @@ function getSkillRating(team: Team) {
 
 function getSkillLevelValue(skillLevel: Player['skillLevel']) {
   switch (skillLevel) {
+    case 'N/A':
+      return 0;
     case 'Beginner':
       return 1;
     case 'Novice':

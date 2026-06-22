@@ -11,12 +11,18 @@ import {
   Query,
 } from '@nestjs/common';
 import { AppService } from './app.service';
+import type { ImportParticipantsResult, MonthlyParticipationSummary } from './app.service';
 import { GameScore } from './queue.types';
 import type { QueueSelectionMode, TeamMatchingMode } from './queue.types';
 
 @Controller()
 export class AppController {
   constructor(private readonly appService: AppService) {}
+
+  @Get('participation/monthly')
+  async getMonthlyParticipationSummary(): Promise<MonthlyParticipationSummary[]> {
+    return this.appService.getMonthlyParticipationSummary();
+  }
 
   @Get('queue')
   getQueueSnapshot(
@@ -46,6 +52,11 @@ export class AppController {
       (playerGroups ?? []).map((group, index) => ({ courtNumber: index + 1, playerIds: group }));
 
     return this.appService.createGames(normalizedAssignments);
+  }
+
+  @Post('queue/import-participants')
+  async importParticipantsFromText(@Body('sourceText') sourceText?: string): Promise<ImportParticipantsResult> {
+    return this.appService.importParticipantsFromText(sourceText ?? '');
   }
 
   @Patch('games/:id/complete')

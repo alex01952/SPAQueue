@@ -286,6 +286,77 @@ describe('App', () => {
     expect(compiled.textContent).toContain('Least played first');
   });
 
+  it('should import participants from pasted text and refresh the queue snapshot', async () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    expectDefaultQueueRequest().flush({
+      players: [
+        { id: 1, name: 'Legacy', dupr: null, skillLevel: 'Intermediate', isReady: false, checkedInAt: null, isPlaying: false, recentGamesPlayed: 0 },
+      ],
+      ongoingRounds: [],
+      recentRounds: [],
+      nextGame: {
+        courtCount: 1,
+        selectionMode: 'queue-line',
+        matchingMode: 'dupr-balance',
+        eligiblePlayers: [],
+        selectedPlayers: [],
+        courts: [],
+      },
+    });
+
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const importTextarea = compiled.querySelector<HTMLTextAreaElement>('textarea');
+    const importButton = Array.from(compiled.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent?.includes('Import Players and Refresh Matches'),
+    );
+
+    importTextarea!.value = `Participants (2)\n1. Alex\n2. Jordan\nRequested (1)\n1. Ignore`;
+    importTextarea!.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    importButton!.click();
+
+    const importRequest = httpTestingController.expectOne('http://localhost:3000/queue/import-participants');
+    expect(importRequest.request.method).toBe('POST');
+    expect(importRequest.request.body).toEqual({
+      sourceText: 'Participants (2)\n1. Alex\n2. Jordan\nRequested (1)\n1. Ignore',
+    });
+    importRequest.flush({ importedPlayers: 2 });
+
+    const refreshedSnapshotRequest = expectDefaultQueueRequest();
+    refreshedSnapshotRequest.flush({
+      players: [
+        { id: 1, name: 'Alex', dupr: null, skillLevel: 'Intermediate', isReady: false, checkedInAt: null, isPlaying: false, recentGamesPlayed: 0 },
+        { id: 2, name: 'Jordan', dupr: null, skillLevel: 'Intermediate', isReady: false, checkedInAt: null, isPlaying: false, recentGamesPlayed: 0 },
+      ],
+      ongoingRounds: [],
+      recentRounds: [],
+      nextGame: {
+        courtCount: 1,
+        selectionMode: 'queue-line',
+        matchingMode: 'dupr-balance',
+        eligiblePlayers: [],
+        selectedPlayers: [],
+        courts: [],
+      },
+    });
+
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const rosterCard = Array.from(compiled.querySelectorAll<HTMLElement>('.card')).find(
+      (card) => card.querySelector('h2')?.textContent?.includes('Check players in or out'),
+    );
+
+    expect(rosterCard?.textContent).toContain('Alex');
+    expect(rosterCard?.textContent).toContain('Jordan');
+  });
+
   it('should show skill levels in suggested teams and the eligible queue', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();

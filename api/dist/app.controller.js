@@ -20,6 +20,9 @@ let AppController = class AppController {
     constructor(appService) {
         this.appService = appService;
     }
+    async getMonthlyParticipationSummary() {
+        return this.appService.getMonthlyParticipationSummary();
+    }
     getQueueSnapshot(courtCount, selectionMode, matchingMode) {
         return this.appService.getQueueSnapshot(courtCount, selectionMode, matchingMode);
     }
@@ -34,11 +37,20 @@ let AppController = class AppController {
             (playerGroups ?? []).map((group, index) => ({ courtNumber: index + 1, playerIds: group }));
         return this.appService.createGames(normalizedAssignments);
     }
+    async importParticipantsFromText(sourceText) {
+        return this.appService.importParticipantsFromText(sourceText ?? '');
+    }
     completeGame(id, score) {
         return this.appService.completeGame(id, score);
     }
 };
 exports.AppController = AppController;
+__decorate([
+    (0, common_1.Get)('participation/monthly'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "getMonthlyParticipationSummary", null);
 __decorate([
     (0, common_1.Get)('queue'),
     __param(0, (0, common_1.Query)('courtCount', new common_1.DefaultValuePipe(1), common_1.ParseIntPipe)),
@@ -71,6 +83,13 @@ __decorate([
     __metadata("design:paramtypes", [Array, Array]),
     __metadata("design:returntype", void 0)
 ], AppController.prototype, "createGames", null);
+__decorate([
+    (0, common_1.Post)('queue/import-participants'),
+    __param(0, (0, common_1.Body)('sourceText')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "importParticipantsFromText", null);
 __decorate([
     (0, common_1.Patch)('games/:id/complete'),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),

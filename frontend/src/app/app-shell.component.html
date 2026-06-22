@@ -1,0 +1,18 @@
+<div class="app-shell">
+  <header class="topbar">
+    <a class="brand" routerLink="/">Pickleball Queue</a>
+
+    <nav class="topnav" aria-label="Primary">
+      <a
+        routerLink="/"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+      >
+        Queue dashboard
+      </a>
+      <a routerLink="/open-play-participation" routerLinkActive="active">Open Play Participation</a>
+    </nav>
+  </header>
+
+  <router-outlet />
+</div>

@@ -4,6 +4,7 @@ import { TeamMatchingStrategy } from '../matching-selection.types';
 type TeamPairing = [Team, Team];
 
 const skillLevelRatings: Record<SkillLevel, number> = {
+	'N/A': 0,
 	Beginner: 1,
 	Novice: 2,
 	Intermediate: 3,

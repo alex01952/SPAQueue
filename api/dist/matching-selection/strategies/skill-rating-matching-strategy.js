@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SkillRatingMatchingStrategy = void 0;
 const skillLevelRatings = {
+    'N/A': 0,
     Beginner: 1,
     Novice: 2,
     Intermediate: 3,

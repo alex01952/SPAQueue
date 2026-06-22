@@ -1,0 +1,68 @@
+:host {
+  display: block;
+  min-height: 100dvh;
+}
+
+.app-shell {
+  min-height: 100dvh;
+}
+
+.topbar {
+  width: min(1200px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 24px 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.brand,
+.topnav a {
+  text-decoration: none;
+  color: var(--text-primary);
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.topnav {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.topnav a {
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(103, 70, 41, 0.14);
+  background: rgba(255, 250, 242, 0.66);
+  transition: background 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+
+.topnav a:hover,
+.topnav a.active {
+  background: rgba(203, 93, 51, 0.12);
+  border-color: rgba(203, 93, 51, 0.28);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    width: min(100%, calc(100% - 24px));
+    padding-top: 20px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .brand {
+    text-align: center;
+  }
+
+  .topnav {
+    justify-content: center;
+  }
+}

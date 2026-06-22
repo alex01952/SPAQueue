@@ -1,9 +1,11 @@
 import { AppService } from './app.service';
+import type { ImportParticipantsResult, MonthlyParticipationSummary } from './app.service';
 import { GameScore } from './queue.types';
 import type { QueueSelectionMode, TeamMatchingMode } from './queue.types';
 export declare class AppController {
     private readonly appService;
     constructor(appService: AppService);
+    getMonthlyParticipationSummary(): Promise<MonthlyParticipationSummary[]>;
     getQueueSnapshot(courtCount: number, selectionMode: QueueSelectionMode, matchingMode: TeamMatchingMode): {
         players: import("./queue.types").PlayerQueueState[];
         ongoingRounds: {
@@ -89,6 +91,7 @@ export declare class AppController {
             teams: import("./queue.types").Team[];
         }[];
     };
+    importParticipantsFromText(sourceText?: string): Promise<ImportParticipantsResult>;
     completeGame(id: number, score: Partial<GameScore>): {
         id: number;
         roundNumber: number;
