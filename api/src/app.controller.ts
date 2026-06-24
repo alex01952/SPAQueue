@@ -11,7 +11,10 @@ import {
   Query,
 } from '@nestjs/common';
 import { AppService } from './app.service';
-import type { ImportParticipantsResult, MonthlyParticipationSummary } from './app.service';
+import type {
+  ImportParticipantsResult,
+  MonthlyParticipationSummaryResponse,
+} from './app.service';
 import { GameScore } from './queue.types';
 import type { QueueSelectionMode, TeamMatchingMode } from './queue.types';
 
@@ -20,17 +23,24 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   @Get('participation/monthly')
-  async getMonthlyParticipationSummary(): Promise<MonthlyParticipationSummary[]> {
+  async getMonthlyParticipationSummary(): Promise<MonthlyParticipationSummaryResponse> {
     return this.appService.getMonthlyParticipationSummary();
   }
 
   @Get('queue')
   getQueueSnapshot(
-    @Query('courtCount', new DefaultValuePipe(1), ParseIntPipe) courtCount: number,
-    @Query('selectionMode', new DefaultValuePipe('queue-line')) selectionMode: QueueSelectionMode,
-    @Query('matchingMode', new DefaultValuePipe('dupr-balance')) matchingMode: TeamMatchingMode,
+    @Query('courtCount', new DefaultValuePipe(1), ParseIntPipe)
+    courtCount: number,
+    @Query('selectionMode', new DefaultValuePipe('queue-line'))
+    selectionMode: QueueSelectionMode,
+    @Query('matchingMode', new DefaultValuePipe('dupr-balance'))
+    matchingMode: TeamMatchingMode,
   ) {
-    return this.appService.getQueueSnapshot(courtCount, selectionMode, matchingMode);
+    return this.appService.getQueueSnapshot(
+      courtCount,
+      selectionMode,
+      matchingMode,
+    );
   }
 
   @Patch('players/:id/ready')
@@ -47,15 +57,25 @@ export class AppController {
   }
 
   @Post('games/batch')
-  createGames(@Body('gameAssignments') gameAssignments?: Array<{ courtNumber: number; playerIds: number[] }>, @Body('playerGroups') playerGroups?: number[][]) {
-    const normalizedAssignments = gameAssignments ??
-      (playerGroups ?? []).map((group, index) => ({ courtNumber: index + 1, playerIds: group }));
+  createGames(
+    @Body('gameAssignments')
+    gameAssignments?: Array<{ courtNumber: number; playerIds: number[] }>,
+    @Body('playerGroups') playerGroups?: number[][],
+  ) {
+    const normalizedAssignments =
+      gameAssignments ??
+      (playerGroups ?? []).map((group, index) => ({
+        courtNumber: index + 1,
+        playerIds: group,
+      }));
 
     return this.appService.createGames(normalizedAssignments);
   }
 
   @Post('queue/import-participants')
-  async importParticipantsFromText(@Body('sourceText') sourceText?: string): Promise<ImportParticipantsResult> {
+  async importParticipantsFromText(
+    @Body('sourceText') sourceText?: string,
+  ): Promise<ImportParticipantsResult> {
     return this.appService.importParticipantsFromText(sourceText ?? '');
   }
 

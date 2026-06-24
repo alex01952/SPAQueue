@@ -11,7 +11,13 @@
 
     <div class="hero-note">
       <strong>Counting rule</strong>
-      <p>Names in sections like Requested are ignored. A player gets one count each time they appear in a file's Participants list.</p>
+      <p>
+        Names in sections like Requested are ignored. A player gets one count each time they appear
+        in a file's Participants list.
+      </p>
+      @if (lastUpdatedLabel()) {
+        <p>Data is updated as of {{ lastUpdatedLabel() }}</p>
+      }
     </div>
   </section>
 
@@ -44,14 +50,14 @@
         <input
           type="search"
           [value]="playerFilter()"
-          (input)="updatePlayerFilter(($any($event.target)).value)"
+          (input)="updatePlayerFilter($any($event.target).value)"
           placeholder="Search across all months"
         />
       </label>
 
       <label>
         Month
-        <select [value]="selectedMonth()" (change)="updateSelectedMonth(($any($event.target)).value)">
+        <select [value]="selectedMonth()" (change)="updateSelectedMonth($any($event.target).value)">
           <option value="all">All months</option>
           @for (month of monthOptions(); track month) {
             <option [value]="month">{{ month }}</option>
@@ -59,11 +65,28 @@
         </select>
       </label>
 
+      <label class="checkbox-control">
+        <input
+          type="checkbox"
+          [checked]="showArenaMasterEligibleOnly()"
+          [disabled]="arenaMasterEligibilityCount() === null"
+          (change)="updateShowArenaMasterEligibleOnly($any($event.target).checked)"
+        />
+        <span>
+          Arena Master eligible only
+          @if (arenaMasterEligibilityCount() !== null) {
+            <small>Minimum {{ arenaMasterEligibilityCount() }} participations</small>
+          } @else {
+            <small>Eligibility count not configured</small>
+          }
+        </span>
+      </label>
+
       <button type="button" class="primary" [disabled]="isLoading()" (click)="loadSummaries()">
         {{ isLoading() ? 'Refreshing...' : 'Refresh summary' }}
       </button>
 
-      <div class="info-block">
+      <!-- <div class="info-block">
         <span class="info-label">Data source</span>
         <p>Configured in API: local OPParticipation folder or Azure Blob Storage container</p>
       </div>
@@ -71,7 +94,7 @@
       <div class="info-block">
         <span class="info-label">API endpoint</span>
         <p>http://localhost:3000/participation/monthly</p>
-      </div>
+      </div> -->
 
       @if (errorMessage()) {
         <p class="status-banner error">{{ errorMessage() }}</p>
@@ -101,7 +124,10 @@
               <div class="month-header">
                 <div>
                   <h3>{{ summary.month }}</h3>
-                  <p>{{ summary.players.length }} players • {{ getMonthParticipationTotal(summary) }} participations</p>
+                  <p>
+                    {{ summary.players.length }} players •
+                    {{ getMonthParticipationTotal(summary) }} participations
+                  </p>
                 </div>
               </div>
 

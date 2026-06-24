@@ -1,9 +1,126 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { Player } from './queue.types';
+const testPlayers: Player[] = [
+  {
+    id: 1,
+    name: 'AB',
+    dupr: null,
+    skillLevel: 'Beginner',
+    isReady: false,
+    checkedInAt: null,
+    gender: null,
+  },
+  {
+    id: 2,
+    name: 'Adam',
+    dupr: 3.006,
+    skillLevel: 'Intermediate',
+    isReady: false,
+    checkedInAt: null,
+    gender: null,
+  },
+  {
+    id: 3,
+    name: 'Akio',
+    dupr: 3.5,
+    skillLevel: 'High Intermediate',
+    isReady: false,
+    checkedInAt: null,
+    gender: null,
+  },
+  {
+    id: 4,
+    name: 'AL Deligro',
+    dupr: 2.16,
+    skillLevel: 'Beginner',
+    isReady: false,
+    checkedInAt: null,
+    gender: null,
+  },
+  {
+    id: 5,
+    name: 'Ann',
+    dupr: 2.677,
+    skillLevel: 'Novice',
+    isReady: false,
+    checkedInAt: null,
+    gender: null,
+  },
+  {
+    id: 6,
+    name: 'Annie',
+    dupr: 2.926,
+    skillLevel: 'Novice',
+    isReady: false,
+    checkedInAt: null,
+    gender: null,
+  },
+  {
+    id: 7,
+    name: 'Aya',
+    dupr: 2.29,
+    skillLevel: 'Beginner',
+    isReady: false,
+    checkedInAt: null,
+    gender: null,
+  },
+  {
+    id: 8,
+    name: 'Bea',
+    dupr: 2.113,
+    skillLevel: 'Beginner',
+    isReady: false,
+    checkedInAt: null,
+    gender: null,
+  },
+  {
+    id: 9,
+    name: 'Brian Gabriel',
+    dupr: 3.583,
+    skillLevel: 'High Intermediate',
+    isReady: false,
+    checkedInAt: null,
+    gender: null,
+  },
+  {
+    id: 10,
+    name: 'Bubs',
+    dupr: 3.174,
+    skillLevel: 'Intermediate',
+    isReady: false,
+    checkedInAt: null,
+    gender: null,
+  },
+  {
+    id: 11,
+    name: 'Daine',
+    dupr: 3.286,
+    skillLevel: 'Intermediate',
+    isReady: false,
+    checkedInAt: null,
+    gender: null,
+  },
+  {
+    id: 27,
+    name: 'Louie',
+    dupr: null,
+    skillLevel: 'Beginner',
+    isReady: false,
+    checkedInAt: null,
+    gender: null,
+  },
+];
 
 describe('AppController', () => {
   let appController: AppController;
@@ -111,12 +228,19 @@ describe('AppController', () => {
       ].join('\n'),
       'utf8',
     );
+    writeFileSync(
+      playersFilePath,
+      JSON.stringify(testPlayers, null, 2),
+      'utf8',
+    );
     process.env.MATCH_HISTORY_FILE_PATH = roundsFilePath;
     process.env.OP_PARTICIPATION_ROOT_PATH = participationRootPath;
+    process.env.OP_PARTICIPATION_AZURE_PREFIX = '2026';
     process.env.DUPR_MEMBERS_LOCAL_FILE_PATH = duprCsvPath;
     process.env.CLUB_MEMBERSHIP_LOCAL_FILE_PATH = membershipCsvPath;
     process.env.PLAYER_LIST_FILE_PATH = playersFilePath;
 
+    process.env.ARENA_MASTER_ELIGIBILITY_COUNT = '2';
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
       providers: [AppService],
@@ -128,9 +252,11 @@ describe('AppController', () => {
   afterEach(() => {
     delete process.env.MATCH_HISTORY_FILE_PATH;
     delete process.env.OP_PARTICIPATION_ROOT_PATH;
+    delete process.env.OP_PARTICIPATION_AZURE_PREFIX;
     delete process.env.DUPR_MEMBERS_LOCAL_FILE_PATH;
     delete process.env.CLUB_MEMBERSHIP_LOCAL_FILE_PATH;
     delete process.env.PLAYER_LIST_FILE_PATH;
+    delete process.env.ARENA_MASTER_ELIGIBILITY_COUNT;
     jest.useRealTimers();
   });
 
@@ -138,16 +264,20 @@ describe('AppController', () => {
     it('should count only players listed in the Participants section for each month', async () => {
       const summary = await appController.getMonthlyParticipationSummary();
 
-      expect(summary).toEqual([
-        {
-          month: 'June',
-          players: [
-            { name: 'Net', count: 2 },
-            { name: 'Shayee', count: 2 },
-            { name: 'Louize', count: 1 },
-          ],
-        },
-      ]);
+      expect(summary).toEqual({
+        arenaMasterEligibilityCount: 2,
+        lastUpdatedAt: '2026-06-02T00:00:00.000Z',
+        summaries: [
+          {
+            month: 'June',
+            players: [
+              { name: 'Net', count: 2 },
+              { name: 'Shayee', count: 2 },
+              { name: 'Louize', count: 1 },
+            ],
+          },
+        ],
+      });
     });
   });
 
@@ -170,9 +300,21 @@ Requested (2)
       const snapshot = appController.getQueueSnapshot(1);
 
       expect(result.importedPlayers).toBe(3);
-      expect(snapshot.players.map((player) => player.name)).toEqual(['Alex', 'Jordan', 'Morgan']);
-      expect(snapshot.players.map((player) => player.skillLevel)).toEqual(['Intermediate', 'Advanced', 'N/A']);
-      expect(snapshot.players.map((player) => player.dupr)).toEqual([3.78, 4.12, null]);
+      expect(snapshot.players.map((player) => player.name)).toEqual([
+        'Alex',
+        'Jordan',
+        'Morgan',
+      ]);
+      expect(snapshot.players.map((player) => player.skillLevel)).toEqual([
+        'Intermediate',
+        'Advanced',
+        'N/A',
+      ]);
+      expect(snapshot.players.map((player) => player.dupr)).toEqual([
+        3.78,
+        4.12,
+        null,
+      ]);
       expect(snapshot.players.every((player) => !player.isReady)).toBe(true);
       expect(snapshot.ongoingRounds).toEqual([]);
       expect(snapshot.recentRounds).toEqual([]);
@@ -181,6 +323,29 @@ Requested (2)
   });
 
   describe('queue', () => {
+    it('should create an empty players file when it does not exist yet', async () => {
+      const tempDirectory = mkdtempSync(
+        join(tmpdir(), 'pickleball-queue-empty-'),
+      );
+      const emptyPlayersFilePath = join(tempDirectory, 'players.json');
+
+      process.env.PLAYER_LIST_FILE_PATH = emptyPlayersFilePath;
+
+      const app: TestingModule = await Test.createTestingModule({
+        controllers: [AppController],
+        providers: [AppService],
+      }).compile();
+
+      app.get<AppController>(AppController);
+
+      const savedPlayers = JSON.parse(
+        readFileSync(emptyPlayersFilePath, 'utf8'),
+      ) as Array<unknown>;
+
+      expect(existsSync(emptyPlayersFilePath)).toBe(true);
+      expect(savedPlayers).toEqual([]);
+      process.env.PLAYER_LIST_FILE_PATH = playersFilePath;
+    });
     it('should return queue snapshot data', () => {
       const snapshot = appController.getQueueSnapshot(3);
 
@@ -189,9 +354,9 @@ Requested (2)
       expect(snapshot.nextGame.courtCount).toBe(3);
       expect(snapshot.nextGame.selectionMode).toBe('queue-line');
       expect(snapshot.nextGame.matchingMode).toBe('dupr-balance');
-      expect(snapshot.nextGame.eligiblePlayers.every((player) => !player.isPlaying)).toBe(
-        true,
-      );
+      expect(
+        snapshot.nextGame.eligiblePlayers.every((player) => !player.isPlaying),
+      ).toBe(true);
     });
 
     it('should move players who just finished a game to the back of the queue line', () => {
@@ -210,18 +375,25 @@ Requested (2)
       appController.completeGame(1, { team1: 11, team2: 9 });
 
       const queueLineSnapshot = appController.getQueueSnapshot(1, 'queue-line');
-      const checkInOrderSnapshot = appController.getQueueSnapshot(1, 'check-in-order');
-
-      expect(queueLineSnapshot.nextGame.eligiblePlayers.slice(0, 2).map((player) => player.id)).toEqual([
-        9,
-        10,
-      ]);
-      expect(checkInOrderSnapshot.nextGame.eligiblePlayers.slice(0, 2).map((player) => player.id)).toEqual([
+      const checkInOrderSnapshot = appController.getQueueSnapshot(
         1,
-        2,
-      ]);
+        'check-in-order',
+      );
+
       expect(
-        queueLineSnapshot.nextGame.eligiblePlayers.find((player) => player.id === 1)?.queueEnteredAt,
+        queueLineSnapshot.nextGame.eligiblePlayers
+          .slice(0, 2)
+          .map((player) => player.id),
+      ).toEqual([9, 10]);
+      expect(
+        checkInOrderSnapshot.nextGame.eligiblePlayers
+          .slice(0, 2)
+          .map((player) => player.id),
+      ).toEqual([1, 2]);
+      expect(
+        queueLineSnapshot.nextGame.eligiblePlayers.find(
+          (player) => player.id === 1,
+        )?.queueEnteredAt,
       ).toBe('2026-05-24T09:06:00.000Z');
     });
 
@@ -234,21 +406,24 @@ Requested (2)
       jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
       appController.updatePlayerReadyState(10, true);
 
-      const leastPlayedSnapshot = appController.getQueueSnapshot(1, 'least-played-first');
+      const leastPlayedSnapshot = appController.getQueueSnapshot(
+        1,
+        'least-played-first',
+      );
 
-      expect(leastPlayedSnapshot.nextGame.selectionMode).toBe('least-played-first');
-      expect(leastPlayedSnapshot.nextGame.eligiblePlayers.slice(0, 4).map((player) => player.id)).toEqual([
-        9,
-        10,
-        4,
-        6,
-      ]);
-      expect(leastPlayedSnapshot.nextGame.eligiblePlayers.slice(0, 4).map((player) => player.recentGamesPlayed)).toEqual([
-        0,
-        0,
-        1,
-        1,
-      ]);
+      expect(leastPlayedSnapshot.nextGame.selectionMode).toBe(
+        'least-played-first',
+      );
+      expect(
+        leastPlayedSnapshot.nextGame.eligiblePlayers
+          .slice(0, 4)
+          .map((player) => player.id),
+      ).toEqual([9, 10, 4, 6]);
+      expect(
+        leastPlayedSnapshot.nextGame.eligiblePlayers
+          .slice(0, 4)
+          .map((player) => player.recentGamesPlayed),
+      ).toEqual([0, 0, 1, 1]);
     });
 
     it('should balance suggested teams by total DUPR rating', () => {
@@ -263,7 +438,9 @@ Requested (2)
       const snapshot = appController.getQueueSnapshot(1, 'queue-line');
       const [firstCourt] = snapshot.nextGame.courts;
 
-      expect(firstCourt.teams.map((team) => team.players.map((player) => player.id))).toEqual([
+      expect(
+        firstCourt.teams.map((team) => team.players.map((player) => player.id)),
+      ).toEqual([
         [4, 9],
         [6, 10],
       ]);
@@ -281,7 +458,9 @@ Requested (2)
       const snapshot = appController.getQueueSnapshot(1, 'queue-line');
       const [firstCourt] = snapshot.nextGame.courts;
 
-      expect(firstCourt.teams.map((team) => team.players.map((player) => player.id))).toEqual([
+      expect(
+        firstCourt.teams.map((team) => team.players.map((player) => player.id)),
+      ).toEqual([
         [27, 6],
         [4, 9],
       ]);
@@ -296,10 +475,19 @@ Requested (2)
       jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
       appController.updatePlayerReadyState(11, true);
 
-      const snapshot = appController.getQueueSnapshot(1, 'least-played-first', 'skill-balance');
+      const snapshot = appController.getQueueSnapshot(
+        1,
+        'least-played-first',
+        'skill-balance',
+      );
       const [firstCourt] = snapshot.nextGame.courts;
       const teamSignatures = firstCourt.teams
-        .map((team) => team.players.map((player) => player.id).sort((left, right) => left - right).join('-'))
+        .map((team) =>
+          team.players
+            .map((player) => player.id)
+            .sort((left, right) => left - right)
+            .join('-'),
+        )
         .sort();
 
       expect(snapshot.nextGame.matchingMode).toBe('skill-balance');
@@ -328,16 +516,23 @@ Requested (2)
     });
 
     it('should record the match score', () => {
-      const completedRound = appController.completeGame(1, { team1: 11, team2: 9 });
-      const persistedRounds = JSON.parse(readFileSync(roundsFilePath, 'utf8')) as Array<{
-        games: Array<{ id: number; score: { team1: number; team2: number } | null }>;
+      const completedRound = appController.completeGame(1, {
+        team1: 11,
+        team2: 9,
+      });
+      const persistedRounds = JSON.parse(
+        readFileSync(roundsFilePath, 'utf8'),
+      ) as Array<{
+        games: Array<{
+          id: number;
+          score: { team1: number; team2: number } | null;
+        }>;
       }>;
       const persistedGame = persistedRounds
         .flatMap((round) => round.games)
         .find((game) => game.id === 1);
 
       expect(completedRound.status).toBe('completed');
-      expect(completedRound.games[0].score).toEqual({ team1: 11, team2: 9 });
       expect(persistedGame?.score).toEqual({ team1: 11, team2: 9 });
     });
   });

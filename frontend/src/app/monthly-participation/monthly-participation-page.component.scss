@@ -128,17 +128,41 @@ label {
 }
 
 input,
+select,
 button {
   font: inherit;
 }
 
-input {
+input:not([type='checkbox']),
+select {
   width: 100%;
   border-radius: 16px;
   border: 1px solid rgba(103, 70, 41, 0.14);
   padding: 12px 14px;
   background: rgba(255, 255, 255, 0.78);
   color: var(--text-primary);
+}
+
+.checkbox-control {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(103, 70, 41, 0.1);
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.checkbox-control input {
+  width: 18px;
+  height: 18px;
+  accent-color: #cb5d33;
+}
+
+.checkbox-control small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-secondary);
 }
 
 button {
