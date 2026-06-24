@@ -1,1 +1,0 @@
-{"version":3,"file":"queue-line.strategy.js","sourceRoot":"","sources":["../../../src/queue-selection/strategies/queue-line.strategy.ts"],"names":[],"mappings":";;;AAAA,sEAAiE;AAGjE,MAAa,0BAA0B;IAC5B,IAAI,GAAG,YAAY,CAAC;IAE7B,iBAAiB,CAAC,OAA8B;QAC9C,OAAO,IAAA,6CAAoB,EAAC,OAAO,EAAE,IAAI,CAAC,IAAI,EAAE,CAAC,MAAM,EAAE,EAAE,CAAC,MAAM,CAAC,cAAc,CAAC,CAAC;IACrF,CAAC;CACF;AAND,gEAMC"}
