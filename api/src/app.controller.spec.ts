@@ -260,6 +260,14 @@ describe('AppController', () => {
     jest.useRealTimers();
   });
 
+  it('should return API status from the root endpoint', () => {
+    expect(appController.getHealthCheck()).toEqual({
+      name: 'SPA Queue API',
+      status: 'ok',
+      endpoints: ['/queue', '/participation/monthly'],
+    });
+  });
+
   describe('monthly participation', () => {
     it('should count only players listed in the Participants section for each month', async () => {
       const summary = await appController.getMonthlyParticipationSummary();

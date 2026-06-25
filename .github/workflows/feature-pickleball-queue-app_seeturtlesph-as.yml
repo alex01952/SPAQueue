@@ -23,7 +23,19 @@ jobs:
         with:
           node-version: '22.x'
 
-      - name: npm install, build, and test
+      - name: Build Angular frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build --if-present
+
+      - name: Copy frontend into API package
+        run: |
+          rm -rf api/public
+          mkdir -p api/public
+          cp -R frontend/dist/frontend/browser/. api/public/
+
+      - name: npm install, build, and test API
         working-directory: api
         run: |
           npm ci

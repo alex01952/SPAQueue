@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { getApiBaseUrl } from '../api-base-url';
 
 interface MonthlyParticipationPlayer {
   name: string;
@@ -25,7 +26,7 @@ interface MonthlyParticipationSummaryResponse {
 })
 export class MonthlyParticipationPageComponent implements OnInit {
   private readonly http = inject(HttpClient);
-  private readonly apiBaseUrl = 'http://localhost:3000';
+  private readonly apiBaseUrl = getApiBaseUrl();
 
   protected readonly isLoading = signal(true);
   protected readonly errorMessage = signal('');

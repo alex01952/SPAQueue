@@ -1,6 +1,7 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Component, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
+import { getApiBaseUrl } from './api-base-url';
 
 interface Player {
   id: number;
@@ -93,7 +94,7 @@ interface ImportParticipantsResponse {
 })
 export class App implements OnInit {
   private readonly http = inject(HttpClient);
-  private readonly apiBaseUrl = 'http://localhost:3000';
+  private readonly apiBaseUrl = getApiBaseUrl();
   private readonly rosterScrollPanel = viewChild<ElementRef<HTMLDivElement>>('rosterScrollPanel');
   private preservedRosterScrollTop: number | null = null;
 
