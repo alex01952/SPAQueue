@@ -90,6 +90,11 @@ export class AppService {
       /^\/+|\/+$/g,
       '',
     ) ?? '';
+  private readonly writableDataRootPath =
+    process.env.RUNTIME_DATA_ROOT_PATH ??
+    (process.env.WEBSITE_SITE_NAME
+      ? join(process.env.HOME ?? '/home', 'data', 'spaqueue')
+      : join(process.cwd(), 'src', 'data'));
   private readonly duprMembersBlobPath =
     process.env.OP_PARTICIPATION_DUPR_BLOB_PATH ??
     'SPADUPR/members-list-sorsogonpickleballclub.csv';
@@ -98,18 +103,11 @@ export class AppService {
     'SPADUPR/Sorsogon Pickleball Club Member Registration (Responses) - Form Responses 1.csv';
   private readonly duprMembersLocalFilePath =
     process.env.DUPR_MEMBERS_LOCAL_FILE_PATH ??
-    join(
-      process.cwd(),
-      'src',
-      'data',
-      'members-list-sorsogonpickleballclub.csv',
-    );
+    join(this.writableDataRootPath, 'members-list-sorsogonpickleballclub.csv');
   private readonly clubMembershipLocalFilePath =
     process.env.CLUB_MEMBERSHIP_LOCAL_FILE_PATH ??
     join(
-      process.cwd(),
-      'src',
-      'data',
+      this.writableDataRootPath,
       'Sorsogon Pickleball Club Member Registration (Responses) - Form Responses 1.csv',
     );
   private readonly legacyClubMembershipLocalFilePath = join(
@@ -120,11 +118,11 @@ export class AppService {
   );
   private readonly playersFilePath =
     process.env.PLAYER_LIST_FILE_PATH ??
-    join(process.cwd(), 'src', 'data', 'players.json');
+    join(this.writableDataRootPath, 'players.json');
   private readonly players: Player[] = this.loadPlayers();
   private readonly roundsFilePath =
     process.env.MATCH_HISTORY_FILE_PATH ??
-    join(process.cwd(), 'src', 'data', 'rounds.json');
+    join(this.writableDataRootPath, 'rounds.json');
   private readonly rounds: Round[] = this.loadRounds();
 
   private readonly arenaMasterEligibilityCount =
