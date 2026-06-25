@@ -153,4 +153,14 @@ export class MonthlyParticipationPageComponent implements OnInit {
   protected getMonthParticipationTotal(summary: MonthlyParticipationSummary) {
     return summary.players.reduce((total, player) => total + player.count, 0);
   }
+
+  protected getDisplayParticipationCount(count: number) {
+    const eligibilityCount = this.arenaMasterEligibilityCount();
+
+    if (eligibilityCount === null || count <= eligibilityCount) {
+      return `${count}`;
+    }
+
+    return `${eligibilityCount}+`;
+  }
 }

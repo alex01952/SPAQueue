@@ -143,7 +143,7 @@
                     @for (player of summary.players; track player.name) {
                       <tr>
                         <td>{{ player.name }}</td>
-                        <td>{{ player.count }}</td>
+                        <td>{{ getDisplayParticipationCount(player.count) }}</td>
                       </tr>
                     }
                   </tbody>
