@@ -122,6 +122,8 @@ const testPlayers: Player[] = [
   },
 ];
 
+const dashboardPassword = 'test-dashboard-password';
+
 describe('AppController', () => {
   let appController: AppController;
   let roundsFilePath: string;
@@ -241,6 +243,7 @@ describe('AppController', () => {
     process.env.PLAYER_LIST_FILE_PATH = playersFilePath;
 
     process.env.ARENA_MASTER_ELIGIBILITY_COUNT = '2';
+    process.env.DASHBOARD_PASSWORD = dashboardPassword;
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
       providers: [AppService],
@@ -257,6 +260,7 @@ describe('AppController', () => {
     delete process.env.CLUB_MEMBERSHIP_LOCAL_FILE_PATH;
     delete process.env.PLAYER_LIST_FILE_PATH;
     delete process.env.ARENA_MASTER_ELIGIBILITY_COUNT;
+    delete process.env.DASHBOARD_PASSWORD;
     jest.useRealTimers();
   });
 
@@ -282,8 +286,15 @@ describe('AppController', () => {
   });
 
   describe('participants import', () => {
+    it('should reject dashboard actions with the wrong password', () => {
+      expect(() =>
+        appController.getQueueSnapshot(1, undefined, undefined, 'wrong'),
+      ).toThrow('Invalid dashboard password.');
+    });
+
     it('should import only names under Participants (#), map skill/DUPR, and reset rounds', async () => {
-      const result = await appController.importParticipantsFromText(`
+      const result = await appController.importParticipantsFromText(
+        `
 Open Play 5PM-9PM 150/head Courts 1,2 and 4
 Mon, Jun 1 @5:00 PM
 
@@ -295,9 +306,16 @@ Participants (3)
 Requested (2)
 1. Ignore One
 2. Ignore Two
-`);
+`,
+        dashboardPassword,
+      );
 
-      const snapshot = appController.getQueueSnapshot(1);
+      const snapshot = appController.getQueueSnapshot(
+        1,
+        undefined,
+        undefined,
+        dashboardPassword,
+      );
 
       expect(result.importedPlayers).toBe(3);
       expect(snapshot.players.map((player) => player.name)).toEqual([
@@ -347,7 +365,12 @@ Requested (2)
       process.env.PLAYER_LIST_FILE_PATH = playersFilePath;
     });
     it('should return queue snapshot data', () => {
-      const snapshot = appController.getQueueSnapshot(3);
+      const snapshot = appController.getQueueSnapshot(
+        3,
+        undefined,
+        undefined,
+        dashboardPassword,
+      );
 
       expect(snapshot.players.length).toBeGreaterThan(0);
       expect(snapshot.ongoingRounds.length).toBe(1);
@@ -360,24 +383,31 @@ Requested (2)
     });
 
     it('should move players who just finished a game to the back of the queue line', () => {
-      appController.updatePlayerReadyState(1, true);
+      appController.updatePlayerReadyState(1, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:01:00.000Z'));
-      appController.updatePlayerReadyState(2, true);
+      appController.updatePlayerReadyState(2, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:02:00.000Z'));
-      appController.updatePlayerReadyState(3, true);
+      appController.updatePlayerReadyState(3, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
-      appController.updatePlayerReadyState(5, true);
+      appController.updatePlayerReadyState(5, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:04:00.000Z'));
-      appController.updatePlayerReadyState(9, true);
+      appController.updatePlayerReadyState(9, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:05:00.000Z'));
-      appController.updatePlayerReadyState(10, true);
+      appController.updatePlayerReadyState(10, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:06:00.000Z'));
-      appController.completeGame(1, { team1: 11, team2: 9 });
+      appController.completeGame(1, { team1: 11, team2: 9 }, dashboardPassword);
 
-      const queueLineSnapshot = appController.getQueueSnapshot(1, 'queue-line');
+      const queueLineSnapshot = appController.getQueueSnapshot(
+        1,
+        'queue-line',
+        undefined,
+        dashboardPassword,
+      );
       const checkInOrderSnapshot = appController.getQueueSnapshot(
         1,
         'check-in-order',
+        undefined,
+        dashboardPassword,
       );
 
       expect(
@@ -398,17 +428,19 @@ Requested (2)
     });
 
     it('should prioritize players with the fewest recent completed games', () => {
-      appController.updatePlayerReadyState(4, true);
+      appController.updatePlayerReadyState(4, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:01:00.000Z'));
-      appController.updatePlayerReadyState(6, true);
+      appController.updatePlayerReadyState(6, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:02:00.000Z'));
-      appController.updatePlayerReadyState(9, true);
+      appController.updatePlayerReadyState(9, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
-      appController.updatePlayerReadyState(10, true);
+      appController.updatePlayerReadyState(10, true, dashboardPassword);
 
       const leastPlayedSnapshot = appController.getQueueSnapshot(
         1,
         'least-played-first',
+        undefined,
+        dashboardPassword,
       );
 
       expect(leastPlayedSnapshot.nextGame.selectionMode).toBe(
@@ -427,15 +459,20 @@ Requested (2)
     });
 
     it('should balance suggested teams by total DUPR rating', () => {
-      appController.updatePlayerReadyState(4, true);
+      appController.updatePlayerReadyState(4, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:01:00.000Z'));
-      appController.updatePlayerReadyState(6, true);
+      appController.updatePlayerReadyState(6, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:02:00.000Z'));
-      appController.updatePlayerReadyState(9, true);
+      appController.updatePlayerReadyState(9, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
-      appController.updatePlayerReadyState(10, true);
+      appController.updatePlayerReadyState(10, true, dashboardPassword);
 
-      const snapshot = appController.getQueueSnapshot(1, 'queue-line');
+      const snapshot = appController.getQueueSnapshot(
+        1,
+        'queue-line',
+        undefined,
+        dashboardPassword,
+      );
       const [firstCourt] = snapshot.nextGame.courts;
 
       expect(
@@ -447,15 +484,20 @@ Requested (2)
     });
 
     it('should treat unrated players as 3.0 DUPR when balancing teams', () => {
-      appController.updatePlayerReadyState(27, true);
+      appController.updatePlayerReadyState(27, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:01:00.000Z'));
-      appController.updatePlayerReadyState(4, true);
+      appController.updatePlayerReadyState(4, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:02:00.000Z'));
-      appController.updatePlayerReadyState(6, true);
+      appController.updatePlayerReadyState(6, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
-      appController.updatePlayerReadyState(9, true);
+      appController.updatePlayerReadyState(9, true, dashboardPassword);
 
-      const snapshot = appController.getQueueSnapshot(1, 'queue-line');
+      const snapshot = appController.getQueueSnapshot(
+        1,
+        'queue-line',
+        undefined,
+        dashboardPassword,
+      );
       const [firstCourt] = snapshot.nextGame.courts;
 
       expect(
@@ -467,18 +509,19 @@ Requested (2)
     });
 
     it('should split mixed skill levels evenly when using skill-balance matching', () => {
-      appController.updatePlayerReadyState(4, true);
+      appController.updatePlayerReadyState(4, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:01:00.000Z'));
-      appController.updatePlayerReadyState(8, true);
+      appController.updatePlayerReadyState(8, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:02:00.000Z'));
-      appController.updatePlayerReadyState(10, true);
+      appController.updatePlayerReadyState(10, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
-      appController.updatePlayerReadyState(11, true);
+      appController.updatePlayerReadyState(11, true, dashboardPassword);
 
       const snapshot = appController.getQueueSnapshot(
         1,
         'least-played-first',
         'skill-balance',
+        dashboardPassword,
       );
       const [firstCourt] = snapshot.nextGame.courts;
       const teamSignatures = firstCourt.teams
@@ -497,29 +540,37 @@ Requested (2)
 
   describe('complete game', () => {
     it('should create games on the selected court numbers', () => {
-      appController.updatePlayerReadyState(4, true);
+      appController.updatePlayerReadyState(4, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:01:00.000Z'));
-      appController.updatePlayerReadyState(6, true);
+      appController.updatePlayerReadyState(6, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:02:00.000Z'));
-      appController.updatePlayerReadyState(9, true);
+      appController.updatePlayerReadyState(9, true, dashboardPassword);
       jest.setSystemTime(new Date('2026-05-24T09:03:00.000Z'));
-      appController.updatePlayerReadyState(10, true);
+      appController.updatePlayerReadyState(10, true, dashboardPassword);
 
-      const round = appController.createGames([
-        {
-          courtNumber: 7,
-          playerIds: [4, 6, 9, 10],
-        },
-      ]);
+      const round = appController.createGames(
+        [
+          {
+            courtNumber: 7,
+            playerIds: [4, 6, 9, 10],
+          },
+        ],
+        undefined,
+        dashboardPassword,
+      );
 
       expect(round.games[0].courtNumber).toBe(7);
     });
 
     it('should record the match score', () => {
-      const completedRound = appController.completeGame(1, {
-        team1: 11,
-        team2: 9,
-      });
+      const completedRound = appController.completeGame(
+        1,
+        {
+          team1: 11,
+          team2: 9,
+        },
+        dashboardPassword,
+      );
       const persistedRounds = JSON.parse(
         readFileSync(roundsFilePath, 'utf8'),
       ) as Array<{

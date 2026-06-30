@@ -3,16 +3,23 @@ import {
   Controller,
   DefaultValuePipe,
   Get,
+  Headers,
   Param,
   ParseBoolPipe,
   ParseIntPipe,
   Patch,
   Post,
   Query,
+  UploadedFiles,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { AppService } from './app.service';
 import type {
+  DashboardAuthResult,
   ImportParticipantsResult,
+  MonthlyParticipationUploadConfig,
+  MonthlyParticipationUploadResult,
   MonthlyParticipationSummaryResponse,
 } from './app.service';
 import { GameScore } from './queue.types';
@@ -22,9 +29,49 @@ import type { QueueSelectionMode, TeamMatchingMode } from './queue.types';
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
+  @Post('dashboard-auth')
+  validateDashboardPassword(
+    @Body('password') password?: string,
+  ): DashboardAuthResult {
+    return this.appService.validateDashboardPassword(password ?? '');
+  }
+
   @Get('participation/monthly')
   async getMonthlyParticipationSummary(): Promise<MonthlyParticipationSummaryResponse> {
     return this.appService.getMonthlyParticipationSummary();
+  }
+
+  @Get('participation/monthly/upload-config')
+  getMonthlyParticipationUploadConfig(
+    @Headers('x-dashboard-password') dashboardPassword = '',
+  ): MonthlyParticipationUploadConfig {
+    this.appService.validateDashboardPassword(dashboardPassword);
+
+    return this.appService.getMonthlyParticipationUploadConfig();
+  }
+
+  @Post('participation/monthly/uploads')
+  @UseInterceptors(
+    FilesInterceptor('files', 25, {
+      limits: {
+        fileSize: 1024 * 1024,
+      },
+    }),
+  )
+  async uploadMonthlyParticipationFiles(
+    @Body('month') month: string,
+    @UploadedFiles()
+    files: Array<{
+      originalname: string;
+      buffer: Buffer;
+      mimetype?: string;
+      size: number;
+    }> = [],
+    @Headers('x-dashboard-password') dashboardPassword = '',
+  ): Promise<MonthlyParticipationUploadResult> {
+    this.appService.validateDashboardPassword(dashboardPassword);
+
+    return this.appService.uploadMonthlyParticipationFiles(month ?? '', files);
   }
 
   @Get('queue')
@@ -35,7 +82,10 @@ export class AppController {
     selectionMode: QueueSelectionMode,
     @Query('matchingMode', new DefaultValuePipe('dupr-balance'))
     matchingMode: TeamMatchingMode,
+    @Headers('x-dashboard-password') dashboardPassword = '',
   ) {
+    this.appService.validateDashboardPassword(dashboardPassword);
+
     return this.appService.getQueueSnapshot(
       courtCount,
       selectionMode,
@@ -47,12 +97,20 @@ export class AppController {
   updatePlayerReadyState(
     @Param('id', ParseIntPipe) id: number,
     @Body('isReady', ParseBoolPipe) isReady: boolean,
+    @Headers('x-dashboard-password') dashboardPassword = '',
   ) {
+    this.appService.validateDashboardPassword(dashboardPassword);
+
     return this.appService.updatePlayerReadyState(id, isReady);
   }
 
   @Post('games')
-  createGame(@Body('playerIds') playerIds: number[]) {
+  createGame(
+    @Body('playerIds') playerIds: number[],
+    @Headers('x-dashboard-password') dashboardPassword = '',
+  ) {
+    this.appService.validateDashboardPassword(dashboardPassword);
+
     return this.appService.createGame(playerIds ?? []);
   }
 
@@ -61,7 +119,10 @@ export class AppController {
     @Body('gameAssignments')
     gameAssignments?: Array<{ courtNumber: number; playerIds: number[] }>,
     @Body('playerGroups') playerGroups?: number[][],
+    @Headers('x-dashboard-password') dashboardPassword = '',
   ) {
+    this.appService.validateDashboardPassword(dashboardPassword);
+
     const normalizedAssignments =
       gameAssignments ??
       (playerGroups ?? []).map((group, index) => ({
@@ -75,7 +136,10 @@ export class AppController {
   @Post('queue/import-participants')
   async importParticipantsFromText(
     @Body('sourceText') sourceText?: string,
+    @Headers('x-dashboard-password') dashboardPassword = '',
   ): Promise<ImportParticipantsResult> {
+    this.appService.validateDashboardPassword(dashboardPassword);
+
     return this.appService.importParticipantsFromText(sourceText ?? '');
   }
 
@@ -83,7 +147,10 @@ export class AppController {
   completeGame(
     @Param('id', ParseIntPipe) id: number,
     @Body() score: Partial<GameScore>,
+    @Headers('x-dashboard-password') dashboardPassword = '',
   ) {
+    this.appService.validateDashboardPassword(dashboardPassword);
+
     return this.appService.completeGame(id, score);
   }
 }

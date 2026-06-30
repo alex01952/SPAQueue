@@ -28,6 +28,8 @@ export class MonthlyParticipationPageComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly apiBaseUrl = getApiBaseUrl();
 
+  protected readonly logoUrl =
+    'https://seeturtlesphsa.blob.core.windows.net/spa/Assets/Logo.png';
   protected readonly isLoading = signal(true);
   protected readonly errorMessage = signal('');
   protected readonly playerFilter = signal('');

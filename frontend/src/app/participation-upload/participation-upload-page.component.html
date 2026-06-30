@@ -1,0 +1,112 @@
+<main class="upload-shell">
+  <section class="hero upload-card">
+    <div>
+      <p class="eyebrow">Open play files</p>
+      <h1>Upload participation files</h1>
+      <p class="lede">Add one or more text files to the configured Azure Blob Storage folder.</p>
+    </div>
+
+    <div class="target-card">
+      <strong>Target</strong>
+      @if (isConfigured()) {
+        <p>{{ storageAccount() }}/{{ containerName() }}/{{ targetPath() }}</p>
+      } @else {
+        <p>Azure Storage upload settings are not configured.</p>
+      }
+    </div>
+  </section>
+
+  <section class="content-grid">
+    <article class="upload-card upload-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Upload</p>
+          <h2>Select files</h2>
+        </div>
+      </div>
+
+      <label>
+        Month
+        <select
+          [value]="selectedMonth()"
+          [disabled]="isLoadingConfig() || isUploading()"
+          (change)="updateSelectedMonth($any($event.target).value)"
+        >
+          @for (month of monthOptions(); track month) {
+            <option [value]="month">{{ month }}</option>
+          }
+        </select>
+      </label>
+
+      <label>
+        Files
+        <input
+          type="file"
+          multiple
+          accept=".txt,text/plain"
+          [disabled]="isLoadingConfig() || isUploading() || !isConfigured()"
+          (change)="updateSelectedFiles($any($event.target).files)"
+        />
+      </label>
+
+      @if (selectedFiles().length) {
+        <div class="file-list">
+          @for (file of selectedFiles(); track file.name) {
+            <div class="file-row">
+              <span>{{ file.name }}</span>
+              <small>{{ formatFileSize(file.size) }}</small>
+            </div>
+          }
+        </div>
+      }
+
+      <button
+        type="button"
+        class="primary"
+        [disabled]="
+          isLoadingConfig() || isUploading() || !isConfigured() || !selectedFiles().length
+        "
+        (click)="uploadFiles()"
+      >
+        {{ isUploading() ? 'Uploading...' : 'Upload files' }}
+      </button>
+
+      @if (errorMessage()) {
+        <p class="status-banner error">{{ errorMessage() }}</p>
+      }
+
+      @if (successMessage()) {
+        <p class="status-banner success">{{ successMessage() }}</p>
+      }
+    </article>
+
+    <article class="upload-card results-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Result</p>
+          <h2>Uploaded blobs</h2>
+        </div>
+      </div>
+
+      @if (uploadResult()) {
+        <div class="result-summary">
+          <span>Folder</span>
+          <strong>{{ uploadResult()?.targetPath }}</strong>
+        </div>
+
+        <div class="file-list">
+          @for (file of uploadResult()?.uploadedFiles; track file.blobName) {
+            <div class="file-row">
+              <span>{{ file.blobName }}</span>
+              <small>{{ formatFileSize(file.size) }}</small>
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="empty-panel">
+          <p class="empty-state">No files uploaded in this session.</p>
+        </div>
+      }
+    </article>
+  </section>
+</main>

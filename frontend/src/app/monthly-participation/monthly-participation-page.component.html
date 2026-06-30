@@ -1,39 +1,12 @@
 <main class="participation-shell">
-  <section class="hero participation-card">
-    <div>
-      <p class="eyebrow">Open play data</p>
-      <h1>Monthly participation counts from OPParticipation files.</h1>
-      <p class="lede">
-        The API scans each month folder under OPParticipation and counts only the names listed under
-        <strong>Participants (#)</strong> in every text file.
-      </p>
-    </div>
+  <section class="brand-summary participation-card">
+    @if (logoUrl) {
+      <img class="participation-logo" [src]="logoUrl" alt="Logo" />
+    }
 
-    <div class="hero-note">
-      <strong>Counting rule</strong>
-      <p>
-        Names in sections like Requested are ignored. A player gets one count each time they appear
-        in a file's Participants list.
-      </p>
-      @if (lastUpdatedLabel()) {
-        <p>Data is updated as of {{ lastUpdatedLabel() }}</p>
-      }
-    </div>
-  </section>
-
-  <section class="stats-grid">
-    <article class="participation-card stat-card">
-      <span class="stat-label">Months scanned</span>
-      <strong>{{ monthCount() }}</strong>
-    </article>
-    <article class="participation-card stat-card">
-      <span class="stat-label">Unique players</span>
-      <strong>{{ uniquePlayerCount() }}</strong>
-    </article>
-    <article class="participation-card stat-card">
-      <span class="stat-label">Total participations</span>
-      <strong>{{ participationCount() }}</strong>
-    </article>
+    @if (lastUpdatedLabel()) {
+      <p class="last-updated">Data is updated as of {{ lastUpdatedLabel() }}</p>
+    }
   </section>
 
   <section class="content-grid">

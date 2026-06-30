@@ -1,6 +1,7 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Component, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
+import { DashboardAuthService } from './dashboard-auth.service';
 import { getApiBaseUrl } from './api-base-url';
 
 interface Player {
@@ -94,6 +95,7 @@ interface ImportParticipantsResponse {
 })
 export class App implements OnInit {
   private readonly http = inject(HttpClient);
+  private readonly dashboardAuth = inject(DashboardAuthService);
   private readonly apiBaseUrl = getApiBaseUrl();
   private readonly rosterScrollPanel = viewChild<ElementRef<HTMLDivElement>>('rosterScrollPanel');
   private preservedRosterScrollTop: number | null = null;
@@ -175,9 +177,13 @@ export class App implements OnInit {
     this.preserveRosterScrollPosition();
 
     this.runMutation(
-      this.http.patch<Player>(`${this.apiBaseUrl}/players/${player.id}/ready`, {
-        isReady: !player.isReady,
-      }),
+      this.http.patch<Player>(
+        `${this.apiBaseUrl}/players/${player.id}/ready`,
+        {
+          isReady: !player.isReady,
+        },
+        { headers: this.dashboardAuth.getAuthHeaders() },
+      ),
     );
   }
 
@@ -192,7 +198,13 @@ export class App implements OnInit {
       return;
     }
 
-    this.runMutation(this.http.post<Game[]>(`${this.apiBaseUrl}/games/batch`, { gameAssignments }));
+    this.runMutation(
+      this.http.post<Game[]>(
+        `${this.apiBaseUrl}/games/batch`,
+        { gameAssignments },
+        { headers: this.dashboardAuth.getAuthHeaders() },
+      ),
+    );
   }
 
   protected setPreviewCourtNumber(courtNumber: number, value: string) {
@@ -256,10 +268,14 @@ export class App implements OnInit {
     }
 
     this.runMutation(
-      this.http.patch<Round>(`${this.apiBaseUrl}/games/${gameId}/complete`, {
-        team1: Number(draft.team1),
-        team2: Number(draft.team2),
-      }),
+      this.http.patch<Round>(
+        `${this.apiBaseUrl}/games/${gameId}/complete`,
+        {
+          team1: Number(draft.team1),
+          team2: Number(draft.team2),
+        },
+        { headers: this.dashboardAuth.getAuthHeaders() },
+      ),
       () => {
         this.scoreDrafts.update((drafts) => {
           const nextDrafts = { ...drafts };
@@ -328,9 +344,13 @@ export class App implements OnInit {
     }
 
     this.runMutation(
-      this.http.post<ImportParticipantsResponse>(`${this.apiBaseUrl}/queue/import-participants`, {
-        sourceText,
-      }),
+      this.http.post<ImportParticipantsResponse>(
+        `${this.apiBaseUrl}/queue/import-participants`,
+        {
+          sourceText,
+        },
+        { headers: this.dashboardAuth.getAuthHeaders() },
+      ),
       () => {
         this.importSourceText.set('');
         this.playerSearch.set('');
@@ -440,6 +460,7 @@ export class App implements OnInit {
 
     this.http
       .get<QueueSnapshot>(`${this.apiBaseUrl}/queue`, {
+        headers: this.dashboardAuth.getAuthHeaders(),
         params: {
           courtCount: this.courtCount(),
           selectionMode: this.selectionMode(),
@@ -472,10 +493,15 @@ export class App implements OnInit {
         this.isLoading.set(false);
         this.restoreRosterScrollPosition();
       },
-      error: () => {
-        this.errorMessage.set(
-          'The API is unavailable. Start the Nest server on port 3000 to load live queue data.',
-        );
+      error: (error: { status?: number; error?: { message?: string } }) => {
+        if (error.status === 401) {
+          this.dashboardAuth.clearPassword();
+          this.errorMessage.set(error.error?.message || 'Invalid dashboard password. Refresh and try again.');
+        } else {
+          this.errorMessage.set(
+            'The API is unavailable. Start the Nest server on port 3000 to load live queue data.',
+          );
+        }
         this.isLoading.set(false);
         this.preservedRosterScrollTop = null;
       },
@@ -492,8 +518,13 @@ export class App implements OnInit {
         this.isMutating.set(false);
         this.loadSnapshot();
       },
-      error: () => {
-        this.errorMessage.set('The change could not be saved.');
+      error: (error: { status?: number; error?: { message?: string } }) => {
+        if (error.status === 401) {
+          this.dashboardAuth.clearPassword();
+          this.errorMessage.set(error.error?.message || 'Invalid dashboard password. Refresh and try again.');
+        } else {
+          this.errorMessage.set('The change could not be saved.');
+        }
         this.isMutating.set(false);
       },
     });

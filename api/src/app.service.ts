@@ -2,7 +2,12 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  RequestTimeoutException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { DefaultAzureCredential } from '@azure/identity';
+import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
+import { timingSafeEqual } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -48,6 +53,35 @@ export interface MonthlyParticipationSummaryResponse {
   summaries: MonthlyParticipationSummary[];
 }
 
+export interface MonthlyParticipationUploadConfig {
+  storageAccount: string | null;
+  containerName: string | null;
+  prefix: string;
+  months: string[];
+}
+
+export interface MonthlyParticipationUploadFile {
+  fileName: string;
+  blobName: string;
+  size: number;
+}
+
+export interface MonthlyParticipationUploadResult {
+  targetPath: string;
+  uploadedFiles: MonthlyParticipationUploadFile[];
+}
+
+export interface DashboardAuthResult {
+  authenticated: true;
+}
+
+interface MonthlyParticipationFileUploadInput {
+  originalname: string;
+  buffer: Buffer;
+  mimetype?: string;
+  size: number;
+}
+
 interface ParticipationSourceFile {
   name: string;
   contents: string;
@@ -78,6 +112,20 @@ interface ReferenceCsvData {
 
 @Injectable()
 export class AppService {
+  private readonly monthNames = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
   private readonly openPlayParticipationRootPath =
     process.env.OP_PARTICIPATION_ROOT_PATH ??
     join(process.cwd(), 'src', 'data', 'OPParticipation');
@@ -90,6 +138,11 @@ export class AppService {
       /^\/+|\/+$/g,
       '',
     ) ?? '';
+  private readonly azureUploadTimeoutMs = Number.parseInt(
+    process.env.OP_PARTICIPATION_UPLOAD_TIMEOUT_MS ?? '30000',
+    10,
+  );
+  private readonly dashboardPassword = process.env.DASHBOARD_PASSWORD ?? '';
   private readonly writableDataRootPath =
     process.env.RUNTIME_DATA_ROOT_PATH ??
     (process.env.WEBSITE_SITE_NAME
@@ -576,6 +629,132 @@ export class AppService {
     };
   }
 
+  getMonthlyParticipationUploadConfig(): MonthlyParticipationUploadConfig {
+    return {
+      storageAccount: this.azureStorageAccount ?? null,
+      containerName: this.azureContainerName ?? null,
+      prefix: this.azurePrefix,
+      months: this.monthNames,
+    };
+  }
+
+  validateDashboardPassword(password: string): DashboardAuthResult {
+    if (!this.dashboardPassword) {
+      throw new UnauthorizedException('Dashboard password is not configured.');
+    }
+
+    const expectedPassword = Buffer.from(this.dashboardPassword);
+    const providedPassword = Buffer.from(password);
+    const isValidPassword =
+      expectedPassword.length === providedPassword.length &&
+      timingSafeEqual(expectedPassword, providedPassword);
+
+    if (!isValidPassword) {
+      throw new UnauthorizedException('Invalid dashboard password.');
+    }
+
+    return { authenticated: true };
+  }
+
+  async uploadMonthlyParticipationFiles(
+    month: string,
+    files: MonthlyParticipationFileUploadInput[],
+  ): Promise<MonthlyParticipationUploadResult> {
+    if (!this.azureStorageAccount || !this.azureContainerName) {
+      throw new BadRequestException(
+        'OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT and OP_PARTICIPATION_AZURE_CONTAINER are required for uploads.',
+      );
+    }
+
+    const normalizedMonth = this.normalizeParticipationMonth(month);
+
+    if (!files.length) {
+      throw new BadRequestException('Select at least one file to upload.');
+    }
+
+    const containerClient = new BlobServiceClient(
+      `https://${this.azureStorageAccount}.blob.core.windows.net`,
+      new DefaultAzureCredential(),
+      {
+        retryOptions: {
+          maxTries: 1,
+          tryTimeoutInMs: this.azureUploadTimeoutMs,
+        },
+      },
+    ).getContainerClient(this.azureContainerName);
+    const targetPath = [this.azurePrefix, normalizedMonth]
+      .filter((segment) => segment.length > 0)
+      .join('/');
+    const uploadedFiles: MonthlyParticipationUploadFile[] = [];
+
+    for (const file of files) {
+      const fileName = this.sanitizeBlobFileName(file.originalname);
+      const blobName = [targetPath, fileName]
+        .filter((segment) => segment.length > 0)
+        .join('/');
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+
+      try {
+        await this.uploadParticipationBlob(
+          blockBlobClient,
+          file.buffer,
+          file.mimetype,
+        );
+      } catch (error) {
+        throw this.createAzureUploadException(error, blobName);
+      }
+
+      uploadedFiles.push({
+        fileName,
+        blobName,
+        size: file.size,
+      });
+    }
+
+    return {
+      targetPath,
+      uploadedFiles,
+    };
+  }
+
+  private async uploadParticipationBlob(
+    blockBlobClient: BlockBlobClient,
+    buffer: Buffer,
+    contentType?: string,
+  ) {
+    const abortController = new AbortController();
+    const timeout = setTimeout(
+      () => abortController.abort(),
+      this.azureUploadTimeoutMs,
+    );
+
+    try {
+      await blockBlobClient.uploadData(buffer, {
+        abortSignal: abortController.signal,
+        blobHTTPHeaders: {
+          blobContentType: contentType || 'text/plain',
+        },
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private createAzureUploadException(error: unknown, blobName: string) {
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+
+    if (/aborted|abort|timeout/i.test(errorMessage)) {
+      return new RequestTimeoutException(
+        `Uploading ${blobName} timed out. Check Azure authentication, network access, and storage permissions.`,
+      );
+    }
+
+    return new BadRequestException(
+      `Unable to upload ${blobName}: ${errorMessage}`,
+    );
+  }
+
   private createRound(gameAssignments: GameAssignmentInput[]) {
     const createdAt = new Date().toISOString();
     const nextGameId =
@@ -917,22 +1096,48 @@ export class AppService {
   }
 
   private getMonthNameOrder(monthName: string): number | null {
-    const monthOrder = new Map<string, number>([
-      ['january', 0],
-      ['february', 1],
-      ['march', 2],
-      ['april', 3],
-      ['may', 4],
-      ['june', 5],
-      ['july', 6],
-      ['august', 7],
-      ['september', 8],
-      ['october', 9],
-      ['november', 10],
-      ['december', 11],
-    ]);
+    const monthOrder = new Map(
+      this.monthNames.map((name, index) => [name.toLowerCase(), index]),
+    );
 
     return monthOrder.get(monthName.toLowerCase()) ?? null;
+  }
+
+  private normalizeParticipationMonth(month: string): string {
+    const normalizedMonth = this.monthNames.find(
+      (monthName) => monthName.toLowerCase() === month.trim().toLowerCase(),
+    );
+
+    if (!normalizedMonth) {
+      throw new BadRequestException('Select a valid month for the upload.');
+    }
+
+    return normalizedMonth;
+  }
+
+  private sanitizeBlobFileName(fileName: string): string {
+    const sanitizedFileName = fileName
+      .replace(/[/\\]/g, '')
+      .split('')
+      .filter((character) => {
+        const characterCode = character.charCodeAt(0);
+
+        return characterCode >= 32 && characterCode !== 127;
+      })
+      .join('')
+      .trim();
+
+    if (
+      !sanitizedFileName ||
+      sanitizedFileName === '.' ||
+      sanitizedFileName === '..'
+    ) {
+      throw new BadRequestException(
+        'Uploaded files must have valid file names.',
+      );
+    }
+
+    return sanitizedFileName;
   }
 
   private getRelativeBlobPath(
