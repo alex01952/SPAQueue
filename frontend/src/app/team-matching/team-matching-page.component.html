@@ -1,0 +1,294 @@
+<main class="team-matching-shell">
+  <section class="page-heading">
+    <p class="eyebrow">Team matching</p>
+    <h1>Player roster</h1>
+    <p>Add the players and their current DUPR ratings, then create balanced two-player teams.</p>
+  </section>
+
+  <section class="roster-panel" aria-labelledby="roster-heading">
+    <div class="panel-heading">
+      <div>
+        <p class="eyebrow">Players</p>
+        <h2 id="roster-heading">Ready to match</h2>
+      </div>
+      <span class="player-count">{{ players().length }} players</span>
+    </div>
+
+    <div class="roster-import">
+      <label>
+        <span>Paste player list</span>
+        <textarea
+          rows="5"
+          [value]="rosterText()"
+          [disabled]="isRandomizing()"
+          placeholder="Vitto,3.5&#10;Alex,3.7&#10;Krystle,3.3&#10;Bryan,3.1"
+          (input)="updateRosterText($any($event.target).value)"
+        ></textarea>
+      </label>
+      <button type="button" class="import-button" [disabled]="isRandomizing()" (click)="importRoster()">
+        Import players
+      </button>
+    </div>
+
+    @if (rosterImportError()) {
+      <p class="status-banner error">{{ rosterImportError() }}</p>
+    }
+
+    <label class="team-names-control">
+      <span>Team names</span>
+      <textarea
+        rows="4"
+        [value]="teamNamesText()"
+        [disabled]="isRandomizing()"
+        placeholder="Court Kings&#10;The Dinkers&#10;Kitchen Crew&#10;Pickle Pros"
+        (input)="updateTeamNames($any($event.target).value)"
+      ></textarea>
+      <small>Enter one name per line. Add at least one name for each team; extras stay unused.</small>
+    </label>
+
+    <div class="player-table" role="table" aria-label="Player roster">
+      <div class="player-row player-row-heading" role="row">
+        <span role="columnheader">Player name</span>
+        <span role="columnheader">DUPR rating</span>
+        <span class="actions-heading" role="columnheader">Actions</span>
+      </div>
+
+      @for (player of players(); track player.id) {
+        <div class="player-row" role="row">
+          <input
+            type="text"
+            [value]="player.name"
+            [attr.aria-label]="'Player ' + (player.id) + ' name'"
+            placeholder="Player name"
+            (input)="updatePlayerName(player.id, $any($event.target).value)"
+          />
+          <input
+            type="number"
+            min="1"
+            max="8"
+            step="0.01"
+            inputmode="decimal"
+            [value]="player.duprRating"
+            [attr.aria-label]="'Player ' + (player.id) + ' DUPR rating'"
+            placeholder="e.g. 3.50"
+            (input)="updatePlayerDuprRating(player.id, $any($event.target).value)"
+          />
+          <button
+            type="button"
+            class="remove-button"
+            [disabled]="players().length === 1"
+            [attr.aria-label]="'Remove player ' + (player.id)"
+            (click)="removePlayer(player.id)"
+          >
+            Remove
+          </button>
+        </div>
+      }
+    </div>
+
+    <button type="button" class="add-button" (click)="addPlayer()">Add player</button>
+  </section>
+
+  <section class="matching-panel" aria-labelledby="matching-heading">
+    <div class="panel-heading">
+      <div>
+        <p class="eyebrow">Match settings</p>
+        <h2 id="matching-heading">Team rating limit</h2>
+      </div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric">
+        <span>Average DUPR</span>
+        <strong>{{ formatRating(averageDuprRating()) }}</strong>
+      </div>
+      <label class="buffer-control">
+        <span>Buffer</span>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          inputmode="decimal"
+          [value]="buffer()"
+          [disabled]="isRandomizing()"
+          (input)="updateBuffer($any($event.target).value)"
+        />
+      </label>
+      <div class="metric maximum-metric">
+        <span>Partner rating allowance</span>
+        <strong>{{ formatRating(partnerRatingAllowance()) }}</strong>
+      </div>
+    </div>
+
+    <button type="button" class="randomize-button" [disabled]="!canRandomize()" (click)="randomizeTeams()">
+      {{ isRandomizing() ? 'Randomizing teams...' : 'Randomize teams' }}
+    </button>
+
+    @if (validationError()) {
+      <p class="status-banner error">{{ validationError() }}</p>
+    }
+
+    @if (matchingError()) {
+      <p class="status-banner error">{{ matchingError() }}</p>
+    }
+  </section>
+
+  @if (activePlayer() || teams().length) {
+    <section #matchingResults class="results-grid">
+      <article class="selection-panel">
+        <p class="eyebrow">Current selection</p>
+        @if (activePlayer()) {
+          <h2>{{ activePlayer()?.name }}</h2>
+          <p class="active-rating">DUPR {{ formatPlayerRating(activePlayer()!) }}</p>
+          <p class="active-rating">
+            Maximum combined DUPR {{ formatRating(getMaximumCombinedDupr(activePlayer()!)) }}
+          </p>
+          <h3>Eligible teammates</h3>
+          @if (eligiblePartners().length) {
+            <div class="eligible-list" aria-live="polite">
+              @for (partner of eligiblePartners(); track partner.id) {
+                <div class="eligible-player" [class.is-highlighted]="highlightedPartnerId() === partner.id">
+                  <span>{{ partner.name }}</span>
+                  <strong>{{ formatPlayerRating(partner) }}</strong>
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="empty-state">No eligible teammate was found.</p>
+          }
+        }
+      </article>
+
+      <article class="teams-panel">
+        <p class="eyebrow">Teams</p>
+        <h2>Randomized teams</h2>
+        @if (teams().length) {
+          <div class="team-list">
+            @for (team of teams(); track team.playerOne.id + '-' + team.playerTwo.id) {
+              <div class="team-card">
+                <div>
+                  <strong>{{ team.name }}</strong>
+                  <span>
+                    {{ team.playerOne.name }} + {{ team.playerTwo.name }} •
+                    {{ formatRating(getTeamCombinedRating(team)) }} combined DUPR
+                  </span>
+                </div>
+              </div>
+            }
+          </div>
+        } @else {
+          <p class="empty-state">Teams will appear here as each pairing is selected.</p>
+        }
+      </article>
+    </section>
+  }
+
+  @if (isMatchingComplete()) {
+    <section class="pools-panel" aria-labelledby="pools-heading">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Pools or brackets</p>
+          <h2 id="pools-heading">Randomize team pools</h2>
+        </div>
+      </div>
+
+      <div class="pool-controls">
+        <label class="pool-count-control">
+          <span>Number of pools</span>
+          <input
+            type="number"
+            min="1"
+            [max]="teams().length"
+            step="1"
+            inputmode="numeric"
+            [value]="poolCount()"
+            (input)="updatePoolCount($any($event.target).value)"
+          />
+        </label>
+        <button
+          type="button"
+          class="randomize-button"
+          [disabled]="!!poolValidationError() || isRandomizingPools()"
+          (click)="randomizePools()"
+        >
+          {{ isRandomizingPools() ? 'Randomizing pools...' : 'Randomize pools' }}
+        </button>
+      </div>
+
+      @if (poolValidationError()) {
+        <p class="status-banner error">{{ poolValidationError() }}</p>
+      }
+
+      @if (pools().length) {
+        <div #poolResults class="pool-list" [class.is-randomizing]="isRandomizingPools()">
+          @for (pool of pools(); track pool.number; let poolIndex = $index) {
+            <section class="pool-card" [style.animation-delay.ms]="poolIndex * 120">
+              <h3>Pool {{ pool.number }}</h3>
+              @for (team of pool.teams; track team.playerOne.id + '-' + team.playerTwo.id; let teamIndex = $index) {
+                <p [style.animation-delay.ms]="poolIndex * 120 + teamIndex * 80">
+                  <strong>{{ team.name }}</strong>
+                  <span>{{ team.playerOne.name }} + {{ team.playerTwo.name }}</span>
+                </p>
+              }
+            </section>
+          }
+        </div>
+      }
+    </section>
+  }
+
+  @if (pools().length) {
+    <section class="schedule-panel" aria-labelledby="schedule-heading">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Round robin</p>
+          <h2 id="schedule-heading">Generate match schedule</h2>
+        </div>
+      </div>
+
+      <div class="pool-controls">
+        <label class="pool-count-control">
+          <span>Number of courts</span>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            inputmode="numeric"
+            [value]="courtCount()"
+            (input)="updateCourtCount($any($event.target).value)"
+          />
+        </label>
+        <button
+          type="button"
+          class="randomize-button"
+          [disabled]="!!scheduleValidationError()"
+          (click)="generateSchedule()"
+        >
+          Generate schedule
+        </button>
+      </div>
+
+      @if (scheduleValidationError()) {
+        <p class="status-banner error">{{ scheduleValidationError() }}</p>
+      }
+
+      @if (schedule().length) {
+        <div #scheduleResults class="schedule-list">
+          @for (slot of schedule(); track slot.number) {
+            <section class="schedule-slot">
+              <h3>Time slot {{ slot.number }}</h3>
+              <div class="scheduled-matches">
+                @for (match of slot.matches; track match.poolNumber + '-' + match.teamOne.name + '-' + match.teamTwo.name) {
+                  <div class="scheduled-match">
+                    <span>Court {{ match.courtNumber }} · Pool {{ match.poolNumber }}</span>
+                    <strong>{{ getMatchLabel(match) }}</strong>
+                  </div>
+                }
+              </div>
+            </section>
+          }
+        </div>
+      }
+    </section>
+  }
+</main>

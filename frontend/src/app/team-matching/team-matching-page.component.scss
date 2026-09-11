@@ -1,0 +1,487 @@
+:host {
+  display: block;
+  color: var(--text-primary);
+}
+
+.team-matching-shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 48px 20px;
+}
+
+.page-heading {
+  max-width: 620px;
+  margin-bottom: 28px;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--accent-dark);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+h1,
+h2 {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  line-height: 1;
+}
+
+.page-heading > p:last-child {
+  margin: 16px 0 0;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.roster-panel {
+  padding: 24px;
+  background: rgba(255, 249, 240, 0.84);
+  border: 1px solid rgba(103, 70, 41, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 22px 60px rgba(76, 51, 31, 0.12);
+}
+
+.panel-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.player-count {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.player-table {
+  display: grid;
+  border-top: 1px solid rgba(103, 70, 41, 0.12);
+}
+
+.player-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 0.38fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(103, 70, 41, 0.12);
+}
+
+.player-row-heading {
+  padding-block: 11px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.actions-heading {
+  padding-inline: 10px;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+textarea {
+  min-width: 0;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(103, 70, 41, 0.18);
+  border-radius: 6px;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+button {
+  min-height: 40px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.remove-button {
+  padding: 8px 10px;
+  color: #8d3e25;
+  background: transparent;
+  border: 1px solid rgba(141, 62, 37, 0.3);
+}
+
+.add-button {
+  margin-top: 18px;
+  padding: 10px 14px;
+  color: #fff9f1;
+  background: #cb5d33;
+  border: 1px solid #cb5d33;
+}
+
+.roster-import {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 20px;
+}
+
+.roster-import label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.team-names-control {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 20px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.team-names-control small {
+  color: var(--text-secondary);
+}
+
+.import-button {
+  padding: 10px 14px;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid rgba(103, 70, 41, 0.3);
+}
+
+.matching-panel,
+.selection-panel,
+.teams-panel {
+  margin-top: 18px;
+  padding: 24px;
+  background: rgba(255, 249, 240, 0.84);
+  border: 1px solid rgba(103, 70, 41, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 22px 60px rgba(76, 51, 31, 0.08);
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metric,
+.buffer-control {
+  display: grid;
+  gap: 6px;
+  min-height: 94px;
+  padding: 14px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(103, 70, 41, 0.1);
+  border-radius: 6px;
+}
+
+.metric span,
+.buffer-control span {
+  font-size: 0.82rem;
+}
+
+.metric strong {
+  color: var(--text-primary);
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.maximum-metric {
+  border-color: rgba(203, 93, 51, 0.32);
+}
+
+.randomize-button {
+  margin-top: 18px;
+  padding: 10px 16px;
+  color: #fff9f1;
+  background: #cb5d33;
+  border: 1px solid #cb5d33;
+}
+
+.status-banner {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-radius: 6px;
+}
+
+.status-banner.error {
+  color: #9f4523;
+  background: rgba(200, 95, 56, 0.12);
+}
+
+.results-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 18px;
+}
+
+.selection-panel,
+.teams-panel {
+  margin-top: 18px;
+}
+
+.selection-panel h2,
+.teams-panel h2 {
+  margin-bottom: 4px;
+}
+
+.active-rating,
+.empty-state {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.selection-panel h3 {
+  margin: 24px 0 10px;
+  font-size: 0.94rem;
+}
+
+.eligible-list,
+.team-list {
+  display: grid;
+  gap: 8px;
+}
+
+.eligible-player,
+.team-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(103, 70, 41, 0.1);
+  border-radius: 6px;
+}
+
+.eligible-player {
+  transition: transform 100ms ease, background-color 100ms ease, border-color 100ms ease;
+}
+
+.eligible-player.is-highlighted {
+  background: rgba(237, 157, 59, 0.24);
+  border-color: #cb5d33;
+  transform: translateX(5px);
+}
+
+.team-card div {
+  display: grid;
+  gap: 4px;
+}
+
+.team-card span {
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+}
+
+.pools-panel {
+  margin-top: 18px;
+  padding: 24px;
+  background: rgba(255, 249, 240, 0.84);
+  border: 1px solid rgba(103, 70, 41, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 22px 60px rgba(76, 51, 31, 0.08);
+}
+
+.pool-controls {
+  display: flex;
+  align-items: end;
+  gap: 14px;
+}
+
+.pool-count-control {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.pool-count-control input {
+  width: 160px;
+}
+
+.pool-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.pool-card {
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(103, 70, 41, 0.1);
+  border-radius: 6px;
+}
+
+.pool-card h3,
+.pool-card p {
+  margin: 0;
+}
+
+.pool-card h3 {
+  margin-bottom: 10px;
+  font-size: 0.95rem;
+}
+
+.pool-card p {
+  display: grid;
+  gap: 3px;
+  padding: 7px 0;
+  color: var(--text-secondary);
+  border-top: 1px solid rgba(103, 70, 41, 0.1);
+}
+
+.pool-card p strong {
+  color: var(--text-primary);
+}
+
+.schedule-panel {
+  margin-top: 18px;
+  padding: 24px;
+  background: rgba(255, 249, 240, 0.84);
+  border: 1px solid rgba(103, 70, 41, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 22px 60px rgba(76, 51, 31, 0.08);
+}
+
+.schedule-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.schedule-slot {
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(103, 70, 41, 0.1);
+  border-radius: 6px;
+}
+
+.schedule-slot h3 {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+}
+
+.scheduled-matches {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.scheduled-match {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  background: rgba(255, 249, 240, 0.7);
+  border-left: 3px solid #cb5d33;
+}
+
+.scheduled-match span {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.pool-list.is-randomizing .pool-card {
+  animation: pool-card-reveal 360ms ease both;
+}
+
+.pool-list.is-randomizing .pool-card p {
+  animation: pool-team-reveal 260ms ease both;
+}
+
+@keyframes pool-card-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pool-team-reveal {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 600px) {
+  .team-matching-shell {
+    padding: 32px 12px;
+  }
+
+  .roster-panel {
+    padding: 18px;
+  }
+
+  .player-row {
+    grid-template-columns: minmax(0, 1fr) 110px;
+  }
+
+  .player-row-heading .actions-heading {
+    display: none;
+  }
+
+  .remove-button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .metrics-grid,
+  .results-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .matching-panel,
+  .selection-panel,
+  .teams-panel,
+  .pools-panel,
+  .schedule-panel {
+    padding: 18px;
+  }
+
+  .pool-controls {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .pool-count-control input {
+    width: 100%;
+  }
+
+  .roster-import {
+    grid-template-columns: 1fr;
+  }
+}

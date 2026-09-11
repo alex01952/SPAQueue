@@ -3,6 +3,7 @@ import { App } from './app';
 import { dashboardAuthGuard } from './dashboard-auth.guard';
 import { MonthlyParticipationPageComponent } from './monthly-participation/monthly-participation-page.component';
 import { ParticipationUploadPageComponent } from './participation-upload/participation-upload-page.component';
+import { TeamMatchingPageComponent } from './team-matching/team-matching-page.component';
 
 export const routes: Routes = [
   {
@@ -26,6 +27,11 @@ export const routes: Routes = [
     component: ParticipationUploadPageComponent,
     canActivate: [dashboardAuthGuard],
     title: 'Upload Participation Files',
+  },
+  {
+    path: 'team-matching',
+    component: TeamMatchingPageComponent,
+    title: 'Team Matching',
   },
   {
     path: '**',
