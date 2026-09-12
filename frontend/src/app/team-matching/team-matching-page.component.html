@@ -1,10 +1,17 @@
 <main class="team-matching-shell">
   <section class="page-heading">
     <p class="eyebrow">Team matching</p>
-    <h1>Player roster</h1>
-    <p>Add the players and their current DUPR ratings, then create balanced two-player teams.</p>
+    <h1>{{ isDirectTeamEntry() ? 'Team roster' : 'Player roster' }}</h1>
+    <p>
+      {{
+        isDirectTeamEntry()
+          ? 'Add completed two-player teams, then randomize them into pools.'
+          : 'Add the players and their current DUPR ratings, then create balanced two-player teams.'
+      }}
+    </p>
   </section>
 
+  @if (!isDirectTeamEntry()) {
   <section class="roster-panel" aria-labelledby="roster-heading">
     <div class="panel-heading">
       <div>
@@ -46,15 +53,15 @@
       <small>Enter one name per line. Add at least one name for each team; extras stay unused.</small>
     </label>
 
-    <div class="player-table" role="table" aria-label="Player roster">
-      <div class="player-row player-row-heading" role="row">
-        <span role="columnheader">Player name</span>
-        <span role="columnheader">DUPR rating</span>
-        <span class="actions-heading" role="columnheader">Actions</span>
+    <div class="player-table">
+      <div class="player-row player-row-heading">
+        <span>Player name</span>
+        <span>DUPR rating</span>
+        <span class="actions-heading">Actions</span>
       </div>
 
       @for (player of players(); track player.id) {
-        <div class="player-row" role="row">
+        <div class="player-row">
           <input
             type="text"
             [value]="player.name"
@@ -123,6 +130,14 @@
     <button type="button" class="randomize-button" [disabled]="!canRandomize()" (click)="randomizeTeams()">
       {{ isRandomizing() ? 'Randomizing teams...' : 'Randomize teams' }}
     </button>
+    <button
+      type="button"
+      class="skip-button"
+      [disabled]="isRandomizing()"
+      (click)="startDirectTeamEntry()"
+    >
+      Skip to adding teams
+    </button>
 
     @if (validationError()) {
       <p class="status-banner error">{{ validationError() }}</p>
@@ -180,6 +195,99 @@
           <p class="empty-state">Teams will appear here as each pairing is selected.</p>
         }
       </article>
+    </section>
+  }
+  } @else {
+    <section class="roster-panel direct-teams-panel" aria-labelledby="direct-teams-heading">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Teams</p>
+          <h2 id="direct-teams-heading">Ready for pools</h2>
+        </div>
+        <span class="player-count">{{ directTeamEntries().length }} teams</span>
+      </div>
+
+      <div class="roster-import">
+        <label>
+          <span>Paste team list</span>
+          <textarea
+            rows="5"
+            [value]="directTeamsText()"
+            placeholder="Team No Dink,Alex,Vitto&#10;Alpha Team,Jenn,Bryan&#10;Eagles,Dino,James"
+            (input)="updateDirectTeamsText($any($event.target).value)"
+          ></textarea>
+          <small>Use one team per line: Team Name,First Player,Second Player.</small>
+        </label>
+        <button type="button" class="import-button" (click)="importDirectTeams()">
+          Import teams
+        </button>
+      </div>
+
+      @if (directTeamImportError()) {
+        <p class="status-banner error">{{ directTeamImportError() }}</p>
+      }
+
+      <div class="player-table">
+        <div class="player-row direct-team-row player-row-heading">
+          <span>Team name</span>
+          <span>First player</span>
+          <span>Second player</span>
+          <span class="actions-heading">Actions</span>
+        </div>
+
+        @for (team of directTeamEntries(); track team.id) {
+          <div class="player-row direct-team-row">
+            <input
+              type="text"
+              [value]="team.name"
+              [attr.aria-label]="'Team ' + team.id + ' name'"
+              placeholder="Team name"
+              (input)="updateDirectTeam(team.id, { name: $any($event.target).value })"
+            />
+            <input
+              type="text"
+              [value]="team.playerOneName"
+              [attr.aria-label]="'Team ' + team.id + ' first player'"
+              placeholder="First player"
+              (input)="updateDirectTeam(team.id, { playerOneName: $any($event.target).value })"
+            />
+            <input
+              type="text"
+              [value]="team.playerTwoName"
+              [attr.aria-label]="'Team ' + team.id + ' second player'"
+              placeholder="Second player"
+              (input)="updateDirectTeam(team.id, { playerTwoName: $any($event.target).value })"
+            />
+            <button
+              type="button"
+              class="remove-button"
+              [attr.aria-label]="'Remove team ' + team.id"
+              (click)="removeDirectTeam(team.id)"
+            >
+              Remove
+            </button>
+          </div>
+        }
+      </div>
+
+      <div class="direct-team-actions">
+        <button type="button" class="add-button" (click)="addDirectTeam()">Add team</button>
+        <button
+          type="button"
+          class="randomize-button"
+          [disabled]="!!directTeamValidationError()"
+          (click)="useDirectTeams()"
+        >
+          Continue to pools
+        </button>
+        <button type="button" class="skip-button" (click)="returnToPlayerMatching()">
+          Back to player matching
+        </button>
+      </div>
+
+      @if (directTeamValidationError()) {
+        <p class="status-banner error">{{ directTeamValidationError() }}</p>
+      }
     </section>
   }
 

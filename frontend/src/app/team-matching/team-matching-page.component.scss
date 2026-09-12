@@ -75,6 +75,10 @@ h1 {
   border-bottom: 1px solid rgba(103, 70, 41, 0.12);
 }
 
+.direct-team-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+}
+
 .player-row-heading {
   padding-block: 11px;
   color: var(--text-secondary);
@@ -150,6 +154,10 @@ button:disabled {
   font-size: 0.82rem;
 }
 
+.roster-import small {
+  color: var(--text-secondary);
+}
+
 .team-names-control {
   display: grid;
   gap: 6px;
@@ -219,6 +227,27 @@ button:disabled {
   color: #fff9f1;
   background: #cb5d33;
   border: 1px solid #cb5d33;
+}
+
+.skip-button {
+  margin: 18px 0 0 10px;
+  padding: 10px 14px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid rgba(103, 70, 41, 0.3);
+}
+
+.direct-team-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.direct-team-actions .add-button,
+.direct-team-actions .randomize-button,
+.direct-team-actions .skip-button {
+  margin: 0;
 }
 
 .status-banner {
@@ -450,6 +479,14 @@ button:disabled {
     grid-template-columns: minmax(0, 1fr) 110px;
   }
 
+  .direct-team-row {
+    grid-template-columns: 1fr;
+  }
+
+  .direct-team-row.player-row-heading {
+    display: none;
+  }
+
   .player-row-heading .actions-heading {
     display: none;
   }
@@ -457,6 +494,10 @@ button:disabled {
   .remove-button {
     grid-column: 1 / -1;
     justify-self: start;
+  }
+
+  .direct-team-actions {
+    display: grid;
   }
 
   .metrics-grid,

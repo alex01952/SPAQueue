@@ -12,6 +12,13 @@ interface MatchedTeam {
   playerTwo: TeamMatchingPlayer;
 }
 
+interface DirectTeamEntry {
+  id: number;
+  name: string;
+  playerOneName: string;
+  playerTwoName: string;
+}
+
 interface TeamPool {
   number: number;
   teams: MatchedTeam[];
@@ -37,6 +44,7 @@ interface ScheduleSlot {
 })
 export class TeamMatchingPageComponent {
   private nextPlayerId = 5;
+  private nextDirectTeamId = 3;
   private availableTeamNames: string[] = [];
   private matchingTimer: ReturnType<typeof setTimeout> | undefined;
   private poolAnimationTimer: ReturnType<typeof setTimeout> | undefined;
@@ -49,6 +57,13 @@ export class TeamMatchingPageComponent {
   ]);
   protected readonly rosterText = signal('');
   protected readonly rosterImportError = signal('');
+  protected readonly isDirectTeamEntry = signal(false);
+  protected readonly directTeamsText = signal('');
+  protected readonly directTeamImportError = signal('');
+  protected readonly directTeamEntries = signal<DirectTeamEntry[]>([
+    { id: 1, name: '', playerOneName: '', playerTwoName: '' },
+    { id: 2, name: '', playerOneName: '', playerTwoName: '' },
+  ]);
   protected readonly teamNamesText = signal('');
   protected readonly buffer = signal('0');
   protected readonly teams = signal<MatchedTeam[]>([]);
@@ -88,6 +103,24 @@ export class TeamMatchingPageComponent {
   protected readonly isMatchingComplete = computed(
     () => this.teams().length > 0 && !this.isRandomizing(),
   );
+  protected readonly directTeamValidationError = computed(() => {
+    const entries = this.directTeamEntries();
+
+    if (!entries.length) {
+      return 'Add at least one team before continuing.';
+    }
+
+    if (
+      entries.some(
+        (entry) =>
+          !entry.name.trim() || !entry.playerOneName.trim() || !entry.playerTwoName.trim(),
+      )
+    ) {
+      return 'Enter a team name and two players for every team.';
+    }
+
+    return '';
+  });
   private readonly poolResults = viewChild<ElementRef<HTMLElement>>('poolResults');
   private readonly scheduleResults = viewChild<ElementRef<HTMLElement>>('scheduleResults');
   protected readonly poolValidationError = computed(() => {
@@ -146,6 +179,116 @@ export class TeamMatchingPageComponent {
     this.players.set(importedPlayers);
     this.rosterText.set('');
     this.rosterImportError.set('');
+  }
+
+  protected startDirectTeamEntry() {
+    this.resetMatching();
+    this.isDirectTeamEntry.set(true);
+  }
+
+  protected returnToPlayerMatching() {
+    this.resetMatching();
+    this.isDirectTeamEntry.set(false);
+  }
+
+  protected updateDirectTeamsText(directTeamsText: string) {
+    this.directTeamsText.set(directTeamsText);
+    this.directTeamImportError.set('');
+  }
+
+  protected importDirectTeams() {
+    const lines = this.directTeamsText()
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const dataLines =
+      lines[0]?.toLowerCase() === 'team name,first player,second player'
+        ? lines.slice(1)
+        : lines;
+
+    if (!dataLines.length) {
+      this.directTeamImportError.set(
+        'Paste at least one team in the format Team Name,First Player,Second Player.',
+      );
+      return;
+    }
+
+    const importedTeams: DirectTeamEntry[] = [];
+    for (const [index, line] of dataLines.entries()) {
+      const values = line.split(',').map((value) => value.trim());
+      const [name, playerOneName, playerTwoName] = values;
+
+      if (values.length !== 3 || !name || !playerOneName || !playerTwoName) {
+        this.directTeamImportError.set(
+          `Line ${index + 1} must include a team name, first player, and second player.`,
+        );
+        return;
+      }
+
+      importedTeams.push({
+        id: this.nextDirectTeamId++,
+        name,
+        playerOneName,
+        playerTwoName,
+      });
+    }
+
+    this.resetMatching();
+    this.directTeamEntries.set(importedTeams);
+    this.directTeamsText.set('');
+    this.directTeamImportError.set('');
+    this.useDirectTeams();
+  }
+
+  protected addDirectTeam() {
+    this.resetMatching();
+    this.directTeamEntries.update((entries) => [
+      ...entries,
+      {
+        id: this.nextDirectTeamId++,
+        name: '',
+        playerOneName: '',
+        playerTwoName: '',
+      },
+    ]);
+  }
+
+  protected updateDirectTeam(id: number, changes: Partial<DirectTeamEntry>) {
+    this.resetMatching();
+    this.directTeamEntries.update((entries) =>
+      entries.map((entry) => (entry.id === id ? { ...entry, ...changes } : entry)),
+    );
+  }
+
+  protected removeDirectTeam(id: number) {
+    this.resetMatching();
+    this.directTeamEntries.update((entries) => entries.filter((entry) => entry.id !== id));
+  }
+
+  protected useDirectTeams() {
+    if (this.directTeamValidationError()) {
+      return;
+    }
+
+    this.resetMatching();
+    this.teams.set(
+      this.directTeamEntries().map((entry) => ({
+        name: entry.name.trim(),
+        playerOne: {
+          id: entry.id * 2 - 1,
+          name: entry.playerOneName.trim(),
+          duprRating: '',
+        },
+        playerTwo: {
+          id: entry.id * 2,
+          name: entry.playerTwoName.trim(),
+          duprRating: '',
+        },
+      })),
+    );
+    requestAnimationFrame(() => {
+      this.poolResults()?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }
 
   protected updatePlayerName(id: number, name: string) {
