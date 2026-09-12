@@ -20,6 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@azure/data-tables": "^13.3.2",
     "@azure/identity": "^4.10.0",
     "@azure/storage-blob": "^12.27.0",
     "@nestjs/common": "^11.0.1",

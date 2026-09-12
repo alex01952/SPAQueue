@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { App } from './app';
 import { dashboardAuthGuard } from './dashboard-auth.guard';
 import { MonthlyParticipationPageComponent } from './monthly-participation/monthly-participation-page.component';
+import { MemberRegistrationPageComponent } from './member-registration/member-registration-page.component';
 import { ParticipationUploadPageComponent } from './participation-upload/participation-upload-page.component';
 import { TeamMatchingPageComponent } from './team-matching/team-matching-page.component';
 
@@ -32,6 +33,11 @@ export const routes: Routes = [
     path: 'team-matching',
     component: TeamMatchingPageComponent,
     title: 'Team Matching',
+  },
+  {
+    path: 'register',
+    component: MemberRegistrationPageComponent,
+    title: 'Member Registration',
   },
   {
     path: '**',

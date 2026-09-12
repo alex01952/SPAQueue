@@ -126,6 +126,7 @@ const dashboardPassword = 'test-dashboard-password';
 
 describe('AppController', () => {
   let appController: AppController;
+  let appService: AppService;
   let roundsFilePath: string;
   let participationRootPath: string;
   let duprCsvPath: string;
@@ -250,6 +251,7 @@ describe('AppController', () => {
     }).compile();
 
     appController = app.get<AppController>(AppController);
+    appService = app.get<AppService>(AppService);
   });
 
   afterEach(() => {
@@ -282,6 +284,38 @@ describe('AppController', () => {
           },
         ],
       });
+    });
+  });
+
+  describe('member registration', () => {
+    it('should report Azure Table authorization failures returned in response headers', async () => {
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        createEntity: jest.fn().mockRejectedValue({
+          statusCode: 403,
+          response: {
+            headers: {
+              get: (name: string) =>
+                name === 'x-ms-error-code'
+                  ? 'AuthorizationPermissionMismatch'
+                  : undefined,
+            },
+          },
+        }),
+      });
+
+      await expect(
+        appController.registerMember({
+          name: 'Alex Member',
+          email: 'alex@example.com',
+          contactNo: '09123456789',
+          emergencyContact: 'Emergency Contact',
+          age: 30,
+          gender: 'Female',
+          skills: {},
+        }),
+      ).rejects.toThrow(
+        'Grant the API managed identity the Storage Table Data Contributor role',
+      );
     });
   });
 

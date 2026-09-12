@@ -1,13 +1,17 @@
 import {
   BadRequestException,
+  BadGatewayException,
+  ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   RequestTimeoutException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { DefaultAzureCredential } from '@azure/identity';
+import { TableClient } from '@azure/data-tables';
 import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -17,6 +21,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { promisify } from 'node:util';
 import { buildTeams } from './matching-selection';
 import {
   isPlayerInOngoingGame,
@@ -110,8 +115,30 @@ interface ReferenceCsvData {
   duprRows: CsvRow[];
 }
 
+const scrypt = promisify(scryptCallback);
+
+export interface MemberRegistrationInput {
+  name: string;
+  email: string;
+  contactNo: string;
+  emergencyContact: string;
+  age: number;
+  gender: string;
+  duprId?: string;
+  reClubId?: string;
+  profileImageUrl?: string;
+  password?: string;
+  skills: Record<string, number | null>;
+}
+
+export interface MemberRegistrationResult {
+  memberId: string;
+  registered: true;
+}
+
 @Injectable()
 export class AppService {
+  private readonly logger = new Logger(AppService.name);
   private readonly monthNames = [
     'January',
     'February',
@@ -131,6 +158,9 @@ export class AppService {
     join(process.cwd(), 'src', 'data', 'OPParticipation');
   private readonly azureStorageAccount =
     process.env.OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT;
+  private readonly membersAzureStorageAccount =
+    process.env.MEMBERS_AZURE_STORAGE_ACCOUNT;
+  private readonly membersAzureTable = process.env.MEMBERS_AZURE_TABLE;
   private readonly azureContainerName =
     process.env.OP_PARTICIPATION_AZURE_CONTAINER;
   private readonly azurePrefix =
@@ -656,6 +686,46 @@ export class AppService {
     return { authenticated: true };
   }
 
+  async registerMember(
+    input: MemberRegistrationInput,
+  ): Promise<MemberRegistrationResult> {
+    const member = this.validateMemberRegistration(input);
+    const tableClient = this.getMembersTableClient();
+    const emailKey = Buffer.from(member.email).toString('base64url');
+    const passwordHash = member.password
+      ? await this.hashPassword(member.password)
+      : undefined;
+
+    try {
+      await tableClient.createEntity({
+        partitionKey: 'members',
+        rowKey: emailKey,
+        Name: member.name,
+        Email: member.email,
+        ContactNo: member.contactNo,
+        EmergencyContact: member.emergencyContact,
+        Age: member.age,
+        Gender: member.gender,
+        DUPRId: member.duprId,
+        ReclubId: member.reClubId,
+        ProfileImageUrl: member.profileImageUrl,
+        ...(passwordHash ? { PasswordHash: passwordHash } : {}),
+        Skills: JSON.stringify(member.skills),
+        CreatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      if (this.isAzureConflict(error)) {
+        throw new ConflictException(
+          'An account with this email address already exists.',
+        );
+      }
+
+      throw this.createMemberRegistrationStorageException(error);
+    }
+
+    return { memberId: emailKey, registered: true };
+  }
+
   async uploadMonthlyParticipationFiles(
     month: string,
     files: MonthlyParticipationFileUploadInput[],
@@ -752,6 +822,138 @@ export class AppService {
 
     return new BadRequestException(
       `Unable to upload ${blobName}: ${errorMessage}`,
+    );
+  }
+
+  private getMembersTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount || !this.membersAzureTable) {
+      throw new BadRequestException(
+        'MEMBERS_AZURE_STORAGE_ACCOUNT and MEMBERS_AZURE_TABLE are required for member registration.',
+      );
+    }
+
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.membersAzureTable,
+      new DefaultAzureCredential(),
+    );
+  }
+
+  private validateMemberRegistration(input: MemberRegistrationInput) {
+    const requiredTextFields = [
+      ['Name', input.name],
+      ['Email', input.email],
+      ['Contact number', input.contactNo],
+      ['Emergency contact', input.emergencyContact],
+      ['Gender', input.gender],
+    ];
+    const emptyField = requiredTextFields.find(
+      ([, value]) => typeof value !== 'string' || !value.trim(),
+    );
+
+    if (emptyField || !Number.isInteger(input.age) || input.age < 1) {
+      throw new BadRequestException('Complete all required member details.');
+    }
+
+    const email = input.email.trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      throw new BadRequestException('Enter a valid email address.');
+    }
+
+    if (input.password && input.password.length < 8) {
+      throw new BadRequestException('Password must contain at least 8 characters.');
+    }
+
+    const skills = Object.fromEntries(
+      Object.entries(input.skills ?? {}).map(([name, rating]) => {
+        if (
+          rating !== null &&
+          (!Number.isFinite(rating) || !Number.isInteger(rating) || rating < 0 || rating > 10)
+        ) {
+          throw new BadRequestException(
+            `Skill rating for ${name} must be a whole number from 0 to 10.`,
+          );
+        }
+
+        return [name, rating];
+      }),
+    );
+
+    return {
+      ...input,
+      name: input.name.trim(),
+      email,
+      contactNo: input.contactNo.trim(),
+      emergencyContact: input.emergencyContact.trim(),
+      gender: input.gender.trim(),
+      duprId: input.duprId?.trim() ?? '',
+      reClubId: input.reClubId?.trim() ?? '',
+      profileImageUrl: input.profileImageUrl?.trim() ?? '',
+      skills,
+    };
+  }
+
+  private async hashPassword(password: string): Promise<string> {
+    const salt = randomBytes(16).toString('hex');
+    const hash = (await scrypt(password, salt, 64)) as Buffer;
+
+    return `scrypt$${salt}$${hash.toString('hex')}`;
+  }
+
+  private isAzureConflict(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'statusCode' in error &&
+      error.statusCode === 409
+    );
+  }
+
+  private createMemberRegistrationStorageException(error: unknown) {
+    const statusCode =
+      typeof error === 'object' && error !== null && 'statusCode' in error
+        ? error.statusCode
+        : undefined;
+    const sdkErrorCode =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? error.code
+        : undefined;
+    const response =
+      typeof error === 'object' && error !== null && 'response' in error
+        ? error.response
+        : undefined;
+    const responseHeaders =
+      typeof response === 'object' && response !== null && 'headers' in response
+        ? response.headers
+        : undefined;
+    const headerErrorCode =
+      typeof responseHeaders === 'object' &&
+      responseHeaders !== null &&
+      'get' in responseHeaders &&
+      typeof responseHeaders.get === 'function'
+        ? responseHeaders.get('x-ms-error-code')
+        : null;
+    const errorCode = headerErrorCode ?? sdkErrorCode;
+
+    this.logger.error(
+      `Member registration Table Storage request failed with status ${String(statusCode ?? 'unknown')} and code ${String(errorCode ?? 'unknown')}.`,
+    );
+
+    if (statusCode === 403) {
+      return new BadGatewayException(
+        'Azure Table Storage denied registration. Grant the API managed identity the Storage Table Data Contributor role on the storage account, and allow the app through the storage firewall.',
+      );
+    }
+
+    if (statusCode === 404) {
+      return new BadGatewayException(
+        'Azure Table Storage could not find the configured Members table.',
+      );
+    }
+
+    const suffix = typeof errorCode === 'string' ? ` (${errorCode})` : '';
+    return new BadGatewayException(
+      `Azure Table Storage could not complete registration${suffix}.`,
     );
   }
 

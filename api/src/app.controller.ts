@@ -18,6 +18,8 @@ import { AppService } from './app.service';
 import type {
   DashboardAuthResult,
   ImportParticipantsResult,
+  MemberRegistrationInput,
+  MemberRegistrationResult,
   MonthlyParticipationUploadConfig,
   MonthlyParticipationUploadResult,
   MonthlyParticipationSummaryResponse,
@@ -34,6 +36,13 @@ export class AppController {
     @Body('password') password?: string,
   ): DashboardAuthResult {
     return this.appService.validateDashboardPassword(password ?? '');
+  }
+
+  @Post('members/register')
+  async registerMember(
+    @Body() member: MemberRegistrationInput,
+  ): Promise<MemberRegistrationResult> {
+    return this.appService.registerMember(member);
   }
 
   @Get('participation/monthly')

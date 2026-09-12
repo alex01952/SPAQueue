@@ -1,0 +1,54 @@
+<main class="registration-shell">
+  <header class="page-heading">
+    <p class="eyebrow">Membership</p>
+    <h1>Join the club</h1>
+    <p>Complete your member profile and rate each part of your game.</p>
+  </header>
+
+  <form #registrationForm="ngForm" class="registration-form" (ngSubmit)="submitRegistration()">
+    <section class="form-panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Profile</p>
+          <h2>Member details</h2>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <label [class.field-invalid]="registrationForm.submitted && name.invalid"><span>Name <b aria-hidden="true">*</b></span><input #name="ngModel" name="name" [(ngModel)]="member.name" required /><small>Name is required.</small></label>
+        <label [class.field-invalid]="registrationForm.submitted && email.invalid"><span>Email <b aria-hidden="true">*</b></span><input #email="ngModel" type="email" name="email" [(ngModel)]="member.email" required /><small>Enter a valid email address.</small></label>
+        <label [class.field-invalid]="registrationForm.submitted && contactNo.invalid"><span>Contact number <b aria-hidden="true">*</b></span><input #contactNo="ngModel" type="tel" name="contactNo" [(ngModel)]="member.contactNo" required /><small>Contact number is required.</small></label>
+        <label [class.field-invalid]="registrationForm.submitted && emergencyContact.invalid"><span>Emergency contact <b aria-hidden="true">*</b></span><input #emergencyContact="ngModel" name="emergencyContact" [(ngModel)]="member.emergencyContact" required /><small>Emergency contact is required.</small></label>
+        <label [class.field-invalid]="registrationForm.submitted && age.invalid"><span>Age <b aria-hidden="true">*</b></span><input #age="ngModel" type="number" min="1" name="age" [(ngModel)]="member.age" required /><small>Enter an age of at least 1.</small></label>
+        <label [class.field-invalid]="registrationForm.submitted && gender.invalid"><span>Gender <b aria-hidden="true">*</b></span><select #gender="ngModel" name="gender" [(ngModel)]="member.gender" required><option value="" disabled>Select</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select><small>Select a gender.</small></label>
+        <label [class.field-invalid]="registrationForm.submitted && duprId.invalid"><span>DUPR ID <b aria-hidden="true">*</b></span><input #duprId="ngModel" name="duprId" [(ngModel)]="member.duprId" required /><small>DUPR ID is required.</small></label>
+        <label [class.field-invalid]="registrationForm.submitted && reClubId.invalid"><span>Reclub ID <b aria-hidden="true">*</b></span><input #reClubId="ngModel" name="reClubId" [(ngModel)]="member.reClubId" required /><small>Reclub ID is required.</small></label>
+        <label class="full-width"><span>Profile image URL</span><input type="url" name="profileImageUrl" [(ngModel)]="member.profileImageUrl" placeholder="https://" /></label>
+        <label class="full-width"><span>Password</span><input type="password" name="password" [(ngModel)]="member.password" minlength="8" autocomplete="new-password" /><small>Optional. Use at least 8 characters when provided.</small></label>
+      </div>
+    </section>
+
+    <section class="form-panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Skills</p>
+          <h2>Skill ratings</h2>
+        </div>
+      </div>
+
+      <div class="skills-grid">
+        @for (skill of skillFields; track skill[0]) {
+          <label>
+            <span>{{ skill[1] }}</span>
+            <input type="number" min="0" max="10" step="1" [name]="'skill-' + skill[0]" [(ngModel)]="member.skills[skill[0]]" />
+          </label>
+        }
+      </div>
+    </section>
+
+    <button type="submit" class="submit-button" [disabled]="registrationForm.invalid || isSubmitting()">{{ isSubmitting() ? 'Registering...' : 'Register' }}</button>
+    @if (registrationMessage()) {
+      <p class="status-banner">{{ registrationMessage() }}</p>
+    }
+  </form>
+</main>
