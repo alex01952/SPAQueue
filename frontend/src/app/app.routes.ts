@@ -1,6 +1,8 @@
 import { Routes } from '@angular/router';
 import { App } from './app';
 import { dashboardAuthGuard } from './dashboard-auth.guard';
+import { MemberProfilePageComponent } from './member-profile/member-profile-page.component';
+import { MembersPageComponent } from './members/members-page.component';
 import { MonthlyParticipationPageComponent } from './monthly-participation/monthly-participation-page.component';
 import { MemberRegistrationPageComponent } from './member-registration/member-registration-page.component';
 import { ParticipationUploadPageComponent } from './participation-upload/participation-upload-page.component';
@@ -38,6 +40,16 @@ export const routes: Routes = [
     path: 'register',
     component: MemberRegistrationPageComponent,
     title: 'Member Registration',
+  },
+  {
+    path: 'member-profile',
+    component: MemberProfilePageComponent,
+    title: 'Member Profile',
+  },
+  {
+    path: 'members',
+    component: MembersPageComponent,
+    title: 'Members',
   },
   {
     path: '**',

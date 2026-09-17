@@ -1,0 +1,32 @@
+<main class="members-shell">
+  <header class="members-heading">
+    <p class="eyebrow">Members</p>
+    <h1>Club directory</h1>
+  </header>
+
+  <section class="directory-panel" aria-labelledby="members-search-label">
+    <label class="search-control">
+      <span id="members-search-label">Search members</span>
+      <input
+        type="search"
+        placeholder="Search by name, role, or club"
+        [value]="searchTerm()"
+        (input)="updateSearchTerm($any($event.target).value)"
+      />
+    </label>
+
+    @if (filteredMembers().length) {
+      <div class="members-grid" aria-live="polite">
+        @for (member of filteredMembers(); track member.id) {
+          <a class="member-icon" routerLink="/member-profile" [attr.aria-label]="'View ' + member.name + ' profile'">
+            <img [src]="member.profileImageUrl" [alt]="member.name" />
+            <strong>{{ member.name }}</strong>
+            <span>{{ member.role }}</span>
+          </a>
+        }
+      </div>
+    } @else {
+      <p class="empty-state">No members match that search.</p>
+    }
+  </section>
+</main>

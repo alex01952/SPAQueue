@@ -48,8 +48,14 @@ export class MemberRegistrationPageComponent {
     reClubId: '',
     profileImageUrl: '',
     password: '',
-    skills: Object.fromEntries(this.skillFields.map(([key]) => [key, null])),
+    skills: Object.fromEntries(this.skillFields.map(([key]) => [key, 0])),
   };
+
+  protected skillProgress(skillKey: string) {
+    const rating = this.member.skills[skillKey] ?? 0;
+
+    return Math.min(Math.max(rating, 0), 10) * 10;
+  }
 
   protected submitRegistration() {
     if (this.isSubmitting()) {

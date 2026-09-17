@@ -38,9 +38,21 @@
 
       <div class="skills-grid">
         @for (skill of skillFields; track skill[0]) {
-          <label>
-            <span>{{ skill[1] }}</span>
-            <input type="number" min="0" max="10" step="1" [name]="'skill-' + skill[0]" [(ngModel)]="member.skills[skill[0]]" />
+          <label class="skill-slider" [style.--skill-progress.%]="skillProgress(skill[0])">
+            <span>
+              {{ skill[1] }}
+              <output [attr.for]="'skill-' + skill[0]">{{ member.skills[skill[0]] ?? 0 }}</output>
+            </span>
+            <input
+              type="range"
+              min="0"
+              max="10"
+              step="1"
+              [id]="'skill-' + skill[0]"
+              [name]="'skill-' + skill[0]"
+              [attr.aria-label]="skill[1] + ' skill rating'"
+              [(ngModel)]="member.skills[skill[0]]"
+            />
           </label>
         }
       </div>
