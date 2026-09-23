@@ -288,6 +288,50 @@ describe('AppController', () => {
   });
 
   describe('member registration', () => {
+    it('should store the uploaded profile URL and a verifiable password hash', async () => {
+      const createEntity = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        createEntity,
+      });
+      jest
+        .spyOn(appService as any, 'uploadMemberProfileImage')
+        .mockResolvedValue(
+          'https://seeturtlesphsa.blob.core.windows.net/spa/member-profile-images/member/photo.jpg',
+        );
+
+      await appController.registerMember(
+        {
+          name: 'Alex Member',
+          email: 'alex@example.com',
+          contactNo: '09123456789',
+          emergencyContact: 'Emergency Contact',
+          age: 30,
+          gender: 'Female',
+          password: 'strong-password',
+          skills: {},
+        },
+        {
+          originalname: 'photo.jpg',
+          buffer: Buffer.from('image'),
+          mimetype: 'image/jpeg',
+          size: 5,
+        },
+      );
+
+      const entity = createEntity.mock.calls[0][0];
+      expect(entity.ProfileImageUrl).toBe(
+        'https://seeturtlesphsa.blob.core.windows.net/spa/member-profile-images/member/photo.jpg',
+      );
+      expect(entity.Password).toBeUndefined();
+      expect(entity.PasswordHash).toMatch(/^scrypt\$/);
+      await expect(
+        appService.verifyPassword('strong-password', entity.PasswordHash),
+      ).resolves.toBe(true);
+      await expect(
+        appService.verifyPassword('wrong-password', entity.PasswordHash),
+      ).resolves.toBe(false);
+    });
+
     it('should report Azure Table authorization failures returned in response headers', async () => {
       jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
         createEntity: jest.fn().mockRejectedValue({
@@ -311,11 +355,97 @@ describe('AppController', () => {
           emergencyContact: 'Emergency Contact',
           age: 30,
           gender: 'Female',
+          password: 'strong-password',
           skills: {},
         }),
       ).rejects.toThrow(
         'Grant the API managed identity the Storage Table Data Contributor role',
       );
+    });
+  });
+
+  describe('member authentication', () => {
+    it('should create and resolve a hashed server-side member session', async () => {
+      const passwordHash = await (appService as any).hashPassword(
+        'strong-password',
+      );
+      const memberEntity = {
+        partitionKey: 'members',
+        rowKey: Buffer.from('alex@example.com').toString('base64url'),
+        Name: 'Alex Member',
+        Email: 'alex@example.com',
+        ContactNo: '09123456789',
+        EmergencyContact: 'Emergency Contact',
+        Age: 30,
+        Gender: 'Female',
+        DUPRId: 'DUPR-123',
+        ReclubId: 'RECLUB-456',
+        ProfileImageUrl: 'https://example.com/alex.jpg',
+        Skills: JSON.stringify({ serve: 8, dink: 7 }),
+        CreatedAt: '2026-04-12T08:00:00.000Z',
+        PasswordHash: passwordHash,
+      };
+      let sessionEntity: Record<string, unknown> | undefined;
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn((partitionKey: string) => {
+          if (partitionKey === 'members') {
+            return Promise.resolve(memberEntity);
+          }
+
+          return Promise.resolve(sessionEntity);
+        }),
+        createEntity: jest.fn((entity: Record<string, unknown>) => {
+          sessionEntity = entity;
+          return Promise.resolve();
+        }),
+      });
+      const response = { cookie: jest.fn() } as any;
+
+      const login = await appController.loginMember(
+        'Alex@Example.com',
+        'strong-password',
+        response,
+      );
+
+      const [cookieName, sessionToken, cookieOptions] =
+        response.cookie.mock.calls[0];
+      expect(login.member).toMatchObject({
+        name: 'Alex Member',
+        age: 30,
+        gender: 'Female',
+        duprId: 'DUPR-123',
+        reClubId: 'RECLUB-456',
+        skills: { serve: 8, dink: 7 },
+        createdAt: '2026-04-12T08:00:00.000Z',
+      });
+      expect(login.member).not.toHaveProperty('email');
+      expect(login.member).not.toHaveProperty('contactNo');
+      expect(login.member).not.toHaveProperty('emergencyContact');
+      expect(login.member).not.toHaveProperty('PasswordHash');
+      expect(cookieName).toBe('spaqueue_member_session');
+      expect(cookieOptions).toMatchObject({ httpOnly: true, sameSite: 'lax' });
+      expect(sessionEntity?.partitionKey).toBe('sessions');
+      expect(sessionEntity?.rowKey).not.toBe(sessionToken);
+      expect(String(sessionEntity?.rowKey)).toHaveLength(64);
+
+      await expect(
+        appController.getMemberSession(
+          `other=value; ${cookieName}=${sessionToken}`,
+        ),
+      ).resolves.toEqual({ authenticated: true, member: login.member });
+    });
+
+    it('should reject an invalid password without revealing account details', async () => {
+      const passwordHash = await (appService as any).hashPassword(
+        'strong-password',
+      );
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn().mockResolvedValue({ PasswordHash: passwordHash }),
+      });
+
+      await expect(
+        appService.loginMember('alex@example.com', 'wrong-password'),
+      ).rejects.toThrow('Invalid email or password.');
     });
   });
 

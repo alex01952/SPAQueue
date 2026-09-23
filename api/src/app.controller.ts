@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   DefaultValuePipe,
@@ -10,16 +11,21 @@ import {
   Patch,
   Post,
   Query,
+  Res,
+  UploadedFile,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { AppService } from './app.service';
 import type {
   DashboardAuthResult,
   ImportParticipantsResult,
   MemberRegistrationInput,
   MemberRegistrationResult,
+  MemberSessionResult,
+  MemberProfileImageUploadInput,
   MonthlyParticipationUploadConfig,
   MonthlyParticipationUploadResult,
   MonthlyParticipationSummaryResponse,
@@ -29,6 +35,8 @@ import type { QueueSelectionMode, TeamMatchingMode } from './queue.types';
 
 @Controller()
 export class AppController {
+  private readonly memberSessionCookieName = 'spaqueue_member_session';
+
   constructor(private readonly appService: AppService) {}
 
   @Post('dashboard-auth')
@@ -39,10 +47,116 @@ export class AppController {
   }
 
   @Post('members/register')
+  @UseInterceptors(
+    FileInterceptor('profileImage', {
+      limits: {
+        fileSize: 5 * 1024 * 1024,
+      },
+    }),
+  )
   async registerMember(
-    @Body() member: MemberRegistrationInput,
+    @Body() body: Record<string, unknown>,
+    @UploadedFile() profileImage?: MemberProfileImageUploadInput,
   ): Promise<MemberRegistrationResult> {
-    return this.appService.registerMember(member);
+    const member: MemberRegistrationInput = {
+      name: String(body.name ?? ''),
+      email: String(body.email ?? ''),
+      contactNo: String(body.contactNo ?? ''),
+      emergencyContact: String(body.emergencyContact ?? ''),
+      age: Number(body.age),
+      gender: String(body.gender ?? ''),
+      duprId: String(body.duprId ?? ''),
+      reClubId: String(body.reClubId ?? ''),
+      profileImageUrl: String(body.profileImageUrl ?? ''),
+      password: String(body.password ?? ''),
+      skills: this.parseMemberSkills(body.skills),
+    };
+
+    return this.appService.registerMember(member, profileImage);
+  }
+
+  @Post('members/login')
+  async loginMember(
+    @Body('email') email = '',
+    @Body('password') password = '',
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<MemberSessionResult> {
+    const login = await this.appService.loginMember(email, password);
+    response.cookie(this.memberSessionCookieName, login.sessionToken, {
+      httpOnly: true,
+      maxAge: Math.max(0, Date.parse(login.expiresAt) - Date.now()),
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+    });
+
+    return { authenticated: true, member: login.member };
+  }
+
+  @Get('members/session')
+  getMemberSession(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<MemberSessionResult> {
+    return this.appService.getMemberSession(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Post('members/logout')
+  async logoutMember(
+    @Headers('cookie') cookieHeader = '',
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<{ authenticated: false }> {
+    await this.appService.logoutMember(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+    response.clearCookie(this.memberSessionCookieName, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+    });
+
+    return { authenticated: false };
+  }
+
+  private readCookie(cookieHeader: string, name: string): string {
+    const cookie = cookieHeader
+      .split(';')
+      .map((entry) => entry.trim())
+      .find((entry) => entry.startsWith(`${name}=`));
+
+    if (!cookie) {
+      return '';
+    }
+
+    try {
+      return decodeURIComponent(cookie.slice(name.length + 1));
+    } catch {
+      return '';
+    }
+  }
+
+  private parseMemberSkills(value?: unknown): Record<string, number | null> {
+    if (!value) {
+      return {};
+    }
+
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, number | null>;
+    }
+
+    try {
+      const skills: unknown = JSON.parse(String(value));
+
+      if (typeof skills !== 'object' || skills === null || Array.isArray(skills)) {
+        throw new Error('Invalid skills payload.');
+      }
+
+      return skills as Record<string, number | null>;
+    } catch {
+      throw new BadRequestException('Skill ratings must be valid JSON.');
+    }
   }
 
   @Get('participation/monthly')

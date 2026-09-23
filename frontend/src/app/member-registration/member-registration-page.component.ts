@@ -37,6 +37,7 @@ export class MemberRegistrationPageComponent {
   ] as const;
   protected readonly registrationMessage = signal('');
   protected readonly isSubmitting = signal(false);
+  protected readonly selectedProfileImage = signal<File | null>(null);
   protected readonly member: MemberRegistration = {
     name: '',
     email: '',
@@ -57,6 +58,11 @@ export class MemberRegistrationPageComponent {
     return Math.min(Math.max(rating, 0), 10) * 10;
   }
 
+  protected selectProfileImage(event: Event) {
+    const input = event.target as HTMLInputElement;
+    this.selectedProfileImage.set(input.files?.[0] ?? null);
+  }
+
   protected submitRegistration() {
     if (this.isSubmitting()) {
       return;
@@ -64,10 +70,24 @@ export class MemberRegistrationPageComponent {
 
     this.isSubmitting.set(true);
     this.registrationMessage.set('');
+    const registration = new FormData();
+
+    for (const [field, value] of Object.entries(this.member)) {
+      registration.append(
+        field,
+        field === 'skills' ? JSON.stringify(value) : String(value ?? ''),
+      );
+    }
+
+    const profileImage = this.selectedProfileImage();
+    if (profileImage) {
+      registration.append('profileImage', profileImage, profileImage.name);
+    }
+
     this.http
       .post<{ memberId: string; registered: true }>(
         `${getApiBaseUrl()}/members/register`,
-        this.member,
+        registration,
       )
       .subscribe({
         next: () => {

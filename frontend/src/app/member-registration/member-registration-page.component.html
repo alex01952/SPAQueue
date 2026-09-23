@@ -23,8 +23,15 @@
         <label [class.field-invalid]="registrationForm.submitted && gender.invalid"><span>Gender <b aria-hidden="true">*</b></span><select #gender="ngModel" name="gender" [(ngModel)]="member.gender" required><option value="" disabled>Select</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select><small>Select a gender.</small></label>
         <label [class.field-invalid]="registrationForm.submitted && duprId.invalid"><span>DUPR ID <b aria-hidden="true">*</b></span><input #duprId="ngModel" name="duprId" [(ngModel)]="member.duprId" required /><small>DUPR ID is required.</small></label>
         <label [class.field-invalid]="registrationForm.submitted && reClubId.invalid"><span>Reclub ID <b aria-hidden="true">*</b></span><input #reClubId="ngModel" name="reClubId" [(ngModel)]="member.reClubId" required /><small>Reclub ID is required.</small></label>
-        <label class="full-width"><span>Profile image URL</span><input type="url" name="profileImageUrl" [(ngModel)]="member.profileImageUrl" placeholder="https://" /></label>
-        <label class="full-width"><span>Password</span><input type="password" name="password" [(ngModel)]="member.password" minlength="8" autocomplete="new-password" /><small>Optional. Use at least 8 characters when provided.</small></label>
+        <label class="full-width">
+          <span>Profile image</span>
+          <input type="file" name="profileImage" accept="image/jpeg,image/png,image/webp,image/gif" (change)="selectProfileImage($event)" />
+          <small class="field-help">JPEG, PNG, WebP, or GIF. Maximum 5 MB.</small>
+          @if (selectedProfileImage(); as profileImage) {
+            <span class="selected-file">{{ profileImage.name }}</span>
+          }
+        </label>
+        <label class="full-width" [class.field-invalid]="registrationForm.submitted && password.invalid"><span>Password <b aria-hidden="true">*</b></span><input #password="ngModel" type="password" name="password" [(ngModel)]="member.password" minlength="8" autocomplete="new-password" required /><small>Use at least 8 characters.</small></label>
       </div>
     </section>
 

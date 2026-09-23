@@ -1,63 +1,74 @@
 <main class="profile-shell">
-  <section class="profile-layout" aria-labelledby="member-profile-title">
-    <aside class="photo-panel">
-      <img [src]="member().profileImageUrl" [alt]="member().name + ' profile photo'" />
-      <div class="member-card">
-        <p class="eyebrow">Member profile</p>
-        <h1 id="member-profile-title">{{ member().name }}</h1>
-        <p>{{ member().role }} · {{ member().location }}</p>
-      </div>
-    </aside>
-
-    <section class="details-panel" aria-label="Member stats and skills">
-      <div class="summary-strip">
-        <div>
-          <span>Member since</span>
-          <strong>{{ member().memberSince }}</strong>
-        </div>
-        <div>
-          <span>Average skill</span>
-          <strong>{{ averageSkill() }}</strong>
-        </div>
-        <div>
-          <span>DUPR ID</span>
-          <strong>{{ member().duprId }}</strong>
-        </div>
-        <div>
-          <span>Reclub ID</span>
-          <strong>{{ member().reClubId }}</strong>
-        </div>
-      </div>
-
-      <div class="stats-grid">
-        @for (stat of member().stats; track stat.label) {
-          <article class="stat-card">
-            <span>{{ stat.label }}</span>
-            <strong>{{ stat.value }}</strong>
-          </article>
+  @if (member(); as member) {
+    <section class="profile-layout" aria-labelledby="member-profile-title">
+      <aside class="photo-panel">
+        @if (member.profileImageUrl) {
+          <img [src]="member.profileImageUrl" [alt]="member.name + ' profile photo'" />
+        } @else {
+          <span class="photo-placeholder" aria-hidden="true">{{ initials() }}</span>
         }
-      </div>
+        <div class="member-card">
+          <p class="eyebrow">Member profile</p>
+          <h1 id="member-profile-title">{{ member.name }}</h1>
+          <p>Sorsogon Pickleball Club</p>
+        </div>
+      </aside>
 
-      <section class="skills-panel" aria-labelledby="skills-title">
-        <div class="section-heading">
-          <p class="eyebrow">Skills</p>
-          <h2 id="skills-title">Ratings</h2>
+      <section class="details-panel" aria-label="Member details and skills">
+        <div class="summary-strip">
+          <div>
+            <span>Member since</span>
+            <strong>{{ memberSince() }}</strong>
+          </div>
+          <div>
+            <span>Average skill</span>
+            <strong>{{ averageSkill() }}</strong>
+          </div>
+          <div>
+            <span>DUPR ID</span>
+            <strong>{{ member.duprId || 'Not provided' }}</strong>
+          </div>
+          <div>
+            <span>Reclub ID</span>
+            <strong>{{ member.reClubId || 'Not provided' }}</strong>
+          </div>
+          <div>
+            <span>Age</span>
+            <strong>{{ publicDetail(member.age) }}</strong>
+          </div>
+          <div>
+            <span>Gender</span>
+            <strong>{{ publicDetail(member.gender) }}</strong>
+          </div>
         </div>
 
-        <div class="skills-list">
-          @for (skill of member().skills; track skill.name) {
-            <div class="skill-row" [style.--skill-progress.%]="skillProgress(skill.rating)">
-              <div class="skill-heading">
-                <span>{{ skill.name }}</span>
-                <strong>{{ skill.rating }}/10</strong>
-              </div>
-              <div class="skill-track" aria-hidden="true">
-                <span></span>
-              </div>
+        <section class="skills-panel" aria-labelledby="skills-title">
+          <div class="section-heading">
+            <p class="eyebrow">Skills</p>
+            <h2 id="skills-title">Ratings</h2>
+          </div>
+
+          @if (skills().length) {
+            <div class="skills-list">
+              @for (skill of skills(); track skill.name) {
+                <div class="skill-row" [style.--skill-progress.%]="skillProgress(skill.rating)">
+                  <div class="skill-heading">
+                    <span>{{ skill.name }}</span>
+                    <strong>{{ skill.rating }}/10</strong>
+                  </div>
+                  <div class="skill-track" aria-hidden="true">
+                    <span></span>
+                  </div>
+                </div>
+              }
             </div>
+          } @else {
+            <p class="empty-state">No skill ratings have been added.</p>
           }
-        </div>
+        </section>
       </section>
     </section>
-  </section>
+  } @else {
+    <p class="empty-state">Loading member profile.</p>
+  }
 </main>

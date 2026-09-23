@@ -1,0 +1,47 @@
+<main class="home-shell">
+  <header class="home-header">
+    <a class="brand" routerLink="/home" aria-label="SPA Queue home">
+      <img [src]="logoUrl" alt="Sorsogon Pickleball Arena" />
+      <span>Sorsogon Pickleball Arena</span>
+    </a>
+
+    <div class="member-summary">
+      @if (member()?.profileImageUrl) {
+        <img [src]="member()?.profileImageUrl" [alt]="member()?.name + ' profile photo'" />
+      }
+      <span>{{ member()?.name }}</span>
+    </div>
+  </header>
+
+  <section class="home-intro" aria-labelledby="home-title">
+    <p class="eyebrow">Member home</p>
+    <h1 id="home-title">Welcome, {{ member()?.name || 'player' }}.</h1>
+    <p>Choose where you want to go next.</p>
+  </section>
+
+  <nav class="home-menu" aria-label="Member menu">
+    @for (item of menuItems; track item.route) {
+      <a [routerLink]="item.route" class="menu-item">
+        <span class="menu-index">{{ item.index }}</span>
+        <span class="menu-copy">
+          <strong>{{ item.label }}</strong>
+          <small>{{ item.description }}</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
+    }
+
+    <button type="button" class="menu-item logout-item" [disabled]="isLoggingOut()" (click)="logout()">
+      <span class="menu-index">06</span>
+      <span class="menu-copy">
+        <strong>{{ isLoggingOut() ? 'Logging out...' : 'Logout' }}</strong>
+        <small>End your member session on this device.</small>
+      </span>
+      <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+    </button>
+  </nav>
+
+  @if (logoutError()) {
+    <p class="error-banner" role="alert">{{ logoutError() }}</p>
+  }
+</main>

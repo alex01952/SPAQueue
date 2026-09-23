@@ -11,6 +11,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableCors({
     origin: 'http://localhost:4200',
+    credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'x-dashboard-password'],
   });
@@ -22,7 +23,7 @@ async function bootstrap() {
     app.useStaticAssets(frontendPath);
     app.use((request, response, next) => {
       const isApiRoute =
-        /^(\/queue|\/participation|\/players|\/games)(\/|$)/.test(request.path);
+        /^(\/queue|\/participation|\/players|\/games|\/members)(\/|$)/.test(request.path);
 
       if (request.method !== 'GET' || isApiRoute) {
         next();

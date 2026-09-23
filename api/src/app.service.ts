@@ -11,7 +11,13 @@ import {
 import { DefaultAzureCredential } from '@azure/identity';
 import { TableClient } from '@azure/data-tables';
 import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  scrypt as scryptCallback,
+  timingSafeEqual,
+} from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -87,6 +93,13 @@ interface MonthlyParticipationFileUploadInput {
   size: number;
 }
 
+export interface MemberProfileImageUploadInput {
+  originalname: string;
+  buffer: Buffer;
+  mimetype?: string;
+  size: number;
+}
+
 interface ParticipationSourceFile {
   name: string;
   contents: string;
@@ -127,13 +140,36 @@ export interface MemberRegistrationInput {
   duprId?: string;
   reClubId?: string;
   profileImageUrl?: string;
-  password?: string;
+  password: string;
   skills: Record<string, number | null>;
 }
 
 export interface MemberRegistrationResult {
   memberId: string;
   registered: true;
+}
+
+export interface AuthenticatedMember {
+  memberId: string;
+  name: string;
+  age: number | null;
+  gender: string;
+  duprId: string;
+  reClubId: string;
+  profileImageUrl: string;
+  skills: Record<string, number | null>;
+  createdAt: string;
+}
+
+export interface MemberLoginResult {
+  sessionToken: string;
+  expiresAt: string;
+  member: AuthenticatedMember;
+}
+
+export interface MemberSessionResult {
+  authenticated: true;
+  member: AuthenticatedMember;
 }
 
 @Injectable()
@@ -173,6 +209,10 @@ export class AppService {
     10,
   );
   private readonly dashboardPassword = process.env.DASHBOARD_PASSWORD ?? '';
+  private readonly memberSessionTtlHours = Math.max(
+    1,
+    Number.parseInt(process.env.MEMBER_SESSION_TTL_HOURS ?? '24', 10) || 24,
+  );
   private readonly writableDataRootPath =
     process.env.RUNTIME_DATA_ROOT_PATH ??
     (process.env.WEBSITE_SITE_NAME
@@ -688,6 +728,7 @@ export class AppService {
 
   async registerMember(
     input: MemberRegistrationInput,
+    profileImage?: MemberProfileImageUploadInput,
   ): Promise<MemberRegistrationResult> {
     const member = this.validateMemberRegistration(input);
     const tableClient = this.getMembersTableClient();
@@ -695,6 +736,9 @@ export class AppService {
     const passwordHash = member.password
       ? await this.hashPassword(member.password)
       : undefined;
+    const profileImageUrl = profileImage
+      ? await this.uploadMemberProfileImage(emailKey, profileImage)
+      : member.profileImageUrl;
 
     try {
       await tableClient.createEntity({
@@ -708,7 +752,7 @@ export class AppService {
         Gender: member.gender,
         DUPRId: member.duprId,
         ReclubId: member.reClubId,
-        ProfileImageUrl: member.profileImageUrl,
+        ProfileImageUrl: profileImageUrl,
         ...(passwordHash ? { PasswordHash: passwordHash } : {}),
         Skills: JSON.stringify(member.skills),
         CreatedAt: new Date().toISOString(),
@@ -724,6 +768,249 @@ export class AppService {
     }
 
     return { memberId: emailKey, registered: true };
+  }
+
+  async loginMember(emailInput: string, password: string): Promise<MemberLoginResult> {
+    const email = emailInput.trim().toLowerCase();
+
+    if (!email || !password) {
+      throw new UnauthorizedException('Invalid email or password.');
+    }
+
+    const memberId = Buffer.from(email).toString('base64url');
+    const tableClient = this.getMembersTableClient();
+    let member: Record<string, unknown>;
+
+    try {
+      member = await tableClient.getEntity('members', memberId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new UnauthorizedException('Invalid email or password.');
+      }
+
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    const passwordHash = String(member.PasswordHash ?? '');
+    const passwordIsValid = await this.verifyPassword(password, passwordHash);
+
+    if (!passwordIsValid) {
+      throw new UnauthorizedException('Invalid email or password.');
+    }
+
+    const sessionToken = randomBytes(32).toString('base64url');
+    const sessionId = this.hashSessionToken(sessionToken);
+    const expiresAt = new Date(
+      Date.now() + this.memberSessionTtlHours * 60 * 60 * 1000,
+    ).toISOString();
+
+    try {
+      await tableClient.createEntity({
+        partitionKey: 'sessions',
+        rowKey: sessionId,
+        MemberId: memberId,
+        ExpiresAt: expiresAt,
+        CreatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return {
+      sessionToken,
+      expiresAt,
+      member: this.toAuthenticatedMember(memberId, member),
+    };
+  }
+
+  async getMemberSession(sessionToken: string): Promise<MemberSessionResult> {
+    if (!sessionToken) {
+      throw new UnauthorizedException('Member session is required.');
+    }
+
+    const tableClient = this.getMembersTableClient();
+    const sessionId = this.hashSessionToken(sessionToken);
+    let session: Record<string, unknown>;
+
+    try {
+      session = await tableClient.getEntity('sessions', sessionId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new UnauthorizedException('Member session is invalid or expired.');
+      }
+
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    const expiresAt = Date.parse(String(session.ExpiresAt ?? ''));
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      await tableClient.deleteEntity('sessions', sessionId).catch(() => undefined);
+      throw new UnauthorizedException('Member session is invalid or expired.');
+    }
+
+    const memberId = String(session.MemberId ?? '');
+
+    try {
+      const member = await tableClient.getEntity('members', memberId);
+      return {
+        authenticated: true,
+        member: this.toAuthenticatedMember(memberId, member),
+      };
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new UnauthorizedException('Member session is invalid or expired.');
+      }
+
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  async logoutMember(sessionToken: string): Promise<void> {
+    if (!sessionToken) {
+      return;
+    }
+
+    try {
+      await this.getMembersTableClient().deleteEntity(
+        'sessions',
+        this.hashSessionToken(sessionToken),
+      );
+    } catch (error) {
+      if (!this.isAzureNotFound(error)) {
+        throw this.createMemberAuthenticationStorageException(error);
+      }
+    }
+  }
+
+  private hashSessionToken(sessionToken: string): string {
+    return createHash('sha256').update(sessionToken).digest('hex');
+  }
+
+  private toAuthenticatedMember(
+    memberId: string,
+    entity: Record<string, unknown>,
+  ): AuthenticatedMember {
+    const age = Number(entity.Age);
+
+    return {
+      memberId,
+      name: String(entity.Name ?? ''),
+      age: Number.isFinite(age) ? age : null,
+      gender: String(entity.Gender ?? ''),
+      duprId: String(entity.DUPRId ?? ''),
+      reClubId: String(entity.ReclubId ?? ''),
+      profileImageUrl: String(entity.ProfileImageUrl ?? ''),
+      skills: this.parseStoredMemberSkills(entity.Skills),
+      createdAt: String(entity.CreatedAt ?? ''),
+    };
+  }
+
+  private parseStoredMemberSkills(value: unknown): Record<string, number | null> {
+    let skills: unknown = value;
+
+    if (typeof value === 'string') {
+      try {
+        skills = JSON.parse(value);
+      } catch {
+        return {};
+      }
+    }
+
+    if (typeof skills !== 'object' || skills === null || Array.isArray(skills)) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(skills).map(([name, rating]) => [
+        name,
+        typeof rating === 'number' && Number.isFinite(rating) ? rating : null,
+      ]),
+    );
+  }
+
+  private async uploadMemberProfileImage(
+    memberId: string,
+    file: MemberProfileImageUploadInput,
+  ): Promise<string> {
+    if (!this.azureStorageAccount || !this.azureContainerName) {
+      throw new BadRequestException(
+        'OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT and OP_PARTICIPATION_AZURE_CONTAINER are required for profile image uploads.',
+      );
+    }
+
+    const supportedImageTypes: Record<string, string> = {
+      'image/gif': 'gif',
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    };
+    const extension = file.mimetype
+      ? supportedImageTypes[file.mimetype.toLowerCase()]
+      : undefined;
+
+    if (!extension) {
+      throw new BadRequestException(
+        'Profile image must be a JPEG, PNG, WebP, or GIF file.',
+      );
+    }
+
+    if (!this.hasExpectedImageSignature(file.buffer, extension)) {
+      throw new BadRequestException(
+        'Profile image contents do not match the selected file type.',
+      );
+    }
+
+    if (!file.size || file.size > 5 * 1024 * 1024) {
+      throw new BadRequestException('Profile image must be 5 MB or smaller.');
+    }
+
+    const blobName = `member-profile-images/${memberId}/${randomUUID()}.${extension}`;
+    const blockBlobClient = new BlobServiceClient(
+      `https://${this.azureStorageAccount}.blob.core.windows.net`,
+      new DefaultAzureCredential(),
+      {
+        retryOptions: {
+          maxTries: 1,
+          tryTimeoutInMs: this.azureUploadTimeoutMs,
+        },
+      },
+    )
+      .getContainerClient(this.azureContainerName)
+      .getBlockBlobClient(blobName);
+
+    try {
+      await this.uploadParticipationBlob(
+        blockBlobClient,
+        file.buffer,
+        file.mimetype,
+      );
+    } catch (error) {
+      throw this.createAzureUploadException(error, blobName);
+    }
+
+    return blockBlobClient.url;
+  }
+
+  private hasExpectedImageSignature(buffer: Buffer, extension: string): boolean {
+    if (extension === 'jpg') {
+      return buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]));
+    }
+
+    if (extension === 'png') {
+      return buffer
+        .subarray(0, 8)
+        .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    }
+
+    if (extension === 'gif') {
+      const signature = buffer.subarray(0, 6).toString('ascii');
+      return signature === 'GIF87a' || signature === 'GIF89a';
+    }
+
+    return (
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+    );
   }
 
   async uploadMonthlyParticipationFiles(
@@ -860,7 +1147,7 @@ export class AppService {
       throw new BadRequestException('Enter a valid email address.');
     }
 
-    if (input.password && input.password.length < 8) {
+    if (!input.password || input.password.length < 8) {
       throw new BadRequestException('Password must contain at least 8 characters.');
     }
 
@@ -900,12 +1187,45 @@ export class AppService {
     return `scrypt$${salt}$${hash.toString('hex')}`;
   }
 
+  async verifyPassword(password: string, storedHash: string): Promise<boolean> {
+    const [algorithm, salt, expectedHashHex] = storedHash.split('$');
+
+    if (algorithm !== 'scrypt' || !salt || !expectedHashHex) {
+      return false;
+    }
+
+    const expectedHash = Buffer.from(expectedHashHex, 'hex');
+    if (!expectedHash.length) {
+      return false;
+    }
+
+    const actualHash = (await scrypt(password, salt, expectedHash.length)) as Buffer;
+
+    return timingSafeEqual(expectedHash, actualHash);
+  }
+
   private isAzureConflict(error: unknown): boolean {
     return (
       typeof error === 'object' &&
       error !== null &&
       'statusCode' in error &&
       error.statusCode === 409
+    );
+  }
+
+  private isAzureNotFound(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'statusCode' in error &&
+      error.statusCode === 404
+    );
+  }
+
+  private createMemberAuthenticationStorageException(error: unknown) {
+    this.logger.error('Member authentication storage operation failed.', error);
+    return new BadGatewayException(
+      'Member authentication is temporarily unavailable. Please try again.',
     );
   }
 

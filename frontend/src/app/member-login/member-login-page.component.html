@@ -1,0 +1,55 @@
+<main class="login-shell">
+  <section class="login-layout" aria-labelledby="member-login-title">
+    <div class="login-scene" aria-hidden="true">
+      <div class="court-lines"></div>
+      <p>SPA</p>
+      <strong>Play starts here.</strong>
+    </div>
+
+    <section class="login-panel">
+      <header>
+        <p class="eyebrow">Member access</p>
+        <h1 id="member-login-title">Welcome back</h1>
+        <p>Sign in with the email and password from your member registration.</p>
+      </header>
+
+      <form #loginForm="ngForm" (ngSubmit)="submitLogin()">
+        <label [class.field-invalid]="loginForm.submitted && emailField.invalid">
+          <span>Email</span>
+          <input
+            #emailField="ngModel"
+            type="email"
+            name="email"
+            [(ngModel)]="email"
+            autocomplete="email"
+            required
+          />
+          <small>Enter a valid email address.</small>
+        </label>
+
+        <label [class.field-invalid]="loginForm.submitted && passwordField.invalid">
+          <span>Password</span>
+          <input
+            #passwordField="ngModel"
+            type="password"
+            name="password"
+            [(ngModel)]="password"
+            autocomplete="current-password"
+            required
+          />
+          <small>Password is required.</small>
+        </label>
+
+        @if (loginError()) {
+          <p class="error-banner" role="alert">{{ loginError() }}</p>
+        }
+
+        <button type="submit" [disabled]="loginForm.invalid || isSubmitting()">
+          {{ isSubmitting() ? 'Signing in...' : 'Sign in' }}
+        </button>
+      </form>
+
+      <p class="registration-link">New to the club? <a routerLink="/register">Create an account</a></p>
+    </section>
+  </section>
+</main>

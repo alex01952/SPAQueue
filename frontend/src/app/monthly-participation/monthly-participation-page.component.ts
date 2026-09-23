@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { getApiBaseUrl } from '../api-base-url';
 
 interface MonthlyParticipationPlayer {
@@ -26,6 +27,7 @@ interface MonthlyParticipationSummaryResponse {
 })
 export class MonthlyParticipationPageComponent implements OnInit {
   private readonly http = inject(HttpClient);
+  private readonly route = inject(ActivatedRoute);
   private readonly apiBaseUrl = getApiBaseUrl();
 
   protected readonly logoUrl =
@@ -97,6 +99,10 @@ export class MonthlyParticipationPageComponent implements OnInit {
   );
 
   ngOnInit() {
+    if (this.route.snapshot.data['arenaMastersOnly']) {
+      this.showArenaMasterEligibleOnly.set(true);
+    }
+
     this.loadSummaries();
   }
 

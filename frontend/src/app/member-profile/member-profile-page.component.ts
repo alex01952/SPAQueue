@@ -1,25 +1,9 @@
-import { Component, computed, signal } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
+import { MemberAuthService } from '../member-auth.service';
 
 interface MemberSkill {
   name: string;
   rating: number;
-}
-
-interface MemberStat {
-  label: string;
-  value: string;
-}
-
-interface MemberProfile {
-  name: string;
-  role: string;
-  location: string;
-  profileImageUrl: string;
-  memberSince: string;
-  duprId: string;
-  reClubId: string;
-  stats: MemberStat[];
-  skills: MemberSkill[];
 }
 
 @Component({
@@ -29,34 +13,38 @@ interface MemberProfile {
   styleUrl: './member-profile-page.component.scss',
 })
 export class MemberProfilePageComponent {
-  protected readonly member = signal<MemberProfile>({
-    name: 'Alex Rivera',
-    role: 'Club Member',
-    location: 'Sorsogon Pickleball Club',
-    profileImageUrl:
-      'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=900&q=80',
-    memberSince: '2026',
-    duprId: 'DUPR-45891',
-    reClubId: 'RECLUB-2048',
-    stats: [
-      { label: 'Open play sessions', value: '38' },
-      { label: 'Completed games', value: '126' },
-      { label: 'DUPR rating', value: '4.12' },
-    ],
-    skills: [
-      { name: 'Serve', rating: 8 },
-      { name: 'Return', rating: 7 },
-      { name: 'Drive', rating: 8 },
-      { name: 'Drop', rating: 6 },
-      { name: 'Dink', rating: 7 },
-      { name: 'Volley', rating: 9 },
-      { name: 'Footwork', rating: 8 },
-      { name: 'Court Awareness', rating: 9 },
-    ],
+  private readonly auth = inject(MemberAuthService);
+
+  protected readonly member = this.auth.member;
+  protected readonly skills = computed<MemberSkill[]>(() =>
+    Object.entries(this.member()?.skills ?? {})
+      .filter((entry): entry is [string, number] => typeof entry[1] === 'number')
+      .map(([name, rating]) => ({
+        name: name
+          .replace(/([a-z])([A-Z])/g, '$1 $2')
+          .replace(/^./, (letter) => letter.toUpperCase()),
+        rating,
+      })),
+  );
+  protected readonly memberSince = computed(() => {
+    const createdAt = this.member()?.createdAt;
+    const date = createdAt ? new Date(createdAt) : null;
+
+    return date && !Number.isNaN(date.getTime())
+      ? new Intl.DateTimeFormat(undefined, { year: 'numeric' }).format(date)
+      : 'Not available';
   });
+  protected readonly initials = computed(() =>
+    (this.member()?.name ?? 'Member')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join(''),
+  );
 
   protected readonly averageSkill = computed(() => {
-    const skills = this.member().skills;
+    const skills = this.skills();
 
     if (!skills.length) {
       return '0.0';
@@ -66,6 +54,10 @@ export class MemberProfilePageComponent {
 
     return (total / skills.length).toFixed(1);
   });
+
+  protected publicDetail(value: string | number | null) {
+    return value === null || value === '' ? 'Not provided' : String(value);
+  }
 
   protected skillProgress(rating: number) {
     return Math.min(Math.max(rating, 0), 10) * 10;

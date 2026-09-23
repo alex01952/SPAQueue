@@ -14,6 +14,8 @@ label { display: grid; gap: 6px; color: var(--text-secondary); font-size: .82rem
 label span { display: flex; align-items: center; gap: 7px; }
 label b { color: #b84331; font-size: 1rem; line-height: 1; }
 label small { display: none; color: #9e3e2b; font-size: .72rem; }
+.field-help { display: block; color: var(--text-secondary); }
+.selected-file { color: var(--accent-dark); font-size: .78rem; font-weight: 700; overflow-wrap: anywhere; }
 .field-invalid input, .field-invalid select { border-color: #b84331; box-shadow: 0 0 0 2px rgba(184, 67, 49, .14); }
 .field-invalid small { display: block; }
 .full-width { grid-column: 1 / -1; }

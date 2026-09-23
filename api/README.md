@@ -67,7 +67,12 @@ Set the variables below to read from an Azure Storage account container:
 OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT=seeturtlesphsa
 OP_PARTICIPATION_AZURE_CONTAINER=spa
 OP_PARTICIPATION_AZURE_PREFIX=2026
+MEMBERS_AZURE_STORAGE_ACCOUNT=seeturtlesphsa
+MEMBERS_AZURE_TABLE=Members
+MEMBER_SESSION_TTL_HOURS=24
 ```
+
+Member login stores password hashes and hashed, expiring session tokens in the configured table. The API sends the raw session token only as an `HttpOnly` cookie. Grant the API managed identity the `Storage Table Data Contributor` role on the storage account; image uploads also require `Storage Blob Data Contributor`.
 
 Notes:
 
