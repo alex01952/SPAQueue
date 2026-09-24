@@ -11,7 +11,6 @@ import {
 import { DefaultAzureCredential } from '@azure/identity';
 import { TableClient } from '@azure/data-tables';
 import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
-import nodemailer from 'nodemailer';
 import {
   createHash,
   randomBytes,
@@ -1218,32 +1217,39 @@ export class AppService {
     memberName: string,
     verificationUrl: string,
   ) {
-    const host = process.env.SMTP_HOST;
-    const port = Number.parseInt(process.env.SMTP_PORT ?? '587', 10);
-    const user = process.env.SMTP_USER;
-    const password = process.env.SMTP_PASSWORD;
-    const from = process.env.SMTP_FROM;
+    const apiKey = process.env.MAILGUN_API_KEY;
+    const domain = process.env.MAILGUN_DOMAIN;
+    const baseUrl = (process.env.MAILGUN_BASE_URL ?? 'https://api.mailgun.net').replace(/\/$/, '');
+    const from = process.env.EMAIL_FROM;
 
-    if (!host || !user || !password || !from || !Number.isFinite(port)) {
+    if (!apiKey || !domain || !from) {
       throw new BadRequestException(
         'Email verification delivery is not configured.',
       );
     }
 
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass: password },
-    });
-
-    await transporter.sendMail({
+    const body = new URLSearchParams({
       from,
       to: email,
       subject: 'Verify your Sorsogon Pickleball Arena email',
       text: `Hello ${memberName},\n\nVerify your email by opening this link:\n${verificationUrl}\n\nThis link expires in ${this.emailVerificationTtlMinutes} minutes and can only be used once.`,
       html: `<p>Hello ${this.escapeHtml(memberName)},</p><p>Verify your email address by opening the secure link below:</p><p><a href="${this.escapeHtml(verificationUrl)}">Verify email address</a></p><p>This link expires in ${this.emailVerificationTtlMinutes} minutes and can only be used once.</p>`,
     });
+
+    // Mailgun HTTP API over HTTPS avoids SMTP ports that networks commonly block.
+    const response = await fetch(`${baseUrl}/v3/${domain}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`api:${apiKey}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`Mailgun API responded with ${response.status}: ${errorText}`);
+    }
   }
 
   private maskEmail(email: string) {
