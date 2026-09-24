@@ -6,3 +6,47 @@
 .app-shell {
   min-height: 100dvh;
 }
+
+.breadcrumbs {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+  padding-top: 18px;
+}
+
+.breadcrumbs ol {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 30px;
+  margin: 0;
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  list-style: none;
+}
+
+.breadcrumbs a {
+  color: var(--accent-dark);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.breadcrumbs a:hover,
+.breadcrumbs a:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.breadcrumbs [aria-current='page'] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .breadcrumbs {
+    width: calc(100% - 24px);
+    padding-top: 10px;
+  }
+}

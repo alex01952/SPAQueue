@@ -1,11 +1,13 @@
-import { Component, computed, signal } from '@angular/core';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { getApiBaseUrl } from '../api-base-url';
 
 interface MemberSummary {
-  id: string;
+  memberId: string;
   name: string;
   role: string;
-  location: string;
+  clubName: string;
   profileImageUrl: string;
 }
 
@@ -15,58 +17,13 @@ interface MemberSummary {
   templateUrl: './members-page.component.html',
   styleUrl: './members-page.component.scss',
 })
-export class MembersPageComponent {
+export class MembersPageComponent implements OnInit {
+  private readonly http = inject(HttpClient);
+
   protected readonly searchTerm = signal('');
-  protected readonly members = signal<MemberSummary[]>([
-    {
-      id: 'alex-rivera',
-      name: 'Alex Rivera',
-      role: 'Club Member',
-      location: 'Sorsogon Pickleball Club',
-      profileImageUrl:
-        'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=600&q=80',
-    },
-    {
-      id: 'mia-santos',
-      name: 'Mia Santos',
-      role: 'Arena Master',
-      location: 'Sorsogon Pickleball Club',
-      profileImageUrl:
-        'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=600&q=80',
-    },
-    {
-      id: 'nico-reyes',
-      name: 'Nico Reyes',
-      role: 'Club Member',
-      location: 'Sorsogon Pickleball Club',
-      profileImageUrl:
-        'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=80',
-    },
-    {
-      id: 'lea-cruz',
-      name: 'Lea Cruz',
-      role: 'Club Member',
-      location: 'Sorsogon Pickleball Club',
-      profileImageUrl:
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80',
-    },
-    {
-      id: 'marco-lim',
-      name: 'Marco Lim',
-      role: 'Club Member',
-      location: 'Sorsogon Pickleball Club',
-      profileImageUrl:
-        'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=600&q=80',
-    },
-    {
-      id: 'ana-garcia',
-      name: 'Ana Garcia',
-      role: 'Club Member',
-      location: 'Sorsogon Pickleball Club',
-      profileImageUrl:
-        'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=600&q=80',
-    },
-  ]);
+  protected readonly members = signal<MemberSummary[]>([]);
+  protected readonly isLoading = signal(true);
+  protected readonly errorMessage = signal('');
 
   protected readonly filteredMembers = computed(() => {
     const searchTerm = this.searchTerm().trim().toLowerCase();
@@ -76,13 +33,51 @@ export class MembersPageComponent {
     }
 
     return this.members().filter((member) =>
-      [member.name, member.role, member.location].some((value) =>
+      [member.name, member.role, member.clubName].some((value) =>
         value.toLowerCase().includes(searchTerm),
       ),
     );
   });
 
+  ngOnInit() {
+    this.loadMembers();
+  }
+
+  protected loadMembers() {
+    this.isLoading.set(true);
+    this.errorMessage.set('');
+
+    this.http
+      .get<MemberSummary[]>(`${getApiBaseUrl()}/members`, {
+        withCredentials: true,
+      })
+      .subscribe({
+        next: (members) => {
+          this.members.set(members);
+          this.isLoading.set(false);
+        },
+        error: (error: HttpErrorResponse) => {
+          this.members.set([]);
+          this.isLoading.set(false);
+          this.errorMessage.set(
+            error.status === 401
+              ? 'Your member session has expired. Sign in again to view the directory.'
+              : 'Unable to load the member directory. Please try again.',
+          );
+        },
+      });
+  }
+
   protected updateSearchTerm(value: string) {
     this.searchTerm.set(value);
+  }
+
+  protected memberInitials(name: string) {
+    return name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join('');
   }
 }

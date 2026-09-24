@@ -447,6 +447,245 @@ describe('AppController', () => {
         appService.loginMember('alex@example.com', 'wrong-password'),
       ).rejects.toThrow('Invalid email or password.');
     });
+
+    it('should return only public member directory fields in name order', async () => {
+      jest.spyOn(appService, 'getMemberSession').mockResolvedValue({
+        authenticated: true,
+        member: {
+          memberId: 'current-member',
+          name: 'Current Member',
+          age: 30,
+          gender: 'Female',
+          duprId: '',
+          reClubId: '',
+          profileImageUrl: '',
+          skills: {},
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+      });
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        listEntities: jest.fn().mockReturnValue(
+          (async function* () {
+            yield {
+              rowKey: 'zoe-member',
+              Name: 'Zoe Member',
+              Email: 'zoe@example.com',
+              ContactNo: '09123456789',
+              PasswordHash: 'secret',
+              ProfileImageUrl: 'https://example.com/zoe.webp',
+            };
+            yield {
+              rowKey: 'alex-member',
+              Name: 'Alex Member',
+              Role: 'Arena Master',
+              ProfileImageUrl: '',
+            };
+          })(),
+        ),
+      });
+
+      const directory = await appController.getMemberDirectory(
+        'spaqueue_member_session=session-token',
+      );
+
+      expect(directory).toEqual([
+        {
+          memberId: 'alex-member',
+          name: 'Alex Member',
+          role: 'Arena Master',
+          clubName: 'Sorsogon Pickleball Club',
+          profileImageUrl: '',
+        },
+        {
+          memberId: 'zoe-member',
+          name: 'Zoe Member',
+          role: 'Club Member',
+          clubName: 'Sorsogon Pickleball Club',
+          profileImageUrl: 'https://example.com/zoe.webp',
+        },
+      ]);
+      expect(directory[1]).not.toHaveProperty('Email');
+      expect(directory[1]).not.toHaveProperty('ContactNo');
+      expect(directory[1]).not.toHaveProperty('PasswordHash');
+      expect(appService.getMemberSession).toHaveBeenCalledWith('session-token');
+    });
+
+    it('should load the requested member profile by Table row key', async () => {
+      jest.spyOn(appService, 'getMemberSession').mockResolvedValue({
+        authenticated: true,
+        member: {
+          memberId: 'current-member',
+          name: 'Current Member',
+          age: 30,
+          gender: 'Female',
+          duprId: '',
+          reClubId: '',
+          profileImageUrl: '',
+          skills: {},
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+      });
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn().mockResolvedValue({
+          Name: 'Selected Member',
+          Age: 28,
+          Gender: 'Male',
+          DUPRId: 'DUPR-789',
+          ReclubId: 'RECLUB-321',
+          ProfileImageUrl: 'https://example.com/selected.webp',
+          Skills: JSON.stringify({ serve: 8 }),
+          CreatedAt: '2026-02-18T09:30:00.000Z',
+          Email: 'private@example.com',
+          PasswordHash: 'secret',
+        }),
+      });
+
+      const profile = await appController.getMemberProfile(
+        'selected-member-row-key',
+        'spaqueue_member_session=session-token',
+      );
+
+      expect(profile).toEqual({
+        memberId: 'selected-member-row-key',
+        name: 'Selected Member',
+        age: 28,
+        gender: 'Male',
+        duprId: 'DUPR-789',
+        reClubId: 'RECLUB-321',
+        profileImageUrl: 'https://example.com/selected.webp',
+        skills: { serve: 8 },
+        createdAt: '2026-02-18T09:30:00.000Z',
+        emailValidated: false,
+      });
+      expect(profile.memberId).not.toBe('current-member');
+      expect(profile).not.toHaveProperty('Email');
+      expect(profile).not.toHaveProperty('PasswordHash');
+      expect(appService.getMemberSession).toHaveBeenCalledWith('session-token');
+    });
+
+    it('should update the session member without allowing email changes', async () => {
+      jest.spyOn(appService, 'getMemberSession').mockResolvedValue({
+        authenticated: true,
+        member: {
+          memberId: 'current-member',
+          name: 'Current Member',
+          age: 30,
+          gender: 'Female',
+          duprId: '',
+          reClubId: '',
+          profileImageUrl: '',
+          skills: {},
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+      });
+      const updateEntity = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        updateEntity,
+        getEntity: jest.fn().mockResolvedValue({
+          Name: 'Updated Member',
+          Email: 'original@example.com',
+          ContactNo: '09999999999',
+          EmergencyContact: 'Updated Contact',
+          Age: 31,
+          Gender: 'Female',
+          DUPRId: 'DUPR-UPDATED',
+          ReclubId: 'RECLUB-UPDATED',
+          ProfileImageUrl: '',
+          Skills: JSON.stringify({ serve: 9 }),
+          CreatedAt: '2026-01-01T00:00:00.000Z',
+          PasswordHash: 'unchanged-secret',
+        }),
+      });
+
+      const updated = await appController.updateMyMemberAccount(
+        {
+          email: 'attacker@example.com',
+          name: 'Updated Member',
+          contactNo: '09999999999',
+          emergencyContact: 'Updated Contact',
+          age: 31,
+          gender: 'Female',
+          duprId: 'DUPR-UPDATED',
+          reClubId: 'RECLUB-UPDATED',
+          skills: { serve: 9 },
+        },
+        undefined,
+        'spaqueue_member_session=session-token',
+      );
+
+      const entity = updateEntity.mock.calls[0][0];
+      expect(entity.partitionKey).toBe('members');
+      expect(entity.rowKey).toBe('current-member');
+      expect(entity.Name).toBe('Updated Member');
+      expect(entity).not.toHaveProperty('Email');
+      expect(entity).not.toHaveProperty('PasswordHash');
+      expect(updateEntity.mock.calls[0][1]).toBe('Merge');
+      expect(updated.email).toBe('original@example.com');
+      expect(updated.name).toBe('Updated Member');
+      expect(updated.skills).toEqual({ serve: 9 });
+    });
+
+    it('should email a raw verification token while storing only its hash', async () => {
+      const createEntity = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn().mockResolvedValue({
+          Name: 'Alex Member',
+          Email: 'alex@example.com',
+          EmailValidated: false,
+        }),
+        createEntity,
+        deleteEntity: jest.fn().mockResolvedValue(undefined),
+      });
+      const sendVerificationEmail = jest
+        .spyOn(appService as any, 'sendVerificationEmail')
+        .mockResolvedValue(undefined);
+
+      const result = await appService.requestEmailVerification('alex-member');
+
+      const verification = createEntity.mock.calls[0][0];
+      const verificationUrl = sendVerificationEmail.mock.calls[0][2] as string;
+      const token = new URL(verificationUrl).searchParams.get('token') ?? '';
+      expect(result).toEqual({ sent: true, email: 'al**@example.com' });
+      expect(verification.partitionKey).toBe('email-verifications');
+      expect(verification.MemberId).toBe('alex-member');
+      expect(verification.rowKey).not.toBe(token);
+      expect(verification.rowKey).toHaveLength(64);
+      expect(verificationUrl).toContain('/verify-email?token=');
+      expect(sendVerificationEmail).toHaveBeenCalledWith(
+        'alex@example.com',
+        'Alex Member',
+        expect.any(String),
+      );
+    });
+
+    it('should validate the linked member and consume the verification token', async () => {
+      const token = 'a'.repeat(43);
+      const updateEntity = jest.fn().mockResolvedValue(undefined);
+      const deleteEntity = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn().mockResolvedValue({
+          MemberId: 'alex-member',
+          ExpiresAt: '2026-05-24T10:00:00.000Z',
+        }),
+        updateEntity,
+        deleteEntity,
+      });
+
+      await expect(appService.confirmEmailVerification(token)).resolves.toEqual({
+        verified: true,
+      });
+
+      expect(updateEntity.mock.calls[0][0]).toMatchObject({
+        partitionKey: 'members',
+        rowKey: 'alex-member',
+        EmailValidated: true,
+      });
+      expect(updateEntity.mock.calls[0][1]).toBe('Merge');
+      expect(deleteEntity).toHaveBeenCalledWith(
+        'email-verifications',
+        expect.any(String),
+      );
+    });
   });
 
   describe('participants import', () => {

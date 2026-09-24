@@ -1,3 +1,16 @@
 <div class="app-shell">
+  @if (showBreadcrumbs()) {
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+      <ol>
+        <li><a routerLink="/home">Home</a></li>
+        <li aria-hidden="true">/</li>
+        @if (breadcrumbParent(); as parent) {
+          <li><a [routerLink]="parent.route">{{ parent.label }}</a></li>
+          <li aria-hidden="true">/</li>
+        }
+        <li aria-current="page">{{ currentPageTitle() }}</li>
+      </ol>
+    </nav>
+  }
   <router-outlet />
 </div>

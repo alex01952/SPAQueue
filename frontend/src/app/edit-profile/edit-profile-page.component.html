@@ -1,0 +1,93 @@
+<main class="edit-shell">
+  <header class="page-heading">
+    <p class="eyebrow">My profile</p>
+    <h1>Edit profile</h1>
+    <p>Update the details shown on your member profile.</p>
+  </header>
+
+  @if (isLoading()) {
+    <p class="status-panel">Loading profile details.</p>
+  } @else if (errorMessage() && !profile.name) {
+    <div class="status-panel error" role="alert">
+      <p>{{ errorMessage() }}</p>
+      <button type="button" (click)="loadAccount()">Try again</button>
+    </div>
+  } @else {
+    <form #editForm="ngForm" class="edit-form" (ngSubmit)="saveProfile()">
+      <section class="form-panel">
+        <div class="panel-heading">
+          <p class="eyebrow">Account</p>
+          <h2>Member details</h2>
+        </div>
+
+        <div class="form-grid">
+          <label [class.field-invalid]="editForm.submitted && name.invalid"><span>Name</span><input #name="ngModel" name="name" [(ngModel)]="profile.name" required /><small>Name is required.</small></label>
+          <label><span>Email</span><input type="email" [value]="email()" readonly aria-readonly="true" /><small class="field-help">Email cannot be changed.</small></label>
+          <label [class.field-invalid]="editForm.submitted && contactNo.invalid"><span>Contact number</span><input #contactNo="ngModel" type="tel" name="contactNo" [(ngModel)]="profile.contactNo" required /><small>Contact number is required.</small></label>
+          <label [class.field-invalid]="editForm.submitted && emergencyContact.invalid"><span>Emergency contact</span><input #emergencyContact="ngModel" name="emergencyContact" [(ngModel)]="profile.emergencyContact" required /><small>Emergency contact is required.</small></label>
+          <label [class.field-invalid]="editForm.submitted && age.invalid"><span>Age</span><input #age="ngModel" type="number" min="1" name="age" [(ngModel)]="profile.age" required /><small>Enter an age of at least 1.</small></label>
+          <label [class.field-invalid]="editForm.submitted && gender.invalid"><span>Gender</span><select #gender="ngModel" name="gender" [(ngModel)]="profile.gender" required><option value="" disabled>Select</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select><small>Select a gender.</small></label>
+          <label><span>DUPR ID</span><input name="duprId" [(ngModel)]="profile.duprId" /></label>
+          <label><span>Reclub ID</span><input name="reClubId" [(ngModel)]="profile.reClubId" /></label>
+          <div class="image-upload full-width">
+            <div class="current-image">
+              <span>Profile image</span>
+              @if (croppedImageUrl(); as previewUrl) {
+                <img [src]="previewUrl" alt="New cropped profile preview" />
+              } @else if (currentProfileImageUrl()) {
+                <img [src]="currentProfileImageUrl()" alt="Current profile" />
+              }
+            </div>
+            <label>
+              <span>Replace image</span>
+              <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" (change)="selectProfileImage($event)" />
+              <small class="field-help">Optional. The replacement will be cropped to the profile frame.</small>
+            </label>
+
+            @if (sourceProfileImage(); as sourceImage) {
+              <div class="crop-workspace">
+                <image-cropper [imageFile]="sourceImage" [aspectRatio]="4 / 5" [maintainAspectRatio]="true" [resizeToWidth]="800" [resizeToHeight]="1000" [imageQuality]="88" [transform]="imageTransform()" format="webp" output="blob" imageAltText="Profile image being cropped" (imageCropped)="updateCroppedImage($event)" (loadImageFailed)="imageLoadFailed()" />
+                <div class="crop-controls">
+                  <button type="button" aria-label="Rotate image left" (click)="rotateCrop(-90)">&#8634;</button>
+                  <label><span>Zoom</span><input type="range" min="1" max="3" step="0.1" [value]="cropZoom()" (input)="updateCropZoom($any($event.target).value)" /></label>
+                  <button type="button" aria-label="Rotate image right" (click)="rotateCrop(90)">&#8635;</button>
+                </div>
+              </div>
+            }
+            @if (cropError()) {
+              <p class="crop-error" role="alert">{{ cropError() }}</p>
+            }
+          </div>
+        </div>
+      </section>
+
+      <section class="form-panel">
+        <div class="panel-heading">
+          <p class="eyebrow">Skills</p>
+          <h2>Ratings</h2>
+        </div>
+
+        <div class="skills-grid">
+          @for (skill of skillFields; track skill[0]) {
+            <label class="skill-slider">
+              <span>{{ skill[1] }} <output>{{ profile.skills[skill[0]] ?? 0 }}</output></span>
+              <input type="range" min="0" max="10" step="1" [name]="'skill-' + skill[0]" [(ngModel)]="profile.skills[skill[0]]" [attr.aria-label]="skill[1] + ' skill rating'" />
+            </label>
+          }
+        </div>
+      </section>
+
+      @if (errorMessage()) {
+        <p class="status-panel error" role="alert">{{ errorMessage() }}</p>
+      }
+      @if (successMessage()) {
+        <p class="status-panel success" role="status">{{ successMessage() }}</p>
+      }
+
+      <div class="form-actions">
+        <button type="submit" class="primary" [disabled]="editForm.invalid || isSaving() || (sourceProfileImage() && !selectedProfileImage())">{{ isSaving() ? 'Saving...' : 'Save changes' }}</button>
+        <button type="button" class="secondary" (click)="viewProfile()">View profile</button>
+      </div>
+    </form>
+  }
+</main>

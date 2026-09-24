@@ -70,7 +70,19 @@ OP_PARTICIPATION_AZURE_PREFIX=2026
 MEMBERS_AZURE_STORAGE_ACCOUNT=seeturtlesphsa
 MEMBERS_AZURE_TABLE=Members
 MEMBER_SESSION_TTL_HOURS=24
+CORS_ALLOWED_ORIGINS=https://your-app.example.com
+PUBLIC_APP_URL=https://your-app.example.com
+EMAIL_VERIFICATION_TTL_MINUTES=60
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=mailer@example.com
+SMTP_PASSWORD=replace-me
+SMTP_FROM="Sorsogon Pickleball Arena <mailer@example.com>"
 ```
+
+`CORS_ALLOWED_ORIGINS` accepts a comma-separated list of exact frontend origins. Local development origins using `localhost` or `127.0.0.1` are allowed automatically on any port.
+
+Email verification uses `PUBLIC_APP_URL` to build the secure link and SMTP to deliver it. Keep `SMTP_PASSWORD` in the hosting platform's secret store or Azure Key Vault rather than source control. Verification links expire after `EMAIL_VERIFICATION_TTL_MINUTES` and can only be used once.
 
 Member login stores password hashes and hashed, expiring session tokens in the configured table. The API sends the raw session token only as an `HttpOnly` cookie. Grant the API managed identity the `Storage Table Data Contributor` role on the storage account; image uploads also require `Storage Blob Data Contributor`.
 

@@ -1,6 +1,11 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import {
+  ImageCroppedEvent,
+  ImageCropperComponent,
+  ImageTransform,
+} from 'ngx-image-cropper';
 import { getApiBaseUrl } from '../api-base-url';
 
 interface MemberRegistration {
@@ -19,7 +24,7 @@ interface MemberRegistration {
 
 @Component({
   selector: 'app-member-registration-page',
-  imports: [FormsModule],
+  imports: [FormsModule, ImageCropperComponent],
   templateUrl: './member-registration-page.component.html',
   styleUrl: './member-registration-page.component.scss',
 })
@@ -37,7 +42,16 @@ export class MemberRegistrationPageComponent {
   ] as const;
   protected readonly registrationMessage = signal('');
   protected readonly isSubmitting = signal(false);
+  protected readonly sourceProfileImage = signal<File | null>(null);
   protected readonly selectedProfileImage = signal<File | null>(null);
+  protected readonly croppedImageUrl = signal<string | null>(null);
+  protected readonly cropError = signal('');
+  protected readonly cropZoom = signal(1);
+  protected readonly cropRotation = signal(0);
+  protected readonly imageTransform = computed<ImageTransform>(() => ({
+    scale: this.cropZoom(),
+    rotate: this.cropRotation(),
+  }));
   protected readonly member: MemberRegistration = {
     name: '',
     email: '',
@@ -60,11 +74,74 @@ export class MemberRegistrationPageComponent {
 
   protected selectProfileImage(event: Event) {
     const input = event.target as HTMLInputElement;
-    this.selectedProfileImage.set(input.files?.[0] ?? null);
+    const file = input.files?.[0] ?? null;
+    const acceptedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+    this.cropError.set('');
+    this.sourceProfileImage.set(null);
+    this.selectedProfileImage.set(null);
+    this.croppedImageUrl.set(null);
+    this.cropZoom.set(1);
+    this.cropRotation.set(0);
+
+    if (!file) {
+      return;
+    }
+
+    if (!acceptedTypes.includes(file.type)) {
+      this.cropError.set('Choose a JPEG, PNG, WebP, or GIF image.');
+      input.value = '';
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      this.cropError.set('The original image must be 10 MB or smaller.');
+      input.value = '';
+      return;
+    }
+
+    this.sourceProfileImage.set(file);
+  }
+
+  protected updateCroppedImage(event: ImageCroppedEvent) {
+    if (!event.blob || !event.objectUrl) {
+      return;
+    }
+
+    const sourceName = this.sourceProfileImage()?.name ?? 'profile-image';
+    const baseName = sourceName.replace(/\.[^.]+$/, '');
+    this.selectedProfileImage.set(
+      new File([event.blob], `${baseName}-profile.webp`, {
+        type: 'image/webp',
+        lastModified: Date.now(),
+      }),
+    );
+    this.croppedImageUrl.set(event.objectUrl);
+    this.cropError.set('');
+  }
+
+  protected rotateCrop(degrees: number) {
+    this.cropRotation.update((rotation) => rotation + degrees);
+  }
+
+  protected updateCropZoom(value: string) {
+    this.cropZoom.set(Number(value));
+  }
+
+  protected imageLoadFailed() {
+    this.sourceProfileImage.set(null);
+    this.selectedProfileImage.set(null);
+    this.croppedImageUrl.set(null);
+    this.cropError.set('This image could not be loaded. Choose another file.');
   }
 
   protected submitRegistration() {
     if (this.isSubmitting()) {
+      return;
+    }
+
+    if (this.sourceProfileImage() && !this.selectedProfileImage()) {
+      this.registrationMessage.set('Finish cropping the profile image before registering.');
       return;
     }
 

@@ -9,11 +9,20 @@ describe('HomePageComponent', () => {
   let fixture: ComponentFixture<HomePageComponent>;
   let router: Router;
   const logout = vi.fn(() => of(undefined));
+  const requestEmailVerification = vi.fn(() =>
+    of({ sent: true as const, email: 'al**@example.com' }),
+  );
   const member = signal({
     memberId: 'member-1',
-    email: 'alex@example.com',
     name: 'Alex Member',
+    age: 30,
+    gender: 'Female',
+    duprId: '',
+    reClubId: '',
     profileImageUrl: '',
+    skills: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    emailValidated: false,
   });
 
   beforeEach(async () => {
@@ -24,7 +33,11 @@ describe('HomePageComponent', () => {
         provideRouter([]),
         {
           provide: MemberAuthService,
-          useValue: { member: member.asReadonly(), logout },
+          useValue: {
+            member: member.asReadonly(),
+            logout,
+            requestEmailVerification,
+          },
         },
       ],
     }).compileComponents();
@@ -70,5 +83,19 @@ describe('HomePageComponent', () => {
 
     expect(logout).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith(['/login'], { replaceUrl: true });
+  });
+
+  it('should request email verification and show the masked recipient', () => {
+    const button = fixture.nativeElement.querySelector(
+      '.email-verification button',
+    ) as HTMLButtonElement;
+
+    button.click();
+    fixture.detectChanges();
+
+    expect(requestEmailVerification).toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).toContain(
+      'Verification email sent to al**@example.com',
+    );
   });
 });

@@ -26,6 +26,11 @@ import type {
   MemberRegistrationResult,
   MemberSessionResult,
   MemberProfileImageUploadInput,
+  MemberDirectoryEntry,
+  MemberAccountDetails,
+  MemberProfileUpdateInput,
+  EmailVerificationRequestResult,
+  EmailVerificationResult,
   MonthlyParticipationUploadConfig,
   MonthlyParticipationUploadResult,
   MonthlyParticipationSummaryResponse,
@@ -100,6 +105,92 @@ export class AppController {
     return this.appService.getMemberSession(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
     );
+  }
+
+  @Get('members')
+  async getMemberDirectory(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<MemberDirectoryEntry[]> {
+    await this.appService.getMemberSession(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+
+    return this.appService.getMemberDirectory();
+  }
+
+  @Get('members/me')
+  async getMyMemberAccount(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<MemberAccountDetails> {
+    const session = await this.appService.getMemberSession(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+
+    return this.appService.getMemberAccount(session.member.memberId);
+  }
+
+  @Patch('members/me')
+  @UseInterceptors(
+    FileInterceptor('profileImage', {
+      limits: {
+        fileSize: 5 * 1024 * 1024,
+      },
+    }),
+  )
+  async updateMyMemberAccount(
+    @Body() body: Record<string, unknown>,
+    @UploadedFile() profileImage: MemberProfileImageUploadInput | undefined,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<MemberAccountDetails> {
+    const session = await this.appService.getMemberSession(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+    const member: MemberProfileUpdateInput = {
+      name: String(body.name ?? ''),
+      contactNo: String(body.contactNo ?? ''),
+      emergencyContact: String(body.emergencyContact ?? ''),
+      age: Number(body.age),
+      gender: String(body.gender ?? ''),
+      duprId: String(body.duprId ?? ''),
+      reClubId: String(body.reClubId ?? ''),
+      skills: this.parseMemberSkills(body.skills),
+    };
+
+    return this.appService.updateMemberAccount(
+      session.member.memberId,
+      member,
+      profileImage,
+    );
+  }
+
+  @Post('members/email-verification/request')
+  async requestEmailVerification(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<EmailVerificationRequestResult> {
+    const session = await this.appService.getMemberSession(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+
+    return this.appService.requestEmailVerification(session.member.memberId);
+  }
+
+  @Post('members/email-verification/confirm')
+  confirmEmailVerification(
+    @Body('token') token = '',
+  ): Promise<EmailVerificationResult> {
+    return this.appService.confirmEmailVerification(token);
+  }
+
+  @Get('members/:memberId')
+  async getMemberProfile(
+    @Param('memberId') memberId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<MemberSessionResult['member']> {
+    await this.appService.getMemberSession(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+
+    return this.appService.getMemberProfile(memberId);
   }
 
   @Post('members/logout')

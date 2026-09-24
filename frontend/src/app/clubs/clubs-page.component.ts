@@ -1,9 +1,8 @@
 import { Component } from '@angular/core';
-import { RouterLink } from '@angular/router';
 
 @Component({
   selector: 'app-clubs-page',
-  imports: [RouterLink],
+  imports: [],
   templateUrl: './clubs-page.component.html',
   styleUrl: './clubs-page.component.scss',
 })

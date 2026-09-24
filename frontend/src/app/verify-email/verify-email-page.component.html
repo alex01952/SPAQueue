@@ -1,0 +1,13 @@
+<main class="verification-shell">
+  <section class="verification-panel" [class.error]="status() === 'error'" [class.verified]="status() === 'verified'">
+    <p class="eyebrow">Email verification</p>
+    <h1>{{ status() === 'verifying' ? 'One moment' : status() === 'verified' ? 'Email verified' : 'Link unavailable' }}</h1>
+    <p>{{ message() }}</p>
+
+    @if (status() === 'verified') {
+      <a routerLink="/home">Continue to Home</a>
+    } @else if (status() === 'error') {
+      <a routerLink="/login">Return to login</a>
+    }
+  </section>
+</main>

@@ -20,6 +20,7 @@ describe('MemberAuthService', () => {
     profileImageUrl: 'https://example.com/alex.jpg',
     skills: { serve: 8, dink: 7 },
     createdAt: '2026-04-12T08:00:00.000Z',
+    emailValidated: false,
   };
 
   beforeEach(() => {
@@ -81,5 +82,28 @@ describe('MemberAuthService', () => {
       member: { ...member, gender: 'Prefer not to say' },
     });
     expect(auth.member()?.gender).toBe('Prefer not to say');
+  });
+
+  it('should request and confirm email verification', () => {
+    auth.login(loginEmail, 'strong-password').subscribe();
+    http.expectOne(({ url }) => url.endsWith('/members/login')).flush({
+      authenticated: true,
+      member,
+    });
+
+    auth.requestEmailVerification().subscribe();
+    const request = http.expectOne(({ url, method }) =>
+      method === 'POST' && url.endsWith('/members/email-verification/request'),
+    );
+    expect(request.request.withCredentials).toBe(true);
+    request.flush({ sent: true, email: 'al**@example.com' });
+
+    auth.confirmEmailVerification('secure-token').subscribe();
+    const confirmation = http.expectOne(({ url, method }) =>
+      method === 'POST' && url.endsWith('/members/email-verification/confirm'),
+    );
+    expect(confirmation.request.body).toEqual({ token: 'secure-token' });
+    confirmation.flush({ verified: true });
+    expect(auth.member()?.emailValidated).toBe(true);
   });
 });

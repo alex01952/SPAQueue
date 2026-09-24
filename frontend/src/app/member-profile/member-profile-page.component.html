@@ -1,5 +1,12 @@
 <main class="profile-shell">
-  @if (member(); as member) {
+  @if (isLoading()) {
+    <p class="empty-state">Loading member profile.</p>
+  } @else if (errorMessage()) {
+    <div class="profile-error" role="alert">
+      <p>{{ errorMessage() }}</p>
+      <button type="button" (click)="retryLoadingProfile()">Try again</button>
+    </div>
+  } @else if (member(); as member) {
     <section class="profile-layout" aria-labelledby="member-profile-title">
       <aside class="photo-panel">
         @if (member.profileImageUrl) {
@@ -15,6 +22,11 @@
       </aside>
 
       <section class="details-panel" aria-label="Member details and skills">
+        @if (isOwnProfile()) {
+          <div class="profile-actions">
+            <a routerLink="/member-profile/edit">Edit profile</a>
+          </div>
+        }
         <div class="summary-strip">
           <div>
             <span>Member since</span>
@@ -68,7 +80,5 @@
         </section>
       </section>
     </section>
-  } @else {
-    <p class="empty-state">Loading member profile.</p>
   }
 </main>

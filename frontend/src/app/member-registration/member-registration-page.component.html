@@ -23,14 +23,56 @@
         <label [class.field-invalid]="registrationForm.submitted && gender.invalid"><span>Gender <b aria-hidden="true">*</b></span><select #gender="ngModel" name="gender" [(ngModel)]="member.gender" required><option value="" disabled>Select</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select><small>Select a gender.</small></label>
         <label [class.field-invalid]="registrationForm.submitted && duprId.invalid"><span>DUPR ID <b aria-hidden="true">*</b></span><input #duprId="ngModel" name="duprId" [(ngModel)]="member.duprId" required /><small>DUPR ID is required.</small></label>
         <label [class.field-invalid]="registrationForm.submitted && reClubId.invalid"><span>Reclub ID <b aria-hidden="true">*</b></span><input #reClubId="ngModel" name="reClubId" [(ngModel)]="member.reClubId" required /><small>Reclub ID is required.</small></label>
-        <label class="full-width">
-          <span>Profile image</span>
-          <input type="file" name="profileImage" accept="image/jpeg,image/png,image/webp,image/gif" (change)="selectProfileImage($event)" />
-          <small class="field-help">JPEG, PNG, WebP, or GIF. Maximum 5 MB.</small>
-          @if (selectedProfileImage(); as profileImage) {
-            <span class="selected-file">{{ profileImage.name }}</span>
+        <div class="image-upload full-width">
+          <label>
+            <span>Profile image</span>
+            <input type="file" name="profileImage" accept="image/jpeg,image/png,image/webp,image/gif" (change)="selectProfileImage($event)" />
+            <small class="field-help">JPEG, PNG, WebP, or GIF. Maximum original size 10 MB.</small>
+          </label>
+
+          @if (sourceProfileImage(); as sourceImage) {
+            <div class="crop-workspace">
+              <div class="crop-editor">
+                <image-cropper
+                  [imageFile]="sourceImage"
+                  [maintainAspectRatio]="true"
+                  [aspectRatio]="4 / 5"
+                  [resizeToWidth]="800"
+                  [resizeToHeight]="1000"
+                  [onlyScaleDown]="false"
+                  [imageQuality]="88"
+                  [transform]="imageTransform()"
+                  format="webp"
+                  output="blob"
+                  imageAltText="Profile image being cropped"
+                  cropperFrameAriaLabel="Move and resize profile image crop"
+                  (imageCropped)="updateCroppedImage($event)"
+                  (loadImageFailed)="imageLoadFailed()"
+                />
+
+                <div class="crop-controls" aria-label="Image crop controls">
+                  <button type="button" title="Rotate left" aria-label="Rotate image left" (click)="rotateCrop(-90)">&#8634;</button>
+                  <label>
+                    <span>Zoom</span>
+                    <input type="range" min="1" max="3" step="0.1" [value]="cropZoom()" (input)="updateCropZoom($any($event.target).value)" />
+                  </label>
+                  <button type="button" title="Rotate right" aria-label="Rotate image right" (click)="rotateCrop(90)">&#8635;</button>
+                </div>
+              </div>
+
+              <div class="crop-preview">
+                <span>Profile preview</span>
+                @if (croppedImageUrl(); as previewUrl) {
+                  <img [src]="previewUrl" alt="Cropped profile preview" />
+                }
+              </div>
+            </div>
           }
-        </label>
+
+          @if (cropError()) {
+            <p class="crop-error" role="alert">{{ cropError() }}</p>
+          }
+        </div>
         <label class="full-width" [class.field-invalid]="registrationForm.submitted && password.invalid"><span>Password <b aria-hidden="true">*</b></span><input #password="ngModel" type="password" name="password" [(ngModel)]="member.password" minlength="8" autocomplete="new-password" required /><small>Use at least 8 characters.</small></label>
       </div>
     </section>
@@ -65,7 +107,7 @@
       </div>
     </section>
 
-    <button type="submit" class="submit-button" [disabled]="registrationForm.invalid || isSubmitting()">{{ isSubmitting() ? 'Registering...' : 'Register' }}</button>
+    <button type="submit" class="submit-button" [disabled]="registrationForm.invalid || isSubmitting() || (sourceProfileImage() && !selectedProfileImage())">{{ isSubmitting() ? 'Registering...' : 'Register' }}</button>
     @if (registrationMessage()) {
       <p class="status-banner">{{ registrationMessage() }}</p>
     }

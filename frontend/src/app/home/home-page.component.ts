@@ -1,4 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
 import { MemberAuthService } from '../member-auth.service';
 
@@ -15,6 +16,9 @@ export class HomePageComponent {
   protected readonly member = this.auth.member;
   protected readonly isLoggingOut = signal(false);
   protected readonly logoutError = signal('');
+  protected readonly isSendingVerification = signal(false);
+  protected readonly verificationMessage = signal('');
+  protected readonly verificationError = signal('');
   protected readonly logoUrl =
     'https://seeturtlesphsa.blob.core.windows.net/spa/Assets/Logo.png';
   protected readonly menuItems = [
@@ -62,6 +66,31 @@ export class HomePageComponent {
       error: () => {
         this.logoutError.set('Unable to log out. Please try again.');
         this.isLoggingOut.set(false);
+      },
+    });
+  }
+
+  protected sendVerificationEmail() {
+    if (this.isSendingVerification() || this.member()?.emailValidated) {
+      return;
+    }
+
+    this.isSendingVerification.set(true);
+    this.verificationMessage.set('');
+    this.verificationError.set('');
+    this.auth.requestEmailVerification().subscribe({
+      next: (result) => {
+        this.verificationMessage.set(
+          `Verification email sent to ${result.email}. Check your inbox.`,
+        );
+        this.isSendingVerification.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.verificationError.set(
+          error.error?.message ??
+            'Unable to send a verification email. Please try again.',
+        );
+        this.isSendingVerification.set(false);
       },
     });
   }

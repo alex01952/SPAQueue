@@ -11,6 +11,7 @@ import {
 import { DefaultAzureCredential } from '@azure/identity';
 import { TableClient } from '@azure/data-tables';
 import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
+import nodemailer from 'nodemailer';
 import {
   createHash,
   randomBytes,
@@ -159,6 +160,7 @@ export interface AuthenticatedMember {
   profileImageUrl: string;
   skills: Record<string, number | null>;
   createdAt: string;
+  emailValidated: boolean;
 }
 
 export interface MemberLoginResult {
@@ -170,6 +172,40 @@ export interface MemberLoginResult {
 export interface MemberSessionResult {
   authenticated: true;
   member: AuthenticatedMember;
+}
+
+export interface MemberDirectoryEntry {
+  memberId: string;
+  name: string;
+  role: string;
+  clubName: string;
+  profileImageUrl: string;
+}
+
+export interface MemberAccountDetails extends AuthenticatedMember {
+  email: string;
+  contactNo: string;
+  emergencyContact: string;
+}
+
+export interface MemberProfileUpdateInput {
+  name: string;
+  contactNo: string;
+  emergencyContact: string;
+  age: number;
+  gender: string;
+  duprId?: string;
+  reClubId?: string;
+  skills: Record<string, number | null>;
+}
+
+export interface EmailVerificationRequestResult {
+  sent: true;
+  email: string;
+}
+
+export interface EmailVerificationResult {
+  verified: true;
 }
 
 @Injectable()
@@ -209,6 +245,14 @@ export class AppService {
     10,
   );
   private readonly dashboardPassword = process.env.DASHBOARD_PASSWORD ?? '';
+  private readonly publicAppUrl = (
+    process.env.PUBLIC_APP_URL ?? 'http://localhost:4200'
+  ).replace(/\/$/, '');
+  private readonly emailVerificationTtlMinutes = Math.max(
+    5,
+    Number.parseInt(process.env.EMAIL_VERIFICATION_TTL_MINUTES ?? '60', 10) ||
+      60,
+  );
   private readonly memberSessionTtlHours = Math.max(
     1,
     Number.parseInt(process.env.MEMBER_SESSION_TTL_HOURS ?? '24', 10) || 24,
@@ -753,6 +797,7 @@ export class AppService {
         DUPRId: member.duprId,
         ReclubId: member.reClubId,
         ProfileImageUrl: profileImageUrl,
+        EmailValidated: false,
         ...(passwordHash ? { PasswordHash: passwordHash } : {}),
         Skills: JSON.stringify(member.skills),
         CreatedAt: new Date().toISOString(),
@@ -865,6 +910,233 @@ export class AppService {
     }
   }
 
+  async getMemberDirectory(): Promise<MemberDirectoryEntry[]> {
+    const members: MemberDirectoryEntry[] = [];
+
+    try {
+      const entities = this.getMembersTableClient().listEntities({
+        queryOptions: {
+          filter: "PartitionKey eq 'members'",
+          select: ['RowKey', 'Name', 'Role', 'ClubName', 'ProfileImageUrl'],
+        },
+      });
+
+      for await (const entity of entities) {
+        const memberId = String(entity.rowKey ?? '');
+        const name = String(entity.Name ?? '').trim();
+
+        if (!memberId || !name) {
+          continue;
+        }
+
+        members.push({
+          memberId,
+          name,
+          role: String(entity.Role ?? 'Club Member'),
+          clubName: String(entity.ClubName ?? 'Sorsogon Pickleball Club'),
+          profileImageUrl: String(entity.ProfileImageUrl ?? ''),
+        });
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return members.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async getMemberProfile(memberId: string): Promise<AuthenticatedMember> {
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(memberId)) {
+      throw new BadRequestException('Invalid member identifier.');
+    }
+
+    try {
+      const member = await this.getMembersTableClient().getEntity(
+        'members',
+        memberId,
+      );
+
+      return this.toAuthenticatedMember(memberId, member);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException('Member profile was not found.');
+      }
+
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  async getMemberAccount(memberId: string): Promise<MemberAccountDetails> {
+    try {
+      const member = await this.getMembersTableClient().getEntity(
+        'members',
+        memberId,
+      );
+
+      return this.toMemberAccountDetails(memberId, member);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException('Member account was not found.');
+      }
+
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  async requestEmailVerification(
+    memberId: string,
+  ): Promise<EmailVerificationRequestResult> {
+    const tableClient = this.getMembersTableClient();
+    let member: Record<string, unknown>;
+
+    try {
+      member = await tableClient.getEntity('members', memberId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException('Member account was not found.');
+      }
+
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    const email = String(member.Email ?? '').trim().toLowerCase();
+    if (!email) {
+      throw new BadRequestException('Member email is not configured.');
+    }
+
+    if (member.EmailValidated === true) {
+      throw new ConflictException('Email address is already verified.');
+    }
+
+    const token = randomBytes(32).toString('base64url');
+    const tokenHash = this.hashSessionToken(token);
+    const expiresAt = new Date(
+      Date.now() + this.emailVerificationTtlMinutes * 60 * 1000,
+    ).toISOString();
+
+    try {
+      await tableClient.createEntity({
+        partitionKey: 'email-verifications',
+        rowKey: tokenHash,
+        MemberId: memberId,
+        ExpiresAt: expiresAt,
+        CreatedAt: new Date().toISOString(),
+      });
+
+      await this.sendVerificationEmail(
+        email,
+        String(member.Name ?? 'Member'),
+        `${this.publicAppUrl}/verify-email?token=${encodeURIComponent(token)}`,
+      );
+    } catch (error) {
+      await tableClient
+        .deleteEntity('email-verifications', tokenHash)
+        .catch(() => undefined);
+
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      this.logger.error('Unable to send email verification message.', error);
+      throw new BadGatewayException(
+        'Unable to send the verification email. Please try again.',
+      );
+    }
+
+    return { sent: true, email: this.maskEmail(email) };
+  }
+
+  async confirmEmailVerification(
+    token: string,
+  ): Promise<EmailVerificationResult> {
+    if (!/^[A-Za-z0-9_-]{40,100}$/.test(token)) {
+      throw new BadRequestException('Verification link is invalid or expired.');
+    }
+
+    const tableClient = this.getMembersTableClient();
+    const tokenHash = this.hashSessionToken(token);
+    let verification: Record<string, unknown>;
+
+    try {
+      verification = await tableClient.getEntity(
+        'email-verifications',
+        tokenHash,
+      );
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new BadRequestException('Verification link is invalid or expired.');
+      }
+
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    const expiresAt = Date.parse(String(verification.ExpiresAt ?? ''));
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      await tableClient
+        .deleteEntity('email-verifications', tokenHash)
+        .catch(() => undefined);
+      throw new BadRequestException('Verification link is invalid or expired.');
+    }
+
+    const memberId = String(verification.MemberId ?? '');
+    try {
+      await tableClient.updateEntity(
+        {
+          partitionKey: 'members',
+          rowKey: memberId,
+          EmailValidated: true,
+          EmailValidatedAt: new Date().toISOString(),
+        },
+        'Merge',
+      );
+      await tableClient.deleteEntity('email-verifications', tokenHash);
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return { verified: true };
+  }
+
+  async updateMemberAccount(
+    memberId: string,
+    input: MemberProfileUpdateInput,
+    profileImage?: MemberProfileImageUploadInput,
+  ): Promise<MemberAccountDetails> {
+    const member = this.validateMemberProfileUpdate(input);
+    const tableClient = this.getMembersTableClient();
+    const profileImageUrl = profileImage
+      ? await this.uploadMemberProfileImage(memberId, profileImage)
+      : undefined;
+
+    try {
+      await tableClient.updateEntity(
+        {
+          partitionKey: 'members',
+          rowKey: memberId,
+          Name: member.name,
+          ContactNo: member.contactNo,
+          EmergencyContact: member.emergencyContact,
+          Age: member.age,
+          Gender: member.gender,
+          DUPRId: member.duprId,
+          ReclubId: member.reClubId,
+          Skills: JSON.stringify(member.skills),
+          UpdatedAt: new Date().toISOString(),
+          ...(profileImageUrl ? { ProfileImageUrl: profileImageUrl } : {}),
+        },
+        'Merge',
+      );
+
+      const updatedMember = await tableClient.getEntity('members', memberId);
+      return this.toMemberAccountDetails(memberId, updatedMember);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException('Member account was not found.');
+      }
+
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
   async logoutMember(sessionToken: string): Promise<void> {
     if (!sessionToken) {
       return;
@@ -902,6 +1174,19 @@ export class AppService {
       profileImageUrl: String(entity.ProfileImageUrl ?? ''),
       skills: this.parseStoredMemberSkills(entity.Skills),
       createdAt: String(entity.CreatedAt ?? ''),
+      emailValidated: entity.EmailValidated === true,
+    };
+  }
+
+  private toMemberAccountDetails(
+    memberId: string,
+    entity: Record<string, unknown>,
+  ): MemberAccountDetails {
+    return {
+      ...this.toAuthenticatedMember(memberId, entity),
+      email: String(entity.Email ?? ''),
+      contactNo: String(entity.ContactNo ?? ''),
+      emergencyContact: String(entity.EmergencyContact ?? ''),
     };
   }
 
@@ -925,6 +1210,59 @@ export class AppService {
         name,
         typeof rating === 'number' && Number.isFinite(rating) ? rating : null,
       ]),
+    );
+  }
+
+  private async sendVerificationEmail(
+    email: string,
+    memberName: string,
+    verificationUrl: string,
+  ) {
+    const host = process.env.SMTP_HOST;
+    const port = Number.parseInt(process.env.SMTP_PORT ?? '587', 10);
+    const user = process.env.SMTP_USER;
+    const password = process.env.SMTP_PASSWORD;
+    const from = process.env.SMTP_FROM;
+
+    if (!host || !user || !password || !from || !Number.isFinite(port)) {
+      throw new BadRequestException(
+        'Email verification delivery is not configured.',
+      );
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user, pass: password },
+    });
+
+    await transporter.sendMail({
+      from,
+      to: email,
+      subject: 'Verify your Sorsogon Pickleball Arena email',
+      text: `Hello ${memberName},\n\nVerify your email by opening this link:\n${verificationUrl}\n\nThis link expires in ${this.emailVerificationTtlMinutes} minutes and can only be used once.`,
+      html: `<p>Hello ${this.escapeHtml(memberName)},</p><p>Verify your email address by opening the secure link below:</p><p><a href="${this.escapeHtml(verificationUrl)}">Verify email address</a></p><p>This link expires in ${this.emailVerificationTtlMinutes} minutes and can only be used once.</p>`,
+    });
+  }
+
+  private maskEmail(email: string) {
+    const [localPart, domain] = email.split('@');
+    const visible = localPart.slice(0, 2);
+    return `${visible}${'*'.repeat(Math.max(1, localPart.length - 2))}@${domain}`;
+  }
+
+  private escapeHtml(value: string) {
+    return value.replace(
+      /[&<>"']/g,
+      (character) =>
+        ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        })[character] ?? character,
     );
   }
 
@@ -1176,6 +1514,51 @@ export class AppService {
       duprId: input.duprId?.trim() ?? '',
       reClubId: input.reClubId?.trim() ?? '',
       profileImageUrl: input.profileImageUrl?.trim() ?? '',
+      skills,
+    };
+  }
+
+  private validateMemberProfileUpdate(input: MemberProfileUpdateInput) {
+    const requiredTextFields = [
+      ['Name', input.name],
+      ['Contact number', input.contactNo],
+      ['Emergency contact', input.emergencyContact],
+      ['Gender', input.gender],
+    ];
+    const emptyField = requiredTextFields.find(
+      ([, value]) => typeof value !== 'string' || !value.trim(),
+    );
+
+    if (emptyField || !Number.isInteger(input.age) || input.age < 1) {
+      throw new BadRequestException('Complete all required member details.');
+    }
+
+    const skills = Object.fromEntries(
+      Object.entries(input.skills ?? {}).map(([name, rating]) => {
+        if (
+          rating !== null &&
+          (!Number.isFinite(rating) ||
+            !Number.isInteger(rating) ||
+            rating < 0 ||
+            rating > 10)
+        ) {
+          throw new BadRequestException(
+            `Skill rating for ${name} must be a whole number from 0 to 10.`,
+          );
+        }
+
+        return [name, rating];
+      }),
+    );
+
+    return {
+      ...input,
+      name: input.name.trim(),
+      contactNo: input.contactNo.trim(),
+      emergencyContact: input.emergencyContact.trim(),
+      gender: input.gender.trim(),
+      duprId: input.duprId?.trim() ?? '',
+      reClubId: input.reClubId?.trim() ?? '',
       skills,
     };
   }

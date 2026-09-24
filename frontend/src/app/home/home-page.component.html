@@ -19,6 +19,26 @@
     <p>Choose where you want to go next.</p>
   </section>
 
+  <section class="email-verification" [class.verified]="member()?.emailValidated" aria-label="Email verification">
+    <div>
+      <span class="verification-label">Email status</span>
+      <strong>{{ member()?.emailValidated ? 'Verified' : 'Verification required' }}</strong>
+      <p>{{ member()?.emailValidated ? 'Your email address has been confirmed.' : 'Verify your email to secure your member account.' }}</p>
+    </div>
+    @if (!member()?.emailValidated) {
+      <button type="button" [disabled]="isSendingVerification()" (click)="sendVerificationEmail()">
+        {{ isSendingVerification() ? 'Sending...' : 'Send verification email' }}
+      </button>
+    }
+  </section>
+
+  @if (verificationMessage()) {
+    <p class="verification-feedback success" role="status">{{ verificationMessage() }}</p>
+  }
+  @if (verificationError()) {
+    <p class="verification-feedback error" role="alert">{{ verificationError() }}</p>
+  }
+
   <nav class="home-menu" aria-label="Member menu">
     @for (item of menuItems; track item.route) {
       <a [routerLink]="item.route" class="menu-item">

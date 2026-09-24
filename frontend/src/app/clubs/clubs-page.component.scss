@@ -1,6 +1,5 @@
 :host { display: block; min-height: 100vh; color: var(--text-primary); }
 .clubs-shell { width: min(1040px, 100%); margin: 0 auto; padding: 42px 20px; }
-.back-link { display: inline-block; margin-bottom: 48px; color: var(--accent-dark); font-weight: 700; text-decoration: none; }
 .eyebrow, .club-location { margin: 0 0 10px; color: var(--accent-dark); font-size: .74rem; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; }
 h1, h2, p { margin-top: 0; }
 h1 { max-width: 680px; margin-bottom: 34px; font-size: clamp(2.6rem, 6vw, 5rem); line-height: .96; }
@@ -9,4 +8,4 @@ h1 { max-width: 680px; margin-bottom: 34px; font-size: clamp(2.6rem, 6vw, 5rem);
 .club-entry img { width: 150px; height: 150px; padding: 14px; object-fit: contain; background: rgba(255, 249, 240, .76); border: 1px solid rgba(103, 70, 41, .12); border-radius: 8px; }
 .club-entry h2 { margin-bottom: 10px; font-size: clamp(1.5rem, 4vw, 2.5rem); }
 .club-entry p:last-child { margin-bottom: 0; color: var(--text-secondary); line-height: 1.55; }
-@media (max-width: 600px) { .clubs-shell { padding: 30px 14px; } .back-link { margin-bottom: 34px; } .club-entry { grid-template-columns: 90px minmax(0, 1fr); gap: 16px; } .club-entry img { width: 90px; height: 90px; padding: 8px; } }
+@media (max-width: 600px) { .clubs-shell { padding: 30px 14px; } .club-entry { grid-template-columns: 90px minmax(0, 1fr); gap: 16px; } .club-entry img { width: 90px; height: 90px; padding: 8px; } }

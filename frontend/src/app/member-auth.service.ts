@@ -13,6 +13,13 @@ export interface AuthenticatedMember {
   profileImageUrl: string;
   skills: Record<string, number | null>;
   createdAt: string;
+  emailValidated: boolean;
+}
+
+export interface MemberAccountDetails extends AuthenticatedMember {
+  email: string;
+  contactNo: string;
+  emergencyContact: string;
 }
 
 interface MemberSessionResponse {
@@ -63,5 +70,33 @@ export class MemberAuthService {
         { withCredentials: true },
       )
       .pipe(tap(() => this.authenticatedMember.set(null)));
+  }
+
+  updateAuthenticatedMember(member: AuthenticatedMember) {
+    this.authenticatedMember.set(member);
+  }
+
+  requestEmailVerification(): Observable<{ sent: true; email: string }> {
+    return this.http.post<{ sent: true; email: string }>(
+      `${getApiBaseUrl()}/members/email-verification/request`,
+      {},
+      { withCredentials: true },
+    );
+  }
+
+  confirmEmailVerification(token: string): Observable<{ verified: true }> {
+    return this.http
+      .post<{ verified: true }>(
+        `${getApiBaseUrl()}/members/email-verification/confirm`,
+        { token },
+      )
+      .pipe(
+        tap(() => {
+          const member = this.authenticatedMember();
+          if (member) {
+            this.authenticatedMember.set({ ...member, emailValidated: true });
+          }
+        }),
+      );
   }
 }

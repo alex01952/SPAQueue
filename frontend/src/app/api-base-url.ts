@@ -1,8 +1,10 @@
 export function getApiBaseUrl() {
-  const { hostname, port } = window.location;
+  const { hostname, port, protocol } = window.location;
+  const isLocalDevelopmentHost =
+    hostname === 'localhost' || hostname === '127.0.0.1';
 
-  if (hostname === 'localhost' && port !== '3000') {
-    return 'http://localhost:3000';
+  if (isLocalDevelopmentHost && port !== '3000') {
+    return `${protocol}//${hostname}:3000`;
   }
 
   return '';

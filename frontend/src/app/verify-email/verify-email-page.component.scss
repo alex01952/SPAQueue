@@ -1,0 +1,9 @@
+:host { display: block; color: var(--text-primary); }
+.verification-shell { min-height: calc(100dvh - 60px); display: grid; place-items: center; padding: 24px; }
+.verification-panel { width: min(520px, 100%); padding: 32px; background: rgba(255,249,240,.9); border: 1px solid rgba(103,70,41,.14); border-radius: 8px; box-shadow: 0 24px 70px rgba(76,51,31,.13); }
+.verification-panel.verified { border-color: rgba(76,140,87,.35); }
+.verification-panel.error { border-color: rgba(184,67,49,.3); }
+.eyebrow { margin: 0 0 10px; color: var(--accent-dark); font-size: .74rem; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; }
+h1 { margin: 0; font-size: clamp(2rem, 6vw, 3.5rem); line-height: 1; }
+.verification-panel > p:not(.eyebrow) { margin: 16px 0 0; color: var(--text-secondary); line-height: 1.55; }
+a { display: inline-block; margin-top: 24px; padding: 10px 16px; color: #fff9f1; font-weight: 700; text-decoration: none; background: #cb5d33; border-radius: 6px; }

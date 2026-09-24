@@ -13,7 +13,7 @@
   display: grid;
   grid-template-columns: minmax(250px, 340px) minmax(0, 1fr);
   gap: 16px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .photo-panel,
@@ -25,7 +25,8 @@
 
 .photo-panel {
   position: relative;
-  min-height: 560px;
+  aspect-ratio: 4 / 5;
+  min-height: 0;
   overflow: hidden;
   border-radius: 8px;
   background: #2f221a;
@@ -34,14 +35,15 @@
 .photo-panel img {
   width: 100%;
   height: 100%;
-  min-height: 560px;
+  min-height: 0;
   display: block;
   object-fit: cover;
 }
 
 .photo-placeholder {
   width: 100%;
-  min-height: 560px;
+  min-height: 0;
+  aspect-ratio: 4 / 5;
   display: grid;
   place-items: center;
   color: rgba(255, 249, 241, 0.28);
@@ -198,6 +200,32 @@ h1 {
   color: var(--text-secondary);
 }
 
+.profile-error {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  padding: 18px;
+  color: #842f22;
+  background: rgba(184, 67, 49, 0.1);
+  border: 1px solid rgba(184, 67, 49, 0.18);
+  border-radius: 8px;
+}
+
+.profile-error p {
+  margin: 0;
+}
+
+.profile-error button {
+  padding: 8px 12px;
+  color: #fff9f1;
+  font: inherit;
+  font-weight: 700;
+  background: #9e3e2b;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
 @media (max-width: 920px) {
   .profile-layout {
     grid-template-columns: 1fr;
@@ -206,8 +234,8 @@ h1 {
   .photo-panel,
   .photo-panel img,
   .photo-placeholder {
-    min-height: 300px;
-    max-height: 300px;
+    min-height: 0;
+    max-height: none;
   }
 
   .skills-list {
@@ -241,7 +269,22 @@ h1 {
   .photo-panel,
   .photo-panel img,
   .photo-placeholder {
-    min-height: 240px;
-    max-height: 240px;
+    min-height: 0;
+    max-height: none;
   }
+}
+
+.profile-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.profile-actions a {
+  padding: 8px 12px;
+  color: #fff9f1;
+  font-size: .82rem;
+  font-weight: 700;
+  text-decoration: none;
+  background: #cb5d33;
+  border-radius: 6px;
 }

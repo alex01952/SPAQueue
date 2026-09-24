@@ -119,6 +119,20 @@ input:focus-visible {
   box-shadow: 0 12px 28px rgba(76, 51, 31, 0.2);
 }
 
+.member-initials {
+  width: 96px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  color: #fff9f1;
+  font-size: 1.7rem;
+  font-weight: 700;
+  background: #2d6841;
+  border: 3px solid #fff9f1;
+  border-radius: 50%;
+  box-shadow: 0 12px 28px rgba(76, 51, 31, 0.2);
+}
+
 .member-icon strong {
   font-size: 0.98rem;
   line-height: 1.2;
@@ -139,6 +153,32 @@ input:focus-visible {
   background: rgba(255, 255, 255, 0.56);
   border: 1px solid rgba(103, 70, 41, 0.08);
   border-radius: 8px;
+}
+
+.directory-error {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  padding: 18px;
+  color: #842f22;
+  background: rgba(184, 67, 49, 0.1);
+  border: 1px solid rgba(184, 67, 49, 0.18);
+  border-radius: 8px;
+}
+
+.directory-error p {
+  margin: 0;
+}
+
+.directory-error button {
+  padding: 8px 12px;
+  color: #fff9f1;
+  font: inherit;
+  font-weight: 700;
+  background: #9e3e2b;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
 }
 
 @media (max-width: 640px) {
