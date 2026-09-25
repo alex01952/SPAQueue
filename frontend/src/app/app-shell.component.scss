@@ -11,8 +11,7 @@
   position: relative;
   width: min(1180px, calc(100% - 40px));
   margin: 0 auto;
-  height: 92px;
-  padding-top: 10px;
+  height: 120px;
   text-align: center;
 }
 
@@ -23,12 +22,12 @@
 
 .global-brand img {
   position: absolute;
-  top: 10px;
+  top: 50%;
   left: 50%;
-  width: 290px;
-  height: 290px;
+  width: 120px;
+  height: 120px;
   object-fit: contain;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
 }
 
 .navigation-loading {
@@ -102,14 +101,12 @@
 @media (max-width: 560px) {
   .global-brand {
     width: calc(100% - 24px);
-    height: 76px;
-    padding-top: 8px;
+    height: 96px;
   }
 
   .global-brand img {
-    top: 8px;
-    width: min(72vw, 220px);
-    height: min(72vw, 220px);
+    width: 96px;
+    height: 96px;
   }
 
   .breadcrumbs {
