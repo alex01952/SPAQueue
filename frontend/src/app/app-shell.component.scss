@@ -8,9 +8,12 @@
 }
 
 .global-brand {
+  position: relative;
   width: min(1180px, calc(100% - 40px));
   margin: 0 auto;
-  padding-top: 12px;
+  height: 92px;
+  padding-top: 10px;
+  text-align: center;
 }
 
 .global-brand a {
@@ -19,9 +22,13 @@
 }
 
 .global-brand img {
-  width: 58px;
-  height: 58px;
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  width: 290px;
+  height: 290px;
   object-fit: contain;
+  transform: translateX(-50%);
 }
 
 .navigation-loading {
@@ -95,6 +102,14 @@
 @media (max-width: 560px) {
   .global-brand {
     width: calc(100% - 24px);
+    height: 76px;
+    padding-top: 8px;
+  }
+
+  .global-brand img {
+    top: 8px;
+    width: min(72vw, 220px);
+    height: min(72vw, 220px);
   }
 
   .breadcrumbs {
