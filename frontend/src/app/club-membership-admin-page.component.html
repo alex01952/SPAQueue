@@ -1,0 +1,18 @@
+<main class="club-admin-shell">
+  <p class="eyebrow">Administration</p>
+  <h1>Club memberships</h1>
+  <p class="lede">Assign members to the clubs they belong to.</p>
+  <section class="assignment-panel">
+    <label><span>Member</span><select [value]="selectedMemberId()" (change)="selectedMemberId.set($any($event.target).value)"><option value="">Select member</option>@for (member of members(); track member.memberId) {<option [value]="member.memberId">{{ member.name }}</option>}</select></label>
+    <label><span>Club</span><select [value]="selectedClubId()" (change)="selectedClubId.set($any($event.target).value)"><option value="">Select club</option>@for (club of clubs(); track club.clubId) {<option [value]="club.clubId">{{ club.name }}</option>}</select></label>
+    <button type="button" (click)="assign()" [disabled]="!selectedMemberId() || !selectedClubId()">Assign member</button>
+  </section>
+  @if (feedbackMessage()) {<p class="success" role="status">{{ feedbackMessage() }}</p>}
+  @if (errorMessage()) {<p class="error" role="alert">{{ errorMessage() }}</p>}
+  <section class="assignment-list">
+    <h2>Current assignments</h2>
+    @for (assignment of assignments(); track assignment.clubId + ':' + assignment.memberId) {
+      <article><span>{{ assignment.memberId }}</span><strong>{{ assignment.clubId }}</strong><button type="button" (click)="remove(assignment)">Remove</button></article>
+    } @empty {<p>No club assignments yet.</p>}
+  </section>
+</main>

@@ -33,6 +33,8 @@ import type {
   MemberRoleUpdateResult,
   MemberBalance,
   MemberBalanceInput,
+  ClubSummary,
+  ClubMemberAssignment,
   EmailVerificationRequestResult,
   EmailVerificationResult,
   MonthlyParticipationUploadConfig,
@@ -118,12 +120,54 @@ export class AppController {
   @Get('members')
   async getMemberDirectory(
     @Headers('cookie') cookieHeader = '',
+    @Query('location') location = '',
+    @Query('clubId') clubId = '',
   ): Promise<MemberDirectoryEntry[]> {
-    await this.appService.getMemberSession(
+    return this.appService.getMemberDirectory(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      location,
+      clubId,
+    );
+  }
+
+  @Get('clubs/options')
+  getClubOptions(@Headers('cookie') cookieHeader = ''): Promise<ClubSummary[]> {
+    return this.appService.getClubs(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
     );
+  }
 
-    return this.appService.getMemberDirectory();
+  @Get('admin/club-members')
+  getClubAssignments(@Headers('cookie') cookieHeader = ''): Promise<ClubMemberAssignment[]> {
+    return this.appService.getClubAssignments(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Post('admin/club-members')
+  assignMemberToClub(
+    @Body('clubId') clubId = '',
+    @Body('memberId') memberId = '',
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<ClubMemberAssignment> {
+    return this.appService.assignMemberToClub(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      clubId,
+      memberId,
+    );
+  }
+
+  @Delete('admin/club-members/:clubId/:memberId')
+  removeMemberFromClub(
+    @Param('clubId') clubId: string,
+    @Param('memberId') memberId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<{ deleted: true }> {
+    return this.appService.removeMemberFromClub(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      clubId,
+      memberId,
+    );
   }
 
   @Get('members/me')

@@ -210,6 +210,17 @@ export interface MemberDirectoryEntry {
   role: string;
   clubName: string;
   profileImageUrl: string;
+  location?: string;
+}
+
+export interface ClubSummary {
+  clubId: string;
+  name: string;
+}
+
+export interface ClubMemberAssignment {
+  clubId: string;
+  memberId: string;
 }
 
 export interface MemberAccountDetails extends AuthenticatedMember {
@@ -286,6 +297,9 @@ export class AppService {
   private readonly membersAzureStorageAccount =
     process.env.MEMBERS_AZURE_STORAGE_ACCOUNT;
   private readonly membersAzureTable = process.env.MEMBERS_AZURE_TABLE;
+  private readonly clubsAzureTable = process.env.CLUBS_AZURE_TABLE ?? 'Clubs';
+  private readonly clubMembersAzureTable =
+    process.env.CLUB_MEMBERS_AZURE_TABLE ?? 'ClubMembers';
   private readonly sessionsAzureTable =
     process.env.MEMBERS_SESSIONS_AZURE_TABLE ?? 'Sessions';
   private readonly balancesAzureTable =
@@ -978,14 +992,30 @@ export class AppService {
     }
   }
 
-  async getMemberDirectory(): Promise<MemberDirectoryEntry[]> {
+  async getMemberDirectory(
+    sessionToken: string,
+    location = '',
+    clubId = '',
+  ): Promise<MemberDirectoryEntry[]> {
+    await this.getMemberSession(sessionToken);
     const members: MemberDirectoryEntry[] = [];
+    const assignedMemberIds = clubId
+      ? await this.getClubMemberIds(clubId)
+      : null;
 
     try {
       const entities = this.getMembersTableClient().listEntities({
         queryOptions: {
           filter: "PartitionKey eq 'members'",
-          select: ['RowKey', 'Name', 'Role', 'ClubName', 'ProfileImageUrl'],
+          select: [
+            'RowKey',
+            'Name',
+            'Role',
+            'ClubName',
+            'ProfileImageUrl',
+            'LocationType',
+            'Location',
+          ],
         },
       });
 
@@ -997,12 +1027,26 @@ export class AppService {
           continue;
         }
 
+        const memberLocation = String(entity.Location ?? '').trim();
+        if (
+          location &&
+          (location === 'Other'
+            ? String(entity.LocationType ?? '') !== 'Other'
+            : memberLocation !== location)
+        ) {
+          continue;
+        }
+        if (assignedMemberIds && !assignedMemberIds.has(memberId)) {
+          continue;
+        }
+
         members.push({
           memberId,
           name,
           role: String(entity.Role ?? 'Club Member'),
           clubName: String(entity.ClubName ?? 'Sorsogon Pickleball Club'),
           profileImageUrl: String(entity.ProfileImageUrl ?? ''),
+          ...(memberLocation ? { location: memberLocation } : {}),
         });
       }
     } catch (error) {
@@ -1010,6 +1054,82 @@ export class AppService {
     }
 
     return members.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async getClubs(sessionToken: string): Promise<ClubSummary[]> {
+    await this.getMemberSession(sessionToken);
+    const clubs: ClubSummary[] = [];
+
+    try {
+      const entities = this.getClubsTableClient().listEntities();
+      for await (const entity of entities) {
+        const clubId = String(entity.rowKey ?? entity.ClubId ?? '').trim();
+        const name = String(entity.Name ?? entity.ClubName ?? '').trim();
+        if (clubId && name) {
+          clubs.push({ clubId, name });
+        }
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return clubs.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async getClubAssignments(sessionToken: string): Promise<ClubMemberAssignment[]> {
+    await this.requireAdminSession(sessionToken);
+    const assignments: ClubMemberAssignment[] = [];
+
+    try {
+      const entities = this.getClubMembersTableClient().listEntities();
+      for await (const entity of entities) {
+        const clubId = String(entity.ClubId ?? entity.partitionKey ?? '').trim();
+        const memberId = String(entity.MemberId ?? entity.rowKey ?? '').trim();
+        if (clubId && memberId) assignments.push({ clubId, memberId });
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return assignments;
+  }
+
+  async assignMemberToClub(
+    sessionToken: string,
+    clubId: string,
+    memberId: string,
+  ): Promise<ClubMemberAssignment> {
+    await this.requireAdminSession(sessionToken);
+    this.validateMemberId(memberId);
+    if (!clubId.trim()) throw new BadRequestException('Club is required.');
+    const assignment = { clubId: clubId.trim(), memberId };
+
+    try {
+      await this.getClubMembersTableClient().upsertEntity(
+        { partitionKey: assignment.clubId, rowKey: assignment.memberId, ...assignment },
+        'Merge',
+      );
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return assignment;
+  }
+
+  async removeMemberFromClub(
+    sessionToken: string,
+    clubId: string,
+    memberId: string,
+  ): Promise<{ deleted: true }> {
+    await this.requireAdminSession(sessionToken);
+    try {
+      await this.getClubMembersTableClient().deleteEntity(clubId, memberId);
+    } catch (error) {
+      if (!this.isAzureNotFound(error)) {
+        throw this.createMemberAuthenticationStorageException(error);
+      }
+    }
+    return { deleted: true };
   }
 
   async getMemberProfile(memberId: string): Promise<AuthenticatedMember> {
@@ -1826,6 +1946,40 @@ export class AppService {
       this.balanceTypesAzureTable,
       new DefaultAzureCredential(),
     );
+  }
+
+  private getClubsTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount || !this.clubsAzureTable) {
+      throw new BadRequestException('Club table configuration is required.');
+    }
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.clubsAzureTable,
+      new DefaultAzureCredential(),
+    );
+  }
+
+  private getClubMembersTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount || !this.clubMembersAzureTable) {
+      throw new BadRequestException('Club member table configuration is required.');
+    }
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.clubMembersAzureTable,
+      new DefaultAzureCredential(),
+    );
+  }
+
+  private async getClubMemberIds(clubId: string): Promise<Set<string>> {
+    const ids = new Set<string>();
+    const entities = this.getClubMembersTableClient().listEntities({
+      queryOptions: { filter: `PartitionKey eq '${clubId}'` },
+    });
+    for await (const entity of entities) {
+      const memberId = String(entity.MemberId ?? entity.rowKey ?? '').trim();
+      if (memberId) ids.add(memberId);
+    }
+    return ids;
   }
 
   private async requireAdminSession(sessionToken: string) {

@@ -9,7 +9,10 @@ interface MemberSummary {
   role: string;
   clubName: string;
   profileImageUrl: string;
+  location?: string;
 }
+
+interface ClubSummary { clubId: string; name: string; }
 
 @Component({
   selector: 'app-members-page',
@@ -21,6 +24,9 @@ export class MembersPageComponent implements OnInit {
   private readonly http = inject(HttpClient);
 
   protected readonly searchTerm = signal('');
+  protected readonly selectedLocation = signal('');
+  protected readonly selectedClubId = signal('');
+  protected readonly clubs = signal<ClubSummary[]>([]);
   protected readonly members = signal<MemberSummary[]>([]);
   protected readonly isLoading = signal(true);
   protected readonly errorMessage = signal('');
@@ -40,15 +46,27 @@ export class MembersPageComponent implements OnInit {
   });
 
   ngOnInit() {
+    this.loadClubs();
     this.loadMembers();
+  }
+
+  protected updateLocation(value: string) { this.selectedLocation.set(value); this.loadMembers(); }
+  protected updateClub(value: string) { this.selectedClubId.set(value); this.loadMembers(); }
+
+  private loadClubs() {
+    this.http.get<ClubSummary[]>(`${getApiBaseUrl()}/clubs/options`, { withCredentials: true })
+      .subscribe({ next: (clubs) => this.clubs.set(clubs), error: () => this.clubs.set([]) });
   }
 
   protected loadMembers() {
     this.isLoading.set(true);
     this.errorMessage.set('');
 
+    const params = new URLSearchParams();
+    if (this.selectedLocation()) params.set('location', this.selectedLocation());
+    if (this.selectedClubId()) params.set('clubId', this.selectedClubId());
     this.http
-      .get<MemberSummary[]>(`${getApiBaseUrl()}/members`, {
+      .get<MemberSummary[]>(`${getApiBaseUrl()}/members${params.toString() ? `?${params}` : ''}`, {
         withCredentials: true,
       })
       .subscribe({

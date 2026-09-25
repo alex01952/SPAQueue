@@ -14,6 +14,10 @@
         (input)="updateSearchTerm($any($event.target).value)"
       />
     </label>
+    <div class="directory-filters">
+      <label><span>Location</span><select [value]="selectedLocation()" (change)="updateLocation($any($event.target).value)"><option value="">All locations</option><option value="Sorsogon">Sorsogon</option><option value="Other">Other</option></select></label>
+      <label><span>Club</span><select [value]="selectedClubId()" (change)="updateClub($any($event.target).value)"><option value="">All clubs</option>@for (club of clubs(); track club.clubId) {<option [value]="club.clubId">{{ club.name }}</option>}</select></label>
+    </div>
 
     @if (isLoading()) {
       <p class="empty-state" aria-live="polite">Loading members.</p>
