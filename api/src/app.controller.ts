@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
   Get,
   Headers,
   Param,
@@ -30,6 +31,8 @@ import type {
   MemberAccountDetails,
   MemberProfileUpdateInput,
   MemberRoleUpdateResult,
+  MemberBalance,
+  MemberBalanceInput,
   EmailVerificationRequestResult,
   EmailVerificationResult,
   MonthlyParticipationUploadConfig,
@@ -140,6 +143,67 @@ export class AppController {
       this.readCookie(cookieHeader, this.memberSessionCookieName),
       memberId,
       role,
+    );
+  }
+
+  @Get('balance-types')
+  getBalanceTypes(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<string[]> {
+    return this.appService.getBalanceTypes(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Get('members/:memberId/balances')
+  getMemberBalances(
+    @Param('memberId') memberId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<MemberBalance[]> {
+    return this.appService.getMemberBalances(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      memberId,
+    );
+  }
+
+  @Post('members/:memberId/balances')
+  createMemberBalance(
+    @Param('memberId') memberId: string,
+    @Body() body: Partial<MemberBalanceInput>,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<MemberBalance> {
+    return this.appService.createMemberBalance(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      memberId,
+      { balanceType: String(body.balanceType ?? ''), amount: Number(body.amount) },
+    );
+  }
+
+  @Patch('members/:memberId/balances/:balanceId')
+  updateMemberBalance(
+    @Param('memberId') memberId: string,
+    @Param('balanceId') balanceId: string,
+    @Body() body: Partial<MemberBalanceInput>,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<MemberBalance> {
+    return this.appService.updateMemberBalance(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      memberId,
+      balanceId,
+      { balanceType: String(body.balanceType ?? ''), amount: Number(body.amount) },
+    );
+  }
+
+  @Delete('members/:memberId/balances/:balanceId')
+  deleteMemberBalance(
+    @Param('memberId') memberId: string,
+    @Param('balanceId') balanceId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<{ deleted: true }> {
+    return this.appService.deleteMemberBalance(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      memberId,
+      balanceId,
     );
   }
 

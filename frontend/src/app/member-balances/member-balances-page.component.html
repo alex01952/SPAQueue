@@ -1,0 +1,128 @@
+<main class="balances-shell">
+  <header class="balances-heading">
+    <p class="eyebrow">Administration</p>
+    <h1>Member balances</h1>
+    <p>Choose a member to review and manage their account balances.</p>
+  </header>
+
+  @if (isLoading()) {
+    <p class="status-message" aria-live="polite">Loading member balances.</p>
+  } @else if (errorMessage() && !members().length) {
+    <p class="status-message error" role="alert">{{ errorMessage() }}</p>
+  } @else {
+    <section class="balances-layout">
+      <aside class="member-panel" aria-labelledby="member-search-title">
+        <div class="panel-heading">
+          <p class="eyebrow">Step 01</p>
+          <h2 id="member-search-title">Find a member</h2>
+        </div>
+        <label class="search-control">
+          <span>Search members</span>
+          <input
+            type="search"
+            placeholder="Name, email ID, or club"
+            [value]="searchTerm()"
+            (input)="updateSearchTerm($any($event.target).value)"
+          />
+        </label>
+        <div class="member-list">
+          @for (member of filteredMembers(); track member.memberId) {
+            <button
+              type="button"
+              class="member-option"
+              [class.selected]="selectedMember()?.memberId === member.memberId"
+              (click)="selectMember(member)"
+            >
+              <strong>{{ member.name }}</strong>
+              <span>{{ member.role }} · {{ member.clubName }}</span>
+            </button>
+          } @empty {
+            <p class="empty-state">No members match your search.</p>
+          }
+        </div>
+      </aside>
+
+      <section class="balance-panel" aria-labelledby="balance-title">
+        @if (selectedMember(); as member) {
+          <div class="panel-heading balance-heading">
+            <div>
+              <p class="eyebrow">Step 02</p>
+              <h2 id="balance-title">{{ member.name }}</h2>
+              <p>{{ member.memberId }}</p>
+            </div>
+            <button type="button" class="quiet-button" (click)="clearSelectedMember()">Change member</button>
+          </div>
+
+          <form class="balance-form" (ngSubmit)="saveBalance()">
+            <label>
+              <span>Balance type</span>
+              <select
+                [value]="balanceType()"
+                (change)="balanceType.set($any($event.target).value)"
+                required
+              >
+                <option value="">Select a type</option>
+                @for (type of balanceTypes(); track type) {
+                  <option [value]="type">{{ type }}</option>
+                }
+              </select>
+            </label>
+            <label>
+              <span>Amount</span>
+              <input
+                type="number"
+                step="0.01"
+                [value]="amount() ?? ''"
+                (input)="amount.set($any($event.target).value === '' ? null : +$any($event.target).value)"
+                required
+              />
+            </label>
+            <div class="form-actions">
+              <button type="submit" [disabled]="isSaving()">
+                {{ isSaving() ? 'Saving...' : editingBalanceId() ? 'Update balance' : 'Add balance' }}
+              </button>
+              @if (editingBalanceId()) {
+                <button type="button" class="quiet-button" (click)="cancelEdit()">Cancel</button>
+              }
+            </div>
+          </form>
+
+          @if (feedbackMessage()) {
+            <p class="status-message success" role="status">{{ feedbackMessage() }}</p>
+          }
+          @if (errorMessage()) {
+            <p class="status-message error" role="alert">{{ errorMessage() }}</p>
+          }
+
+          <div class="balance-list">
+            <div class="list-heading">
+              <h3>Current balances</h3>
+              <span>{{ balances().length }} record{{ balances().length === 1 ? '' : 's' }}</span>
+            </div>
+            @for (balance of balances(); track balance.balanceId) {
+              <article class="balance-row">
+                <div>
+                  <strong>{{ balance.balanceType }}</strong>
+                  <span>{{ balance.balanceId }}</span>
+                </div>
+                <strong class="amount">{{ balance.amount | number: '1.2-2' }}</strong>
+                <div class="row-actions">
+                  <button type="button" class="quiet-button" (click)="startEdit(balance)">Edit</button>
+                  <button type="button" class="danger-button" (click)="deleteBalance(balance)">Delete</button>
+                </div>
+              </article>
+            } @empty {
+              <p class="empty-state">This member has no balances yet.</p>
+            }
+          </div>
+        } @else {
+          <div class="empty-selection">
+            <p class="eyebrow">Step 02</p>
+            <h2>Select a member</h2>
+            <p>Their balances and management controls will appear here.</p>
+          </div>
+        }
+      </section>
+    </section>
+  }
+</main>

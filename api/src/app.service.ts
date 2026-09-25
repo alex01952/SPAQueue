@@ -208,6 +208,18 @@ export interface MemberRoleUpdateResult {
   role: MemberRole;
 }
 
+export interface MemberBalance {
+  balanceId: string;
+  memberId: string;
+  balanceType: string;
+  amount: number;
+}
+
+export interface MemberBalanceInput {
+  balanceType: string;
+  amount: number;
+}
+
 export interface EmailVerificationRequestResult {
   sent: true;
   email: string;
@@ -244,6 +256,10 @@ export class AppService {
   private readonly membersAzureTable = process.env.MEMBERS_AZURE_TABLE;
   private readonly sessionsAzureTable =
     process.env.MEMBERS_SESSIONS_AZURE_TABLE ?? 'Sessions';
+  private readonly balancesAzureTable =
+    process.env.MEMBERS_BALANCES_AZURE_TABLE ?? 'Balances';
+  private readonly balanceTypesAzureTable =
+    process.env.BALANCE_TYPES_AZURE_TABLE ?? 'BalanceTypes';
   private readonly azureContainerName =
     process.env.OP_PARTICIPATION_AZURE_CONTAINER;
   private readonly azurePrefix =
@@ -1035,6 +1051,153 @@ export class AppService {
     return { memberId, role: role as MemberRole };
   }
 
+  async getBalanceTypes(sessionToken: string): Promise<string[]> {
+    await this.requireAdminSession(sessionToken);
+    const types = new Set<string>();
+
+    try {
+      const entities = this.getBalanceTypesTableClient().listEntities({
+        queryOptions: {
+          filter: "PartitionKey eq 'BalanceType'",
+          select: ['Type'],
+        },
+      });
+
+      for await (const entity of entities) {
+        const type = String(entity.Type ?? '').trim();
+        if (type) {
+          types.add(type);
+        }
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return [...types].sort((left, right) => left.localeCompare(right));
+  }
+
+  async getMemberBalances(
+    sessionToken: string,
+    memberId: string,
+  ): Promise<MemberBalance[]> {
+    await this.requireAdminSession(sessionToken);
+    this.validateMemberId(memberId);
+
+    try {
+      const entities = this.getBalancesTableClient().listEntities({
+        queryOptions: {
+          filter: `PartitionKey eq '${memberId}'`,
+          select: ['RowKey', 'PartitionKey', 'BalanceType', 'Type', 'Amount'],
+        },
+      });
+      const balances: MemberBalance[] = [];
+
+      for await (const entity of entities) {
+        const amount = Number(entity.Amount);
+        const balanceType = String(entity.BalanceType ?? entity.Type ?? '').trim();
+        if (entity.rowKey && balanceType && Number.isFinite(amount)) {
+          balances.push({
+            balanceId: String(entity.rowKey),
+            memberId,
+            balanceType,
+            amount,
+          });
+        }
+      }
+
+      return balances.sort((left, right) => left.balanceType.localeCompare(right.balanceType));
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  async createMemberBalance(
+    sessionToken: string,
+    memberId: string,
+    input: MemberBalanceInput,
+  ): Promise<MemberBalance> {
+    await this.requireAdminSession(sessionToken);
+    this.validateMemberId(memberId);
+    const balance = await this.validateBalanceInput(input);
+    const balanceId = randomUUID();
+
+    try {
+      await this.getBalancesTableClient().createEntity({
+        partitionKey: memberId,
+        rowKey: balanceId,
+        MemberId: memberId,
+        BalanceType: balance.balanceType,
+        Amount: balance.amount,
+        CreatedAt: new Date().toISOString(),
+        UpdatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return { balanceId, memberId, ...balance };
+  }
+
+  async updateMemberBalance(
+    sessionToken: string,
+    memberId: string,
+    balanceId: string,
+    input: MemberBalanceInput,
+  ): Promise<MemberBalance> {
+    await this.requireAdminSession(sessionToken);
+    this.validateMemberId(memberId);
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(balanceId)) {
+      throw new BadRequestException('Invalid balance identifier.');
+    }
+
+    const balance = await this.validateBalanceInput(input);
+    try {
+      await this.getBalancesTableClient().updateEntity(
+        {
+          partitionKey: memberId,
+          rowKey: balanceId,
+          MemberId: memberId,
+          BalanceType: balance.balanceType,
+          Amount: balance.amount,
+          UpdatedAt: new Date().toISOString(),
+        },
+        'Merge',
+      );
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException('Balance was not found.');
+      }
+
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return { balanceId, memberId, ...balance };
+  }
+
+  async deleteMemberBalance(
+    sessionToken: string,
+    memberId: string,
+    balanceId: string,
+  ): Promise<{ deleted: true }> {
+    await this.requireAdminSession(sessionToken);
+    this.validateMemberId(memberId);
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(balanceId)) {
+      throw new BadRequestException('Invalid balance identifier.');
+    }
+
+    try {
+      await this.getBalancesTableClient().deleteEntity(memberId, balanceId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException('Balance was not found.');
+      }
+
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return { deleted: true };
+  }
+
   async requestEmailVerification(
     memberId: string,
   ): Promise<EmailVerificationRequestResult> {
@@ -1544,6 +1707,78 @@ export class AppService {
       this.sessionsAzureTable,
       new DefaultAzureCredential(),
     );
+  }
+
+  private getBalancesTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount || !this.balancesAzureTable) {
+      throw new BadRequestException(
+        'MEMBERS_AZURE_STORAGE_ACCOUNT and MEMBERS_BALANCES_AZURE_TABLE are required for member balances.',
+      );
+    }
+
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.balancesAzureTable,
+      new DefaultAzureCredential(),
+    );
+  }
+
+  private getBalanceTypesTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount || !this.balanceTypesAzureTable) {
+      throw new BadRequestException(
+        'MEMBERS_AZURE_STORAGE_ACCOUNT and BALANCE_TYPES_AZURE_TABLE are required for balance types.',
+      );
+    }
+
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.balanceTypesAzureTable,
+      new DefaultAzureCredential(),
+    );
+  }
+
+  private async requireAdminSession(sessionToken: string) {
+    const session = await this.getMemberSession(sessionToken);
+    if (session.member.role !== 'admin') {
+      throw new ForbiddenException('Administrator access is required.');
+    }
+  }
+
+  private validateMemberId(memberId: string) {
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(memberId)) {
+      throw new BadRequestException('Invalid member identifier.');
+    }
+  }
+
+  private async validateBalanceInput(
+    input: MemberBalanceInput,
+  ): Promise<{ balanceType: string; amount: number }> {
+    const balanceType = String(input?.balanceType ?? '').trim();
+    const amount = Number(input?.amount);
+
+    if (!balanceType || !Number.isFinite(amount)) {
+      throw new BadRequestException('Balance type and amount are required.');
+    }
+
+    const balanceTypes = this.getBalanceTypesTableClient().listEntities({
+      queryOptions: {
+        filter: "PartitionKey eq 'BalanceType'",
+        select: ['Type'],
+      },
+    });
+    let isValidType = false;
+    for await (const entity of balanceTypes) {
+      if (String(entity.Type ?? '').trim() === balanceType) {
+        isValidType = true;
+        break;
+      }
+    }
+
+    if (!isValidType) {
+      throw new BadRequestException('Select a valid balance type.');
+    }
+
+    return { balanceType, amount };
   }
 
   private validateMemberRegistration(input: MemberRegistrationInput) {

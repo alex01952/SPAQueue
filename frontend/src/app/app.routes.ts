@@ -5,6 +5,7 @@ import { dashboardAuthGuard } from './dashboard-auth.guard';
 import { EditProfilePageComponent } from './edit-profile/edit-profile-page.component';
 import { HomePageComponent } from './home/home-page.component';
 import { MemberProfilePageComponent } from './member-profile/member-profile-page.component';
+import { MemberBalancesPageComponent } from './member-balances/member-balances-page.component';
 import { memberAuthGuard } from './member-auth.guard';
 import { memberRoleGuard } from './member-role.guard';
 import { MemberLoginPageComponent } from './member-login/member-login-page.component';
@@ -101,6 +102,13 @@ export const routes: Routes = [
     component: MembersPageComponent,
     canActivate: [memberAuthGuard],
     title: 'Members',
+  },
+  {
+    path: 'member-balances',
+    component: MemberBalancesPageComponent,
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'] },
+    title: 'Member Balances',
   },
   {
     path: 'clubs',

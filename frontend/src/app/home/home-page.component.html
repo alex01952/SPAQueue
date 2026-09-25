@@ -51,8 +51,19 @@
       </a>
     }
 
+    @if (member()?.role === 'admin') {
+      <a routerLink="/member-balances" class="menu-item">
+        <span class="menu-index">06</span>
+        <span class="menu-copy">
+          <strong>Member balances</strong>
+          <small>Manage balances for individual members.</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
+    }
+
     <button type="button" class="menu-item logout-item" [disabled]="isLoggingOut()" (click)="logout()">
-      <span class="menu-index">06</span>
+      <span class="menu-index">{{ member()?.role === 'admin' ? '07' : '06' }}</span>
       <span class="menu-copy">
         <strong>{{ isLoggingOut() ? 'Logging out...' : 'Logout' }}</strong>
         <small>End your member session on this device.</small>
