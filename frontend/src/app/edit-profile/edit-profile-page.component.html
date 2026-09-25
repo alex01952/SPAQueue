@@ -25,7 +25,8 @@
           <label><span>Email</span><input type="email" [value]="email()" readonly aria-readonly="true" /><small class="field-help">Email cannot be changed.</small></label>
           <label [class.field-invalid]="editForm.submitted && contactNo.invalid"><span>Contact number</span><input #contactNo="ngModel" type="tel" name="contactNo" [(ngModel)]="profile.contactNo" required /><small>Contact number is required.</small></label>
           <label [class.field-invalid]="editForm.submitted && emergencyContact.invalid"><span>Emergency contact</span><input #emergencyContact="ngModel" name="emergencyContact" [(ngModel)]="profile.emergencyContact" required /><small>Emergency contact is required.</small></label>
-          <label [class.field-invalid]="editForm.submitted && age.invalid"><span>Age</span><input #age="ngModel" type="number" min="1" name="age" [(ngModel)]="profile.age" required /><small>Enter an age of at least 1.</small></label>
+          <label [class.field-invalid]="editForm.submitted && birthday.invalid"><span>Birthday</span><input #birthday="ngModel" type="date" name="birthday" [(ngModel)]="profile.birthday" required /><small>Enter your birthday.</small></label>
+          <label class="toggle-field"><span>Show age on profile</span><input type="checkbox" name="showAge" [(ngModel)]="profile.showAge" role="switch" /><small>Allow members to see your age.</small></label>
           <label [class.field-invalid]="editForm.submitted && gender.invalid"><span>Gender</span><select #gender="ngModel" name="gender" [(ngModel)]="profile.gender" required><option value="" disabled>Select</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select><small>Select a gender.</small></label>
           <label><span>DUPR ID</span><input name="duprId" [(ngModel)]="profile.duprId" /></label>
           <label><span>Reclub ID</span><input name="reClubId" [(ngModel)]="profile.reClubId" /></label>

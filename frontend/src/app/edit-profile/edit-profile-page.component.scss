@@ -16,6 +16,8 @@ input, select, button { font: inherit; }
 input, select { width: 100%; min-width: 0; padding: 10px 12px; color: var(--text-primary); background: rgba(255,255,255,.78); border: 1px solid rgba(103,70,41,.18); border-radius: 6px; }
 input[readonly] { color: var(--text-secondary); background: rgba(103,70,41,.06); cursor: not-allowed; }
 label small { display: none; color: #9e3e2b; font-size: .72rem; }
+.toggle-field { align-content: start; }
+.toggle-field input[type='checkbox'] { width: 42px; height: 24px; accent-color: #3f8c55; }
 .field-help { display: block; color: var(--text-secondary); }
 .field-invalid input, .field-invalid select { border-color: #b84331; box-shadow: 0 0 0 2px rgba(184,67,49,.14); }
 .field-invalid small { display: block; }

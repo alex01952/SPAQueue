@@ -14,6 +14,8 @@ label { display: grid; gap: 6px; color: var(--text-secondary); font-size: .82rem
 label span { display: flex; align-items: center; gap: 7px; }
 label b { color: #b84331; font-size: 1rem; line-height: 1; }
 label small { display: none; color: #9e3e2b; font-size: .72rem; }
+.toggle-field { align-content: start; }
+.toggle-field input[type='checkbox'] { width: 42px; height: 24px; accent-color: #3f8c55; }
 .field-help { display: block; color: var(--text-secondary); }
 .image-upload { display: grid; gap: 12px; }
 .crop-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 180px; gap: 16px; padding: 16px; background: rgba(255, 255, 255, .52); border: 1px solid rgba(103, 70, 41, .12); border-radius: 8px; }

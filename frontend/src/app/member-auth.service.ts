@@ -9,6 +9,8 @@ export interface AuthenticatedMember {
   memberId: string;
   name: string;
   age: number | null;
+  birthday?: string;
+  showAge?: boolean;
   gender: string;
   duprId: string;
   reClubId: string;

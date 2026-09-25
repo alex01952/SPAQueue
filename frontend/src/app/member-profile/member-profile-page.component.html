@@ -63,10 +63,12 @@
             <span>Reclub ID</span>
             <strong>{{ member.reClubId || 'Not provided' }}</strong>
           </div>
-          <div>
-            <span>Age</span>
-            <strong>{{ publicDetail(member.age) }}</strong>
-          </div>
+          @if (member.showAge !== false) {
+            <div>
+              <span>Age</span>
+              <strong>{{ publicDetail(member.age) }}</strong>
+            </div>
+          }
           <div>
             <span>Gender</span>
             <strong>{{ publicDetail(member.gender) }}</strong>

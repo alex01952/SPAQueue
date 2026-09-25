@@ -139,7 +139,9 @@ export interface MemberRegistrationInput {
   email: string;
   contactNo: string;
   emergencyContact: string;
-  age: number;
+  birthday?: string;
+  age?: number;
+  showAge?: boolean;
   gender: string;
   duprId?: string;
   reClubId?: string;
@@ -157,6 +159,8 @@ export interface AuthenticatedMember {
   memberId: string;
   name: string;
   age: number | null;
+  birthday?: string;
+  showAge?: boolean;
   gender: string;
   duprId: string;
   reClubId: string;
@@ -196,7 +200,9 @@ export interface MemberProfileUpdateInput {
   name: string;
   contactNo: string;
   emergencyContact: string;
-  age: number;
+  birthday?: string;
+  age?: number;
+  showAge?: boolean;
   gender: string;
   duprId?: string;
   reClubId?: string;
@@ -821,7 +827,8 @@ export class AppService {
         Email: member.email,
         ContactNo: member.contactNo,
         EmergencyContact: member.emergencyContact,
-        Age: member.age,
+        ...(member.birthday ? { Birthday: member.birthday } : { Age: member.age }),
+        ShowAge: member.showAge === true,
         Gender: member.gender,
         DUPRId: member.duprId,
         ReclubId: member.reClubId,
@@ -1359,7 +1366,8 @@ export class AppService {
           Name: member.name,
           ContactNo: member.contactNo,
           EmergencyContact: member.emergencyContact,
-          Age: member.age,
+          ...(member.birthday ? { Birthday: member.birthday } : { Age: member.age }),
+          ShowAge: member.showAge === true,
           Gender: member.gender,
           DUPRId: member.duprId,
           ReclubId: member.reClubId,
@@ -1406,12 +1414,18 @@ export class AppService {
     memberId: string,
     entity: Record<string, unknown>,
   ): AuthenticatedMember {
-    const age = Number(entity.Age);
+    const birthday = String(entity.Birthday ?? '');
+    const showAge =
+      entity.ShowAge === true ||
+      (entity.ShowAge === undefined && entity.Age !== undefined);
+    const storedAge = birthday ? this.calculateAge(birthday) : Number(entity.Age);
 
     return {
       memberId,
       name: String(entity.Name ?? ''),
-      age: Number.isFinite(age) ? age : null,
+      age: showAge && storedAge !== null && Number.isFinite(storedAge) ? storedAge : null,
+      ...(birthday ? { birthday } : {}),
+      ...(entity.ShowAge !== undefined ? { showAge } : {}),
       gender: String(entity.Gender ?? ''),
       duprId: String(entity.DUPRId ?? ''),
       reClubId: String(entity.ReclubId ?? ''),
@@ -1428,6 +1442,25 @@ export class AppService {
     return MEMBER_ROLES.includes(role as MemberRole)
       ? (role as MemberRole)
       : 'member';
+  }
+
+  private calculateAge(birthday: string): number | null {
+    const birthDate = new Date(`${birthday}T00:00:00Z`);
+    if (Number.isNaN(birthDate.getTime())) {
+      return null;
+    }
+
+    const today = new Date();
+    let age = today.getUTCFullYear() - birthDate.getUTCFullYear();
+    const monthDifference = today.getUTCMonth() - birthDate.getUTCMonth();
+    if (
+      monthDifference < 0 ||
+      (monthDifference === 0 && today.getUTCDate() < birthDate.getUTCDate())
+    ) {
+      age -= 1;
+    }
+
+    return age >= 0 ? age : null;
   }
 
   private toMemberAccountDetails(
@@ -1838,8 +1871,17 @@ export class AppService {
       ([, value]) => typeof value !== 'string' || !value.trim(),
     );
 
-    if (emptyField || !Number.isInteger(input.age) || input.age < 1) {
+    const legacyAge = input.age;
+    if (
+      emptyField ||
+      (!input.birthday &&
+        (!Number.isInteger(legacyAge) || legacyAge === undefined || legacyAge < 1))
+    ) {
       throw new BadRequestException('Complete all required member details.');
+    }
+
+    if (input.birthday && !this.isValidBirthday(input.birthday)) {
+      throw new BadRequestException('Enter a valid birthday.');
     }
 
     const email = input.email.trim().toLowerCase();
@@ -1873,6 +1915,8 @@ export class AppService {
       contactNo: input.contactNo.trim(),
       emergencyContact: input.emergencyContact.trim(),
       gender: input.gender.trim(),
+      birthday: input.birthday?.trim() ?? '',
+      showAge: input.showAge === true,
       duprId: input.duprId?.trim() ?? '',
       reClubId: input.reClubId?.trim() ?? '',
       profileImageUrl: input.profileImageUrl?.trim() ?? '',
@@ -1891,8 +1935,17 @@ export class AppService {
       ([, value]) => typeof value !== 'string' || !value.trim(),
     );
 
-    if (emptyField || !Number.isInteger(input.age) || input.age < 1) {
+    const legacyAge = input.age;
+    if (
+      emptyField ||
+      (!input.birthday &&
+        (!Number.isInteger(legacyAge) || legacyAge === undefined || legacyAge < 1))
+    ) {
       throw new BadRequestException('Complete all required member details.');
+    }
+
+    if (input.birthday && !this.isValidBirthday(input.birthday)) {
+      throw new BadRequestException('Enter a valid birthday.');
     }
 
     const skills = Object.fromEntries(
@@ -1919,10 +1972,27 @@ export class AppService {
       contactNo: input.contactNo.trim(),
       emergencyContact: input.emergencyContact.trim(),
       gender: input.gender.trim(),
+      birthday: input.birthday?.trim() ?? '',
+      showAge: input.showAge === true,
       duprId: input.duprId?.trim() ?? '',
       reClubId: input.reClubId?.trim() ?? '',
       skills,
     };
+  }
+
+  private isValidBirthday(value: string): boolean {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return false;
+    }
+
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return (
+      date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day &&
+      date <= new Date()
+    );
   }
 
   private async hashPassword(password: string): Promise<string> {

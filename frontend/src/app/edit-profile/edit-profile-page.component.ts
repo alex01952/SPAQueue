@@ -17,7 +17,8 @@ interface EditableMemberProfile {
   name: string;
   contactNo: string;
   emergencyContact: string;
-  age: number | null;
+  birthday: string;
+  showAge: boolean;
   gender: string;
   duprId: string;
   reClubId: string;
@@ -65,7 +66,8 @@ export class EditProfilePageComponent implements OnInit {
     name: '',
     contactNo: '',
     emergencyContact: '',
-    age: null,
+    birthday: '',
+    showAge: false,
     gender: '',
     duprId: '',
     reClubId: '',
@@ -92,7 +94,8 @@ export class EditProfilePageComponent implements OnInit {
             name: account.name,
             contactNo: account.contactNo,
             emergencyContact: account.emergencyContact,
-            age: account.age,
+            birthday: account.birthday ?? '',
+            showAge: account.showAge === true,
             gender: account.gender,
             duprId: account.duprId,
             reClubId: account.reClubId,

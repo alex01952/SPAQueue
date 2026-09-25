@@ -13,7 +13,8 @@ interface MemberRegistration {
   email: string;
   contactNo: string;
   emergencyContact: string;
-  age: number | null;
+  birthday: string;
+  showAge: boolean;
   gender: string;
   duprId: string;
   reClubId: string;
@@ -58,7 +59,8 @@ export class MemberRegistrationPageComponent {
     email: '',
     contactNo: '',
     emergencyContact: '',
-    age: null,
+    birthday: '',
+    showAge: false,
     gender: '',
     duprId: '',
     reClubId: '',
