@@ -31,7 +31,10 @@ export class AppShellComponent {
   } | null>(null);
   private readonly currentRoutePath = signal('');
   protected readonly showBreadcrumbs = computed(
-    () => this.currentRoutePath() !== '/home' && !!this.currentPageTitle(),
+    () =>
+      this.currentRoutePath() !== '/' &&
+      this.currentRoutePath() !== '/home' &&
+      !!this.currentPageTitle(),
   );
 
   constructor() {

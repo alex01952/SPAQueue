@@ -15,6 +15,8 @@ interface MemberRegistration {
   emergencyContact: string;
   birthday: string;
   showAge: boolean;
+  locationType: 'Sorsogon' | 'Other' | '';
+  location: string;
   gender: string;
   duprId: string;
   reClubId: string;
@@ -32,6 +34,11 @@ interface MemberRegistration {
 })
 export class MemberRegistrationPageComponent {
   private readonly http = inject(HttpClient);
+  protected readonly sorsogonTowns = [
+    'Barcelona', 'Bulan', 'Bulusan', 'Castilla', 'Casiguran', 'Donsol',
+    'Gubat', 'Irosin', 'Juban', 'Magallanes', 'Matnog', 'Pilar',
+    'Prieto Diaz', 'Santa Magdalena', 'Sorsogon City',
+  ];
   protected readonly skillFields = [
     ['serve', 'Serve'], ['return', 'Return'], ['drive', 'Drive'], ['drop', 'Drop'],
     ['dink', 'Dink'], ['volley', 'Volley'], ['lob', 'Lob'], ['overhead', 'Overhead'],
@@ -61,6 +68,8 @@ export class MemberRegistrationPageComponent {
     emergencyContact: '',
     birthday: '',
     showAge: false,
+    locationType: '',
+    location: '',
     gender: '',
     duprId: '',
     reClubId: '',

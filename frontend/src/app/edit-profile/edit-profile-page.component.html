@@ -27,6 +27,12 @@
           <label [class.field-invalid]="editForm.submitted && emergencyContact.invalid"><span>Emergency contact</span><input #emergencyContact="ngModel" name="emergencyContact" [(ngModel)]="profile.emergencyContact" required /><small>Emergency contact is required.</small></label>
           <label [class.field-invalid]="editForm.submitted && birthday.invalid"><span>Birthday</span><input #birthday="ngModel" type="date" name="birthday" [(ngModel)]="profile.birthday" required /><small>Enter your birthday.</small></label>
           <label class="toggle-field"><span>Show age on profile</span><input type="checkbox" name="showAge" [(ngModel)]="profile.showAge" role="switch" /><small>Allow members to see your age.</small></label>
+          <label [class.field-invalid]="editForm.submitted && locationType.invalid"><span>Location</span><select #locationType="ngModel" name="locationType" [(ngModel)]="profile.locationType" (ngModelChange)="profile.location = ''" required><option value="" disabled>Select area</option><option value="Sorsogon">Sorsogon</option><option value="Other">Other</option></select><small>Select Sorsogon or Other.</small></label>
+          @if (profile.locationType === 'Sorsogon') {
+            <label [class.field-invalid]="editForm.submitted && !profile.location"><span>Town or city</span><select name="location" [(ngModel)]="profile.location" required><option value="" disabled>Select a town or city</option>@for (town of sorsogonTowns; track town) {<option [value]="town">{{ town }}</option>}</select><small>Select a Sorsogon town or city.</small></label>
+          } @else if (profile.locationType === 'Other') {
+            <label [class.field-invalid]="editForm.submitted && !profile.location"><span>Location</span><input name="location" [(ngModel)]="profile.location" placeholder="Example: Albay, Naga, Cam Sur" required /><small>Enter your city or province.</small></label>
+          }
           <label [class.field-invalid]="editForm.submitted && gender.invalid"><span>Gender</span><select #gender="ngModel" name="gender" [(ngModel)]="profile.gender" required><option value="" disabled>Select</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select><small>Select a gender.</small></label>
           <label><span>DUPR ID</span><input name="duprId" [(ngModel)]="profile.duprId" /></label>
           <label><span>Reclub ID</span><input name="reClubId" [(ngModel)]="profile.reClubId" /></label>

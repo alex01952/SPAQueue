@@ -1,0 +1,69 @@
+<main class="landing-page">
+  <section class="landing-hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Sorsogon Pickleball Club</p>
+      <h1>Find your game. Find your people. Improve together.</h1>
+      <p class="hero-lede">A community platform for better games, stronger partnerships, and a more connected pickleball life.</p>
+      <div class="hero-actions">
+        <a class="primary-action" routerLink="/login">Member sign in <span aria-hidden="true">&rarr;</span></a>
+        <a class="secondary-action" routerLink="/register">Join the club</a>
+      </div>
+    </div>
+    <div class="hero-mark" aria-hidden="true">
+      <img [src]="logoUrl" alt="" />
+      <span>Play more.<br />Connect more.</span>
+    </div>
+  </section>
+
+  <section class="vision-section content-section">
+    <div class="section-kicker"><span>01</span><span>Our vision</span></div>
+    <div class="vision-copy">
+      <h2>A better way to connect pickleball players.</h2>
+      <p>We envision a community where every player can find people to play with, organize games, discover suitable partners, and receive meaningful feedback to improve their game.</p>
+      <p>By understanding each player's skills, strengths, and weaknesses, we can create more balanced games, better partnerships, and more satisfying pickleball experiences.</p>
+    </div>
+  </section>
+
+  <section class="benefit-section content-section">
+    <div class="section-kicker"><span>02</span><span>For players</span></div>
+    <div class="benefit-content">
+      <div class="section-intro">
+        <h2>Your skills. Your community. Your game.</h2>
+        <p>Membership gives you tools to get more out of every game and every connection.</p>
+      </div>
+      <div class="benefit-grid">
+        @for (benefit of playerBenefits; track benefit[0]) {
+          <article class="benefit-item"><span class="item-number">{{ $index + 1 }}</span><h3>{{ benefit[0] }}</h3><p>{{ benefit[1] }}</p></article>
+        }
+      </div>
+    </div>
+  </section>
+
+  <section class="dual-section content-section">
+    <div class="section-kicker"><span>03</span><span>For clubs</span></div>
+    <div class="dual-grid">
+      <article class="dark-panel">
+        <p class="eyebrow">Clubs & organizers</p>
+        <h2>Better tools for managing your pickleball community.</h2>
+        <div class="compact-list">
+          @for (benefit of organizerBenefits; track benefit[0]) {<div><h3>{{ benefit[0] }}</h3><p>{{ benefit[1] }}</p></div>}
+        </div>
+      </article>
+      <article class="arena-panel">
+        <p class="eyebrow">Sorsogon Pickleball Arena</p>
+        <h2>Connecting the court to its community.</h2>
+        <div class="compact-list">
+          @for (benefit of arenaBenefits; track benefit[0]) {<div><h3>{{ benefit[0] }}</h3><p>{{ benefit[1] }}</p></div>}
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="closing-section content-section">
+    <div class="closing-accent" aria-hidden="true"></div>
+    <p class="eyebrow">Built for a growing community</p>
+    <h2>Play more. Connect more. Improve together.</h2>
+    <p>Sorsogon Pickleball Club is growing, and so is the platform. Join the community and start building your pickleball profile.</p>
+    <a class="primary-action" routerLink="/register">Start your profile <span aria-hidden="true">&rarr;</span></a>
+  </section>
+</main>

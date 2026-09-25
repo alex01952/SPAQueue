@@ -19,6 +19,8 @@ interface EditableMemberProfile {
   emergencyContact: string;
   birthday: string;
   showAge: boolean;
+  locationType: 'Sorsogon' | 'Other' | '';
+  location: string;
   gender: string;
   duprId: string;
   reClubId: string;
@@ -35,6 +37,11 @@ export class EditProfilePageComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly auth = inject(MemberAuthService);
   private readonly router = inject(Router);
+  protected readonly sorsogonTowns = [
+    'Barcelona', 'Bulan', 'Bulusan', 'Castilla', 'Casiguran', 'Donsol',
+    'Gubat', 'Irosin', 'Juban', 'Magallanes', 'Matnog', 'Pilar',
+    'Prieto Diaz', 'Santa Magdalena', 'Sorsogon City',
+  ];
 
   protected readonly skillFields = [
     ['serve', 'Serve'], ['return', 'Return'], ['drive', 'Drive'], ['drop', 'Drop'],
@@ -68,6 +75,8 @@ export class EditProfilePageComponent implements OnInit {
     emergencyContact: '',
     birthday: '',
     showAge: false,
+    locationType: '',
+    location: '',
     gender: '',
     duprId: '',
     reClubId: '',
@@ -96,6 +105,8 @@ export class EditProfilePageComponent implements OnInit {
             emergencyContact: account.emergencyContact,
             birthday: account.birthday ?? '',
             showAge: account.showAge === true,
+            locationType: account.locationType ?? '',
+            location: account.location ?? '',
             gender: account.gender,
             duprId: account.duprId,
             reClubId: account.reClubId,

@@ -133,6 +133,24 @@ const scrypt = promisify(scryptCallback);
 
 export const MEMBER_ROLES = ['member', 'club-owner', 'admin'] as const;
 export type MemberRole = (typeof MEMBER_ROLES)[number];
+export const SORSOGON_TOWNS = [
+  'Barcelona',
+  'Bulan',
+  'Bulusan',
+  'Castilla',
+  'Casiguran',
+  'Donsol',
+  'Gubat',
+  'Irosin',
+  'Juban',
+  'Magallanes',
+  'Matnog',
+  'Pilar',
+  'Prieto Diaz',
+  'Santa Magdalena',
+  'Sorsogon City',
+] as const;
+export type MemberLocationType = 'Sorsogon' | 'Other';
 
 export interface MemberRegistrationInput {
   name: string;
@@ -148,6 +166,8 @@ export interface MemberRegistrationInput {
   profileImageUrl?: string;
   password: string;
   skills: Record<string, number | null>;
+  locationType?: MemberLocationType;
+  location?: string;
 }
 
 export interface MemberRegistrationResult {
@@ -169,6 +189,8 @@ export interface AuthenticatedMember {
   createdAt: string;
   emailValidated: boolean;
   role: MemberRole;
+  locationType?: MemberLocationType;
+  location?: string;
 }
 
 export interface MemberLoginResult {
@@ -207,6 +229,8 @@ export interface MemberProfileUpdateInput {
   duprId?: string;
   reClubId?: string;
   skills: Record<string, number | null>;
+  locationType?: MemberLocationType;
+  location?: string;
 }
 
 export interface MemberRoleUpdateResult {
@@ -829,6 +853,8 @@ export class AppService {
         EmergencyContact: member.emergencyContact,
         ...(member.birthday ? { Birthday: member.birthday } : { Age: member.age }),
         ShowAge: member.showAge === true,
+        LocationType: member.locationType,
+        Location: member.location,
         Gender: member.gender,
         DUPRId: member.duprId,
         ReclubId: member.reClubId,
@@ -1368,6 +1394,8 @@ export class AppService {
           EmergencyContact: member.emergencyContact,
           ...(member.birthday ? { Birthday: member.birthday } : { Age: member.age }),
           ShowAge: member.showAge === true,
+          LocationType: member.locationType,
+          Location: member.location,
           Gender: member.gender,
           DUPRId: member.duprId,
           ReclubId: member.reClubId,
@@ -1434,6 +1462,8 @@ export class AppService {
       createdAt: String(entity.CreatedAt ?? ''),
       emailValidated: entity.EmailValidated === true,
       role: this.getMemberRole(entity),
+      ...(entity.LocationType ? { locationType: String(entity.LocationType) as MemberLocationType } : {}),
+      ...(entity.Location ? { location: String(entity.Location) } : {}),
     };
   }
 
@@ -1883,6 +1913,7 @@ export class AppService {
     if (input.birthday && !this.isValidBirthday(input.birthday)) {
       throw new BadRequestException('Enter a valid birthday.');
     }
+    const location = this.validateMemberLocation(input.locationType, input.location);
 
     const email = input.email.trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(email)) {
@@ -1917,6 +1948,7 @@ export class AppService {
       gender: input.gender.trim(),
       birthday: input.birthday?.trim() ?? '',
       showAge: input.showAge === true,
+      ...location,
       duprId: input.duprId?.trim() ?? '',
       reClubId: input.reClubId?.trim() ?? '',
       profileImageUrl: input.profileImageUrl?.trim() ?? '',
@@ -1947,6 +1979,7 @@ export class AppService {
     if (input.birthday && !this.isValidBirthday(input.birthday)) {
       throw new BadRequestException('Enter a valid birthday.');
     }
+    const location = this.validateMemberLocation(input.locationType, input.location);
 
     const skills = Object.fromEntries(
       Object.entries(input.skills ?? {}).map(([name, rating]) => {
@@ -1974,6 +2007,7 @@ export class AppService {
       gender: input.gender.trim(),
       birthday: input.birthday?.trim() ?? '',
       showAge: input.showAge === true,
+      ...location,
       duprId: input.duprId?.trim() ?? '',
       reClubId: input.reClubId?.trim() ?? '',
       skills,
@@ -1993,6 +2027,30 @@ export class AppService {
       date.getUTCDate() === day &&
       date <= new Date()
     );
+  }
+
+  private validateMemberLocation(
+    locationType?: MemberLocationType,
+    locationInput?: string,
+  ): { locationType?: MemberLocationType; location?: string } {
+    if (!locationType && !locationInput?.trim()) {
+      return {};
+    }
+
+    if (locationType !== 'Sorsogon' && locationType !== 'Other') {
+      throw new BadRequestException('Select whether your location is Sorsogon or Other.');
+    }
+
+    const location = locationInput?.trim() ?? '';
+    if (!location) {
+      throw new BadRequestException('Select or enter your location.');
+    }
+
+    if (locationType === 'Sorsogon' && !SORSOGON_TOWNS.includes(location as (typeof SORSOGON_TOWNS)[number])) {
+      throw new BadRequestException('Select a valid Sorsogon town or city.');
+    }
+
+    return { locationType, location };
   }
 
   private async hashPassword(password: string): Promise<string> {

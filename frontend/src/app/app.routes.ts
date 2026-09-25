@@ -10,6 +10,7 @@ import { MyBalancesPageComponent } from './my-balances/my-balances-page.componen
 import { memberAuthGuard } from './member-auth.guard';
 import { memberRoleGuard } from './member-role.guard';
 import { MemberLoginPageComponent } from './member-login/member-login-page.component';
+import { LandingPageComponent } from './landing-page.component';
 import { MembersPageComponent } from './members/members-page.component';
 import { MonthlyParticipationPageComponent } from './monthly-participation/monthly-participation-page.component';
 import { MemberRegistrationPageComponent } from './member-registration/member-registration-page.component';
@@ -21,7 +22,8 @@ export const routes: Routes = [
   {
     path: '',
     pathMatch: 'full',
-    redirectTo: 'home',
+    component: LandingPageComponent,
+    title: 'Sorsogon Pickleball Club',
   },
   {
     path: 'home',

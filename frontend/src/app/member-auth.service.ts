@@ -11,6 +11,8 @@ export interface AuthenticatedMember {
   age: number | null;
   birthday?: string;
   showAge?: boolean;
+  locationType?: 'Sorsogon' | 'Other';
+  location?: string;
   gender: string;
   duprId: string;
   reClubId: string;
