@@ -7,6 +7,37 @@
   min-height: 100dvh;
 }
 
+.navigation-loading {
+  position: fixed;
+  z-index: 1000;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 42px;
+  color: #fff9f1;
+  font-size: .78rem;
+  font-weight: 700;
+  background: #2d6841;
+  box-shadow: 0 5px 18px rgba(45, 61, 38, .18);
+}
+
+.loading-spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 249, 241, .42);
+  border-top-color: #fff9f1;
+  border-radius: 50%;
+  animation: navigation-spin .75s linear infinite;
+}
+
+@keyframes navigation-spin {
+  to { transform: rotate(360deg); }
+}
+
 .breadcrumbs {
   width: min(1180px, calc(100% - 40px));
   margin: 0 auto;

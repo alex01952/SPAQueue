@@ -1,7 +1,10 @@
 import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
+  NavigationCancel,
+  NavigationError,
   NavigationEnd,
+  NavigationStart,
   Router,
   RouterLink,
   RouterOutlet,
@@ -19,6 +22,7 @@ export class AppShellComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly currentPageTitle = signal('');
+  protected readonly isNavigating = signal(false);
   protected readonly breadcrumbParent = signal<{
     label: string;
     route: string;
@@ -31,12 +35,24 @@ export class AppShellComponent {
   constructor() {
     this.router.events
       .pipe(
-        filter((event): event is NavigationEnd => event instanceof NavigationEnd),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((event) => {
-        this.currentRoutePath.set(event.urlAfterRedirects.split('?')[0]);
-        this.updateCurrentPageTitle();
+        if (event instanceof NavigationStart) {
+          this.isNavigating.set(true);
+          return;
+        }
+
+        if (event instanceof NavigationEnd) {
+          this.currentRoutePath.set(event.urlAfterRedirects.split('?')[0]);
+          this.updateCurrentPageTitle();
+          this.isNavigating.set(false);
+          return;
+        }
+
+        if (event instanceof NavigationCancel || event instanceof NavigationError) {
+          this.isNavigating.set(false);
+        }
       });
   }
 

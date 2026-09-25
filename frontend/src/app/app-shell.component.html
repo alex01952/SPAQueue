@@ -1,4 +1,10 @@
 <div class="app-shell">
+  @if (isNavigating()) {
+    <div class="navigation-loading" role="status" aria-live="polite" aria-label="Loading page">
+      <span class="loading-spinner" aria-hidden="true"></span>
+      <span>Loading page...</span>
+    </div>
+  }
   @if (showBreadcrumbs()) {
     <nav class="breadcrumbs" aria-label="Breadcrumb">
       <ol>
