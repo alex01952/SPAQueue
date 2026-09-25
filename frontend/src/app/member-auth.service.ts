@@ -3,6 +3,8 @@ import { inject, Injectable, signal } from '@angular/core';
 import { catchError, map, Observable, of, tap } from 'rxjs';
 import { getApiBaseUrl } from './api-base-url';
 
+export type MemberRole = 'member' | 'club-owner' | 'admin';
+
 export interface AuthenticatedMember {
   memberId: string;
   name: string;
@@ -14,6 +16,7 @@ export interface AuthenticatedMember {
   skills: Record<string, number | null>;
   createdAt: string;
   emailValidated: boolean;
+  role?: MemberRole;
 }
 
 export interface MemberAccountDetails extends AuthenticatedMember {

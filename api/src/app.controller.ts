@@ -29,6 +29,7 @@ import type {
   MemberDirectoryEntry,
   MemberAccountDetails,
   MemberProfileUpdateInput,
+  MemberRoleUpdateResult,
   EmailVerificationRequestResult,
   EmailVerificationResult,
   MonthlyParticipationUploadConfig,
@@ -127,6 +128,19 @@ export class AppController {
     );
 
     return this.appService.getMemberAccount(session.member.memberId);
+  }
+
+  @Patch('members/:memberId/role')
+  updateMemberRole(
+    @Param('memberId') memberId: string,
+    @Body('role') role = '',
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<MemberRoleUpdateResult> {
+    return this.appService.updateMemberRole(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      memberId,
+      role,
+    );
   }
 
   @Patch('members/me')

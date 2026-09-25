@@ -387,13 +387,10 @@ describe('AppController', () => {
       };
       let sessionEntity: Record<string, unknown> | undefined;
       jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
-        getEntity: jest.fn((partitionKey: string) => {
-          if (partitionKey === 'members') {
-            return Promise.resolve(memberEntity);
-          }
-
-          return Promise.resolve(sessionEntity);
-        }),
+        getEntity: jest.fn().mockResolvedValue(memberEntity),
+      });
+      jest.spyOn(appService as any, 'getSessionsTableClient').mockReturnValue({
+        getEntity: jest.fn(() => Promise.resolve(sessionEntity)),
         createEntity: jest.fn((entity: Record<string, unknown>) => {
           sessionEntity = entity;
           return Promise.resolve();
@@ -556,6 +553,7 @@ describe('AppController', () => {
         skills: { serve: 8 },
         createdAt: '2026-02-18T09:30:00.000Z',
         emailValidated: false,
+        role: 'member',
       });
       expect(profile.memberId).not.toBe('current-member');
       expect(profile).not.toHaveProperty('Email');

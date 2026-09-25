@@ -2,6 +2,7 @@ import {
   BadRequestException,
   BadGatewayException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -130,6 +131,9 @@ interface ReferenceCsvData {
 
 const scrypt = promisify(scryptCallback);
 
+export const MEMBER_ROLES = ['member', 'club-owner', 'admin'] as const;
+export type MemberRole = (typeof MEMBER_ROLES)[number];
+
 export interface MemberRegistrationInput {
   name: string;
   email: string;
@@ -160,6 +164,7 @@ export interface AuthenticatedMember {
   skills: Record<string, number | null>;
   createdAt: string;
   emailValidated: boolean;
+  role: MemberRole;
 }
 
 export interface MemberLoginResult {
@@ -198,6 +203,11 @@ export interface MemberProfileUpdateInput {
   skills: Record<string, number | null>;
 }
 
+export interface MemberRoleUpdateResult {
+  memberId: string;
+  role: MemberRole;
+}
+
 export interface EmailVerificationRequestResult {
   sent: true;
   email: string;
@@ -232,6 +242,8 @@ export class AppService {
   private readonly membersAzureStorageAccount =
     process.env.MEMBERS_AZURE_STORAGE_ACCOUNT;
   private readonly membersAzureTable = process.env.MEMBERS_AZURE_TABLE;
+  private readonly sessionsAzureTable =
+    process.env.MEMBERS_SESSIONS_AZURE_TABLE ?? 'Sessions';
   private readonly azureContainerName =
     process.env.OP_PARTICIPATION_AZURE_CONTAINER;
   private readonly azurePrefix =
@@ -797,6 +809,7 @@ export class AppService {
         ReclubId: member.reClubId,
         ProfileImageUrl: profileImageUrl,
         EmailValidated: false,
+        Role: 'member',
         ...(passwordHash ? { PasswordHash: passwordHash } : {}),
         Skills: JSON.stringify(member.skills),
         CreatedAt: new Date().toISOString(),
@@ -847,12 +860,14 @@ export class AppService {
     const expiresAt = new Date(
       Date.now() + this.memberSessionTtlHours * 60 * 60 * 1000,
     ).toISOString();
+    const sessionsTableClient = this.getSessionsTableClient();
 
     try {
-      await tableClient.createEntity({
+      await sessionsTableClient.createEntity({
         partitionKey: 'sessions',
         rowKey: sessionId,
         MemberId: memberId,
+        Role: this.getMemberRole(member),
         ExpiresAt: expiresAt,
         CreatedAt: new Date().toISOString(),
       });
@@ -873,11 +888,12 @@ export class AppService {
     }
 
     const tableClient = this.getMembersTableClient();
+    const sessionsTableClient = this.getSessionsTableClient();
     const sessionId = this.hashSessionToken(sessionToken);
     let session: Record<string, unknown>;
 
     try {
-      session = await tableClient.getEntity('sessions', sessionId);
+      session = await sessionsTableClient.getEntity('sessions', sessionId);
     } catch (error) {
       if (this.isAzureNotFound(error)) {
         throw new UnauthorizedException('Member session is invalid or expired.');
@@ -888,7 +904,9 @@ export class AppService {
 
     const expiresAt = Date.parse(String(session.ExpiresAt ?? ''));
     if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-      await tableClient.deleteEntity('sessions', sessionId).catch(() => undefined);
+      await sessionsTableClient
+        .deleteEntity('sessions', sessionId)
+        .catch(() => undefined);
       throw new UnauthorizedException('Member session is invalid or expired.');
     }
 
@@ -979,6 +997,42 @@ export class AppService {
 
       throw this.createMemberAuthenticationStorageException(error);
     }
+  }
+
+  async updateMemberRole(
+    actorSessionToken: string,
+    memberId: string,
+    roleInput: string,
+  ): Promise<MemberRoleUpdateResult> {
+    const actorSession = await this.getMemberSession(actorSessionToken);
+    if (actorSession.member.role !== 'admin') {
+      throw new ForbiddenException('Only administrators can assign member roles.');
+    }
+
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(memberId)) {
+      throw new BadRequestException('Invalid member identifier.');
+    }
+
+    const role = roleInput.trim().toLowerCase();
+    if (!MEMBER_ROLES.includes(role as MemberRole)) {
+      throw new BadRequestException('Invalid member role.');
+    }
+
+    const tableClient = this.getMembersTableClient();
+    try {
+      await tableClient.updateEntity(
+        { partitionKey: 'members', rowKey: memberId, Role: role },
+        'Merge',
+      );
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException('Member account was not found.');
+      }
+
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return { memberId, role: role as MemberRole };
   }
 
   async requestEmailVerification(
@@ -1142,7 +1196,7 @@ export class AppService {
     }
 
     try {
-      await this.getMembersTableClient().deleteEntity(
+      await this.getSessionsTableClient().deleteEntity(
         'sessions',
         this.hashSessionToken(sessionToken),
       );
@@ -1174,7 +1228,15 @@ export class AppService {
       skills: this.parseStoredMemberSkills(entity.Skills),
       createdAt: String(entity.CreatedAt ?? ''),
       emailValidated: entity.EmailValidated === true,
+      role: this.getMemberRole(entity),
     };
+  }
+
+  private getMemberRole(entity: Record<string, unknown>): MemberRole {
+    const role = String(entity.Role ?? '').trim().toLowerCase();
+    return MEMBER_ROLES.includes(role as MemberRole)
+      ? (role as MemberRole)
+      : 'member';
   }
 
   private toMemberAccountDetails(
@@ -1466,6 +1528,20 @@ export class AppService {
     return new TableClient(
       `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
       this.membersAzureTable,
+      new DefaultAzureCredential(),
+    );
+  }
+
+  private getSessionsTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount || !this.sessionsAzureTable) {
+      throw new BadRequestException(
+        'MEMBERS_AZURE_STORAGE_ACCOUNT and MEMBERS_SESSIONS_AZURE_TABLE are required for member sessions.',
+      );
+    }
+
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.sessionsAzureTable,
       new DefaultAzureCredential(),
     );
   }
