@@ -24,8 +24,14 @@ export class MembersPageComponent implements OnInit {
   private readonly http = inject(HttpClient);
 
   protected readonly searchTerm = signal('');
+  protected readonly locationScope = signal('');
   protected readonly selectedLocation = signal('');
   protected readonly selectedClubId = signal('');
+  protected readonly sorsogonTowns = [
+    'Barcelona', 'Bulan', 'Bulusan', 'Castilla', 'Casiguran', 'Donsol',
+    'Gubat', 'Irosin', 'Juban', 'Magallanes', 'Matnog', 'Pilar',
+    'Prieto Diaz', 'Santa Magdalena', 'Sorsogon City',
+  ];
   protected readonly clubs = signal<ClubSummary[]>([]);
   protected readonly members = signal<MemberSummary[]>([]);
   protected readonly isLoading = signal(true);
@@ -50,7 +56,16 @@ export class MembersPageComponent implements OnInit {
     this.loadMembers();
   }
 
-  protected updateLocation(value: string) { this.selectedLocation.set(value); this.loadMembers(); }
+  protected updateLocationScope(value: string) {
+    this.locationScope.set(value);
+    this.selectedLocation.set(value === 'Other' ? 'Other' : '');
+    this.loadMembers();
+  }
+
+  protected updateLocation(value: string) {
+    this.selectedLocation.set(value);
+    this.loadMembers();
+  }
   protected updateClub(value: string) { this.selectedClubId.set(value); this.loadMembers(); }
 
   private loadClubs() {

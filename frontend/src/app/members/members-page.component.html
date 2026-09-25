@@ -15,7 +15,12 @@
       />
     </label>
     <div class="directory-filters">
-      <label><span>Location</span><select [value]="selectedLocation()" (change)="updateLocation($any($event.target).value)"><option value="">All locations</option><option value="Sorsogon">Sorsogon</option><option value="Other">Other</option></select></label>
+      <label><span>Location</span><select [value]="locationScope()" (change)="updateLocationScope($any($event.target).value)"><option value="">All locations</option><option value="Sorsogon">Sorsogon</option><option value="Other">Other</option></select></label>
+      @if (locationScope() === 'Sorsogon') {
+        <label><span>Sorsogon town or city</span><select [value]="selectedLocation()" (change)="updateLocation($any($event.target).value)"><option value="">All Sorsogon towns</option>@for (town of sorsogonTowns; track town) {<option [value]="town">{{ town }}</option>}</select></label>
+      } @else if (locationScope() === 'Other') {
+        <label><span>Other location</span><input type="search" placeholder="Example: Albay, Naga, Cam Sur" [value]="selectedLocation() === 'Other' ? '' : selectedLocation()" (input)="updateLocation($any($event.target).value || 'Other')" /></label>
+      }
       <label><span>Club</span><select [value]="selectedClubId()" (change)="updateClub($any($event.target).value)"><option value="">All clubs</option>@for (club of clubs(); track club.clubId) {<option [value]="club.clubId">{{ club.name }}</option>}</select></label>
     </div>
 
