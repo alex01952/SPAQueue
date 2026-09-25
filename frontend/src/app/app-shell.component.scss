@@ -7,6 +7,23 @@
   min-height: 100dvh;
 }
 
+.global-brand {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+  padding-top: 12px;
+}
+
+.global-brand a {
+  display: inline-flex;
+  align-items: center;
+}
+
+.global-brand img {
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+}
+
 .navigation-loading {
   position: fixed;
   z-index: 1000;
@@ -76,6 +93,10 @@
 }
 
 @media (max-width: 560px) {
+  .global-brand {
+    width: calc(100% - 24px);
+  }
+
   .breadcrumbs {
     width: calc(100% - 24px);
     padding-top: 10px;

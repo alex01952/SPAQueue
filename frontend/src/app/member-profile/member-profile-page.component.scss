@@ -1,6 +1,13 @@
 :host {
   display: block;
+  min-height: 100vh;
   color: var(--text-primary);
+  background-color: #f4eadb;
+  background-image: url('https://seeturtlesphsa.blob.core.windows.net/spa/Assets/ProfileBackground.png');
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-attachment: fixed;
 }
 
 .profile-shell {

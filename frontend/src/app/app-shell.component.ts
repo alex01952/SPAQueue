@@ -22,6 +22,8 @@ export class AppShellComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly currentPageTitle = signal('');
+  protected readonly logoUrl =
+    'https://seeturtlesphsa.blob.core.windows.net/spa/Assets/SPCLogo.png';
   protected readonly isNavigating = signal(false);
   protected readonly breadcrumbParent = signal<{
     label: string;
