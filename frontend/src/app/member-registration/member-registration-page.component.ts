@@ -19,6 +19,7 @@ interface MemberRegistration {
   reClubId: string;
   profileImageUrl: string;
   password: string;
+  passwordConfirmation: string;
   skills: Record<string, number | null>;
 }
 
@@ -63,8 +64,14 @@ export class MemberRegistrationPageComponent {
     reClubId: '',
     profileImageUrl: '',
     password: '',
+    passwordConfirmation: '',
     skills: Object.fromEntries(this.skillFields.map(([key]) => [key, 0])),
   };
+
+  protected passwordsMatch() {
+    return Boolean(this.member.password) &&
+      this.member.password === this.member.passwordConfirmation;
+  }
 
   protected skillProgress(skillKey: string) {
     const rating = this.member.skills[skillKey] ?? 0;
@@ -140,6 +147,11 @@ export class MemberRegistrationPageComponent {
       return;
     }
 
+    if (!this.passwordsMatch()) {
+      this.registrationMessage.set('Passwords do not match.');
+      return;
+    }
+
     if (this.sourceProfileImage() && !this.selectedProfileImage()) {
       this.registrationMessage.set('Finish cropping the profile image before registering.');
       return;
@@ -150,6 +162,10 @@ export class MemberRegistrationPageComponent {
     const registration = new FormData();
 
     for (const [field, value] of Object.entries(this.member)) {
+      if (field === 'passwordConfirmation') {
+        continue;
+      }
+
       registration.append(
         field,
         field === 'skills' ? JSON.stringify(value) : String(value ?? ''),
@@ -169,6 +185,7 @@ export class MemberRegistrationPageComponent {
       .subscribe({
         next: () => {
           this.member.password = '';
+          this.member.passwordConfirmation = '';
           this.registrationMessage.set('Registration complete. Welcome to the club.');
           this.isSubmitting.set(false);
         },

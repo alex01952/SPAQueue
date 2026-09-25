@@ -74,6 +74,7 @@
           }
         </div>
         <label class="full-width" [class.field-invalid]="registrationForm.submitted && password.invalid"><span>Password <b aria-hidden="true">*</b></span><input #password="ngModel" type="password" name="password" [(ngModel)]="member.password" minlength="8" autocomplete="new-password" required /><small>Use at least 8 characters.</small></label>
+        <label class="full-width" [class.field-invalid]="registrationForm.submitted && (!passwordConfirmation.valid || !passwordsMatch())"><span>Confirm password <b aria-hidden="true">*</b></span><input #passwordConfirmation="ngModel" type="password" name="passwordConfirmation" [(ngModel)]="member.passwordConfirmation" autocomplete="new-password" required /><small>{{ passwordConfirmation.invalid ? 'Confirm your password.' : 'Passwords must match.' }}</small></label>
       </div>
     </section>
 
@@ -107,7 +108,7 @@
       </div>
     </section>
 
-    <button type="submit" class="submit-button" [disabled]="registrationForm.invalid || isSubmitting() || (sourceProfileImage() && !selectedProfileImage())">{{ isSubmitting() ? 'Registering...' : 'Register' }}</button>
+    <button type="submit" class="submit-button" [disabled]="registrationForm.invalid || !passwordsMatch() || isSubmitting() || (sourceProfileImage() && !selectedProfileImage())">{{ isSubmitting() ? 'Registering...' : 'Register' }}</button>
     @if (registrationMessage()) {
       <p class="status-banner">{{ registrationMessage() }}</p>
     }

@@ -21,6 +21,26 @@
         </div>
       </aside>
 
+      <section class="rpg-panel" aria-labelledby="rpg-stats-title">
+        <div class="section-heading">
+          <p class="eyebrow">Player class</p>
+          <h2 id="rpg-stats-title">{{ rpgStats().jobTitles.join(' / ') }}</h2>
+          <p class="job-caption">Highest stat{{ rpgStats().highestStats.length === 1 ? '' : 's' }}: {{ rpgStats().highestStats.map((stat) => stat.label + ' ' + stat.percentage + '%').join(', ') }}</p>
+        </div>
+        <div class="rpg-stats-list">
+          @for (stat of rpgStats().stats; track stat.key) {
+            <div class="rpg-stat-row" [style.--stat-progress.%]="stat.percentage">
+              <div class="rpg-stat-heading">
+                <span>{{ stat.label }}</span>
+                <strong>{{ stat.percentage }}%</strong>
+              </div>
+              <div class="rpg-stat-track" aria-hidden="true"><span></span></div>
+              <small>{{ stat.score }}/{{ stat.maximum }} · {{ stat.jobTitle }}</small>
+            </div>
+          }
+        </div>
+      </section>
+
       <section class="details-panel" aria-label="Member details and skills">
         @if (isOwnProfile()) {
           <div class="profile-actions">

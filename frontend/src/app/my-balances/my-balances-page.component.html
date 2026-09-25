@@ -1,0 +1,37 @@
+<main class="my-balances-shell">
+  <header class="page-heading">
+    <p class="eyebrow">Member account</p>
+    <h1>My balances</h1>
+    <p>Review any unpaid balances on your member account.</p>
+  </header>
+
+  @if (isLoading()) {
+    <p class="status-message" aria-live="polite">Loading your balances.</p>
+  } @else if (errorMessage()) {
+    <p class="status-message error" role="alert">{{ errorMessage() }}</p>
+  } @else if (!balances().length) {
+    <section class="empty-state" aria-labelledby="no-balances-title">
+      <span class="status-mark" aria-hidden="true">&#10003;</span>
+      <h2 id="no-balances-title">You do not have any unpaid balances</h2>
+      <p>Your account is clear.</p>
+    </section>
+  } @else {
+    <section class="balance-panel" aria-labelledby="balances-title">
+      <div class="panel-heading">
+        <p class="eyebrow">Payment status</p>
+        <h2 id="balances-title">You have unpaid balances</h2>
+      </div>
+      <div class="balance-list">
+        @for (balance of balances(); track balance.balanceId) {
+          <article class="balance-row">
+            <div>
+              <strong>{{ balance.balanceType }}</strong>
+              <span>{{ balance.balanceDate || 'Date unavailable' }}</span>
+            </div>
+            <strong class="amount">{{ balance.amount | number: '1.2-2' }}</strong>
+          </article>
+        }
+      </div>
+    </section>
+  }
+</main>

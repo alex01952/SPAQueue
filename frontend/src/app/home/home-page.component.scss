@@ -23,6 +23,10 @@ h1 { margin: 0; font-size: clamp(2.8rem, 7vw, 6.4rem); line-height: .94; }
 .home-menu { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid rgba(103, 70, 41, .18); border-left: 1px solid rgba(103, 70, 41, .18); }
 .menu-item { min-width: 0; min-height: 132px; display: grid; grid-template-columns: 42px minmax(0, 1fr) 32px; align-items: center; gap: 14px; padding: 22px; color: inherit; font: inherit; text-align: left; text-decoration: none; background: rgba(255, 249, 240, .72); border: 0; border-right: 1px solid rgba(103, 70, 41, .18); border-bottom: 1px solid rgba(103, 70, 41, .18); cursor: pointer; transition: background 160ms ease, color 160ms ease; }
 .menu-item:hover, .menu-item:focus-visible { color: #fff9f1; background: #2d6841; outline: none; }
+.balance-menu-item.has-balances { color: #842f22; background: rgba(184, 67, 49, .13); border-color: rgba(184, 67, 49, .28); }
+.balance-menu-item.no-balances { background: rgba(76, 140, 87, .14); border-color: rgba(76, 140, 87, .28); }
+.balance-menu-item.has-balances:hover, .balance-menu-item.has-balances:focus-visible { color: #fff9f1; background: #9e3e2b; }
+.balance-menu-item.no-balances:hover, .balance-menu-item.no-balances:focus-visible { color: #fff9f1; background: #2d6841; }
 .menu-index { align-self: start; color: #b56b3e; font-size: .72rem; font-weight: 700; }
 .menu-copy { min-width: 0; display: grid; gap: 7px; }
 .menu-copy strong { font-size: clamp(1.15rem, 2vw, 1.55rem); }

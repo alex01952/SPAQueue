@@ -29,6 +29,67 @@
   min-height: 0;
   overflow: hidden;
   border-radius: 8px;
+  .rpg-panel {
+    grid-column: 1;
+    padding: 18px;
+    background: rgba(255, 249, 240, 0.84);
+    border-radius: 8px;
+  }
+
+  .rpg-panel h2 {
+    font-size: 1.45rem;
+    line-height: 1.1;
+  }
+
+  .job-caption {
+    margin-top: 8px;
+    color: var(--text-secondary);
+    font-size: .78rem;
+    line-height: 1.4;
+  }
+
+  .rpg-stats-list {
+    display: grid;
+    gap: 12px;
+    margin-top: 18px;
+  }
+
+  .rpg-stat-row {
+    --stat-progress: 0%;
+    display: grid;
+    gap: 5px;
+  }
+
+  .rpg-stat-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: .84rem;
+  }
+
+  .rpg-stat-heading strong {
+    color: color-mix(in srgb, #b84331 calc(100% - var(--stat-progress)), #3f8c55 var(--stat-progress));
+  }
+
+  .rpg-stat-track {
+    height: 7px;
+    overflow: hidden;
+    background: rgba(103, 70, 41, .12);
+    border-radius: 999px;
+  }
+
+  .rpg-stat-track span {
+    display: block;
+    width: var(--stat-progress);
+    height: 100%;
+    background: linear-gradient(90deg, #b84331 0%, #d98b2b 50%, #3f8c55 100%);
+    border-radius: inherit;
+  }
+
+  .rpg-stat-row small {
+    color: var(--text-secondary);
+    font-size: .7rem;
+  }
   background: #2f221a;
 }
 
@@ -37,6 +98,8 @@
   height: 100%;
   min-height: 0;
   display: block;
+    grid-column: 2;
+    grid-row: 1 / span 2;
   object-fit: cover;
 }
 
@@ -229,6 +292,12 @@ h1 {
 @media (max-width: 920px) {
   .profile-layout {
     grid-template-columns: 1fr;
+  }
+
+  .rpg-panel,
+  .details-panel {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .photo-panel,

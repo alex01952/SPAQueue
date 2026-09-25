@@ -212,11 +212,13 @@ export interface MemberBalance {
   balanceId: string;
   memberId: string;
   balanceType: string;
+  balanceDate: string;
   amount: number;
 }
 
 export interface MemberBalanceInput {
   balanceType: string;
+  balanceDate: string;
   amount: number;
 }
 
@@ -1083,11 +1085,29 @@ export class AppService {
     await this.requireAdminSession(sessionToken);
     this.validateMemberId(memberId);
 
+    return this.readMemberBalances(memberId);
+  }
+
+  async getMyMemberBalances(sessionToken: string): Promise<MemberBalance[]> {
+    const session = await this.getMemberSession(sessionToken);
+    return this.readMemberBalances(session.member.memberId);
+  }
+
+  private async readMemberBalances(memberId: string): Promise<MemberBalance[]> {
+    this.validateMemberId(memberId);
+
     try {
       const entities = this.getBalancesTableClient().listEntities({
         queryOptions: {
           filter: `PartitionKey eq '${memberId}'`,
-          select: ['RowKey', 'PartitionKey', 'BalanceType', 'Type', 'Amount'],
+          select: [
+            'RowKey',
+            'PartitionKey',
+            'BalanceType',
+            'Type',
+            'BalanceDate',
+            'Amount',
+          ],
         },
       });
       const balances: MemberBalance[] = [];
@@ -1095,17 +1115,23 @@ export class AppService {
       for await (const entity of entities) {
         const amount = Number(entity.Amount);
         const balanceType = String(entity.BalanceType ?? entity.Type ?? '').trim();
+        const balanceDate = String(entity.BalanceDate ?? '').trim();
         if (entity.rowKey && balanceType && Number.isFinite(amount)) {
           balances.push({
             balanceId: String(entity.rowKey),
             memberId,
             balanceType,
+            balanceDate,
             amount,
           });
         }
       }
 
-      return balances.sort((left, right) => left.balanceType.localeCompare(right.balanceType));
+      return balances.sort((left, right) =>
+        `${right.balanceDate}-${right.balanceType}`.localeCompare(
+          `${left.balanceDate}-${left.balanceType}`,
+        ),
+      );
     } catch (error) {
       throw this.createMemberAuthenticationStorageException(error);
     }
@@ -1127,6 +1153,7 @@ export class AppService {
         rowKey: balanceId,
         MemberId: memberId,
         BalanceType: balance.balanceType,
+        BalanceDate: balance.balanceDate,
         Amount: balance.amount,
         CreatedAt: new Date().toISOString(),
         UpdatedAt: new Date().toISOString(),
@@ -1158,6 +1185,7 @@ export class AppService {
           rowKey: balanceId,
           MemberId: memberId,
           BalanceType: balance.balanceType,
+          BalanceDate: balance.balanceDate,
           Amount: balance.amount,
           UpdatedAt: new Date().toISOString(),
         },
@@ -1752,12 +1780,29 @@ export class AppService {
 
   private async validateBalanceInput(
     input: MemberBalanceInput,
-  ): Promise<{ balanceType: string; amount: number }> {
+  ): Promise<{ balanceType: string; balanceDate: string; amount: number }> {
     const balanceType = String(input?.balanceType ?? '').trim();
+    const balanceDate = String(input?.balanceDate ?? '').trim();
     const amount = Number(input?.amount);
 
-    if (!balanceType || !Number.isFinite(amount)) {
-      throw new BadRequestException('Balance type and amount are required.');
+    if (!balanceType || !balanceDate || !Number.isFinite(amount)) {
+      throw new BadRequestException(
+        'Balance type, date, and amount are required.',
+      );
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(balanceDate)) {
+      throw new BadRequestException('Balance date must be a valid date.');
+    }
+
+    const [year, month, day] = balanceDate.split('-').map(Number);
+    const parsedDate = new Date(Date.UTC(year, month - 1, day));
+    if (
+      parsedDate.getUTCFullYear() !== year ||
+      parsedDate.getUTCMonth() !== month - 1 ||
+      parsedDate.getUTCDate() !== day
+    ) {
+      throw new BadRequestException('Balance date must be a valid date.');
     }
 
     const balanceTypes = this.getBalanceTypesTableClient().listEntities({
@@ -1778,7 +1823,7 @@ export class AppService {
       throw new BadRequestException('Select a valid balance type.');
     }
 
-    return { balanceType, amount };
+    return { balanceType, balanceDate, amount };
   }
 
   private validateMemberRegistration(input: MemberRegistrationInput) {

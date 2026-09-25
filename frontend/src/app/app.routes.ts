@@ -6,6 +6,7 @@ import { EditProfilePageComponent } from './edit-profile/edit-profile-page.compo
 import { HomePageComponent } from './home/home-page.component';
 import { MemberProfilePageComponent } from './member-profile/member-profile-page.component';
 import { MemberBalancesPageComponent } from './member-balances/member-balances-page.component';
+import { MyBalancesPageComponent } from './my-balances/my-balances-page.component';
 import { memberAuthGuard } from './member-auth.guard';
 import { memberRoleGuard } from './member-role.guard';
 import { MemberLoginPageComponent } from './member-login/member-login-page.component';
@@ -32,7 +33,7 @@ export const routes: Routes = [
     path: 'queue-dashboard',
     component: App,
     canActivate: [memberAuthGuard, memberRoleGuard, dashboardAuthGuard],
-    data: { allowedRoles: ['club-owner', 'admin'] },
+    data: { allowedRoles: ['admin'] },
     title: 'Pickleball Queue',
   },
   {
@@ -102,6 +103,12 @@ export const routes: Routes = [
     component: MembersPageComponent,
     canActivate: [memberAuthGuard],
     title: 'Members',
+  },
+  {
+    path: 'my-balances',
+    component: MyBalancesPageComponent,
+    canActivate: [memberAuthGuard],
+    title: 'My Balances',
   },
   {
     path: 'member-balances',

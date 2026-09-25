@@ -51,9 +51,31 @@
       </a>
     }
 
+    <a
+      routerLink="/my-balances"
+      class="menu-item balance-menu-item"
+      [class.has-balances]="memberHasBalances()"
+      [class.no-balances]="!memberHasBalances()"
+    >
+      <span class="menu-index">05</span>
+      <span class="menu-copy">
+        <strong>My balances</strong>
+        <small>{{ memberHasBalances() ? 'you have unpaid balances' : 'you do not have any unpaid balances' }}</small>
+      </span>
+      <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+    </a>
+
     @if (member()?.role === 'admin') {
-      <a routerLink="/member-balances" class="menu-item">
+      <a routerLink="/queue-dashboard" class="menu-item">
         <span class="menu-index">06</span>
+        <span class="menu-copy">
+          <strong>Queueing</strong>
+          <small>Manage check-ins, courts, and the next games.</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
+      <a routerLink="/member-balances" class="menu-item">
+        <span class="menu-index">07</span>
         <span class="menu-copy">
           <strong>Member balances</strong>
           <small>Manage balances for individual members.</small>
@@ -63,7 +85,7 @@
     }
 
     <button type="button" class="menu-item logout-item" [disabled]="isLoggingOut()" (click)="logout()">
-      <span class="menu-index">{{ member()?.role === 'admin' ? '07' : '06' }}</span>
+      <span class="menu-index">{{ member()?.role === 'admin' ? '08' : '06' }}</span>
       <span class="menu-copy">
         <strong>{{ isLoggingOut() ? 'Logging out...' : 'Logout' }}</strong>
         <small>End your member session on this device.</small>

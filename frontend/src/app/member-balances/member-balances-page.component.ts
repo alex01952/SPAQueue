@@ -16,6 +16,7 @@ interface MemberBalance {
   balanceId: string;
   memberId: string;
   balanceType: string;
+  balanceDate: string;
   amount: number;
 }
 
@@ -34,6 +35,7 @@ export class MemberBalancesPageComponent implements OnInit {
   protected readonly balances = signal<MemberBalance[]>([]);
   protected readonly searchTerm = signal('');
   protected readonly balanceType = signal('');
+  protected readonly balanceDate = signal('');
   protected readonly amount = signal<number | null>(null);
   protected readonly editingBalanceId = signal<string | null>(null);
   protected readonly isLoading = signal(true);
@@ -80,6 +82,7 @@ export class MemberBalancesPageComponent implements OnInit {
   protected startEdit(balance: MemberBalance) {
     this.editingBalanceId.set(balance.balanceId);
     this.balanceType.set(balance.balanceType);
+    this.balanceDate.set(balance.balanceDate);
     this.amount.set(balance.amount);
     this.feedbackMessage.set('');
   }
@@ -92,16 +95,17 @@ export class MemberBalancesPageComponent implements OnInit {
   protected saveBalance() {
     const member = this.selectedMember();
     const type = this.balanceType().trim();
+    const date = this.balanceDate();
     const amount = this.amount();
-    if (!member || !type || amount === null || !Number.isFinite(amount)) {
-      this.errorMessage.set('Select a balance type and enter a valid amount.');
+    if (!member || !type || !date || amount === null || !Number.isFinite(amount)) {
+      this.errorMessage.set('Select a balance type, date, and valid amount.');
       return;
     }
 
     this.isSaving.set(true);
     this.errorMessage.set('');
     this.feedbackMessage.set('');
-    const payload = { balanceType: type, amount };
+    const payload = { balanceType: type, balanceDate: date, amount };
     const editingId = this.editingBalanceId();
     const request = editingId
       ? this.http.patch<MemberBalance>(
@@ -201,6 +205,7 @@ export class MemberBalancesPageComponent implements OnInit {
 
   private resetForm() {
     this.balanceType.set('');
+    this.balanceDate.set('');
     this.amount.set(null);
   }
 

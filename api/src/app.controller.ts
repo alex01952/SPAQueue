@@ -155,6 +155,15 @@ export class AppController {
     );
   }
 
+  @Get('members/me/balances')
+  getMyMemberBalances(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<MemberBalance[]> {
+    return this.appService.getMyMemberBalances(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
   @Get('members/:memberId/balances')
   getMemberBalances(
     @Param('memberId') memberId: string,
@@ -175,7 +184,11 @@ export class AppController {
     return this.appService.createMemberBalance(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
       memberId,
-      { balanceType: String(body.balanceType ?? ''), amount: Number(body.amount) },
+      {
+        balanceType: String(body.balanceType ?? ''),
+        balanceDate: String(body.balanceDate ?? ''),
+        amount: Number(body.amount),
+      },
     );
   }
 
@@ -190,7 +203,11 @@ export class AppController {
       this.readCookie(cookieHeader, this.memberSessionCookieName),
       memberId,
       balanceId,
-      { balanceType: String(body.balanceType ?? ''), amount: Number(body.amount) },
+      {
+        balanceType: String(body.balanceType ?? ''),
+        balanceDate: String(body.balanceDate ?? ''),
+        amount: Number(body.amount),
+      },
     );
   }
 

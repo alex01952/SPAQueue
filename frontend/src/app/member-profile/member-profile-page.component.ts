@@ -4,6 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { getApiBaseUrl } from '../api-base-url';
 import { AuthenticatedMember, MemberAuthService } from '../member-auth.service';
+import { calculatePlayerRpgStats } from './player-rpg-stats';
 
 interface MemberSkill {
   name: string;
@@ -65,6 +66,9 @@ export class MemberProfilePageComponent implements OnInit {
 
     return (total / skills.length).toFixed(1);
   });
+  protected readonly rpgStats = computed(() =>
+    calculatePlayerRpgStats(this.member()?.skills),
+  );
 
   ngOnInit() {
     this.route.paramMap

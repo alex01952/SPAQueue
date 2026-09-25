@@ -68,6 +68,15 @@
               </select>
             </label>
             <label>
+              <span>Date</span>
+              <input
+                type="date"
+                [value]="balanceDate()"
+                (input)="balanceDate.set($any($event.target).value)"
+                required
+              />
+            </label>
+            <label>
               <span>Amount</span>
               <input
                 type="number"
@@ -103,7 +112,7 @@
               <article class="balance-row">
                 <div>
                   <strong>{{ balance.balanceType }}</strong>
-                  <span>{{ balance.balanceId }}</span>
+                  <span>{{ balance.balanceDate || 'Date unavailable' }}</span>
                 </div>
                 <strong class="amount">{{ balance.amount | number: '1.2-2' }}</strong>
                 <div class="row-actions">
