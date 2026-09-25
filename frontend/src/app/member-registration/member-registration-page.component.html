@@ -74,7 +74,7 @@
             <p class="crop-error" role="alert">{{ cropError() }}</p>
           }
         </div>
-        <label class="full-width" [class.field-invalid]="registrationForm.submitted && password.invalid"><span>Password <b aria-hidden="true">*</b></span><input #password="ngModel" type="password" name="password" [(ngModel)]="member.password" minlength="8" autocomplete="new-password" required /><small>Use at least 8 characters.</small></label>
+        <label class="full-width" [class.field-invalid]="registrationForm.submitted && (password.invalid || !passwordsMatch())"><span>Password <b aria-hidden="true">*</b></span><input #password="ngModel" type="password" name="password" [(ngModel)]="member.password" minlength="8" autocomplete="new-password" required /><small>{{ password.invalid ? 'Use at least 8 characters.' : 'Passwords do not match.' }}</small></label>
         <label class="full-width" [class.field-invalid]="registrationForm.submitted && (!passwordConfirmation.valid || !passwordsMatch())"><span>Confirm password <b aria-hidden="true">*</b></span><input #passwordConfirmation="ngModel" type="password" name="passwordConfirmation" [(ngModel)]="member.passwordConfirmation" autocomplete="new-password" required /><small>{{ passwordConfirmation.invalid ? 'Confirm your password.' : 'Passwords must match.' }}</small></label>
       </div>
     </section>

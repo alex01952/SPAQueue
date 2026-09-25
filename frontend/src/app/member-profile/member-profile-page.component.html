@@ -25,16 +25,13 @@
         <div class="section-heading">
           <p class="eyebrow">Player class</p>
           <h2 id="rpg-stats-title">{{ rpgStats().jobTitles.join(' / ') }}</h2>
-          <p class="job-caption">Highest stat{{ rpgStats().highestStats.length === 1 ? '' : 's' }}: {{ rpgStats().highestStats.map((stat) => stat.label + ' ' + stat.percentage + '%').join(', ') }}</p>
+          <p class="job-caption">Strongest area{{ rpgStats().highestStats.length === 1 ? '' : 's' }}: {{ rpgStats().highestStats.map((stat) => stat.label).join(', ') }}</p>
         </div>
         <div class="rpg-stats-list">
           @for (stat of rpgStats().stats; track stat.key) {
-            <div class="rpg-stat-row" [style.--stat-progress.%]="stat.percentage">
-              <div class="rpg-stat-heading">
-                <span>{{ stat.label }}</span>
-                <strong>{{ stat.percentage }}%</strong>
-              </div>
-              <small>{{ stat.score }}/{{ stat.maximum }} · {{ stat.jobTitle }}</small>
+            <div class="rpg-stat-row" [style.--stat-progress.%]="stat.percentage" [attr.aria-label]="stat.label + ' stat'">
+              <span class="rpg-stat-label">{{ stat.label }}</span>
+              <div class="rpg-stat-track" aria-hidden="true"><span></span></div>
             </div>
           }
         </div>

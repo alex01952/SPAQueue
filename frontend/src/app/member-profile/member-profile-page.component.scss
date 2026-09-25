@@ -54,32 +54,40 @@
 
 .rpg-stats-list {
   display: grid;
-  gap: 6px;
+  gap: 10px;
   margin-top: 12px;
 }
 
 .rpg-stat-row {
+  --stat-progress: 0%;
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   color: var(--text-secondary);
   font-size: .74rem;
 }
 
-.rpg-stat-heading {
-  display: contents;
-}
-
-.rpg-stat-heading strong {
+.rpg-stat-label {
+  flex: 0 0 92px;
   color: var(--text-primary);
   font-size: .76rem;
+  font-weight: 700;
 }
 
-.rpg-stat-row small {
-  color: var(--accent-dark);
-  font-size: .68rem;
-  text-align: right;
+.rpg-stat-track {
+  flex: 1;
+  height: 9px;
+  overflow: hidden;
+  background: rgba(63, 140, 85, .14);
+  border-radius: 999px;
+}
+
+.rpg-stat-track span {
+  display: block;
+  width: var(--stat-progress);
+  height: 100%;
+  background: #3f8c55;
+  border-radius: inherit;
 }
 
 .photo-panel img {
