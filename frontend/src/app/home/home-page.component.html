@@ -74,8 +74,16 @@
         </span>
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
-      <a routerLink="/member-balances" class="menu-item">
+      <a routerLink="/open-play-participation/upload" class="menu-item">
         <span class="menu-index">07</span>
+        <span class="menu-copy">
+          <strong>Upload participation</strong>
+          <small>Upload Open Play participation files.</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
+      <a routerLink="/member-balances" class="menu-item">
+        <span class="menu-index">08</span>
         <span class="menu-copy">
           <strong>Member balances</strong>
           <small>Manage balances for individual members.</small>
@@ -85,7 +93,7 @@
     }
 
     <button type="button" class="menu-item logout-item" [disabled]="isLoggingOut()" (click)="logout()">
-      <span class="menu-index">{{ member()?.role === 'admin' ? '08' : '06' }}</span>
+      <span class="menu-index">{{ member()?.role === 'admin' ? '09' : '06' }}</span>
       <span class="menu-copy">
         <strong>{{ isLoggingOut() ? 'Logging out...' : 'Logout' }}</strong>
         <small>End your member session on this device.</small>
