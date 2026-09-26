@@ -54,7 +54,8 @@ export const routes: Routes = [
   {
     path: 'open-play-participation/upload',
     component: ParticipationUploadPageComponent,
-    canActivate: [dashboardAuthGuard],
+    canActivate: [memberAuthGuard, memberRoleGuard, dashboardAuthGuard],
+    data: { allowedRoles: ['admin'] },
     title: 'Upload Participation Files',
   },
   {
