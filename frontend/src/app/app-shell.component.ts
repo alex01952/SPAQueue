@@ -10,21 +10,25 @@ import {
   RouterOutlet,
 } from '@angular/router';
 import { filter } from 'rxjs';
+import { MemberAuthService } from './member-auth.service';
+import { ClubChatWidgetComponent } from './club-chat-widget.component';
 
 @Component({
   selector: 'app-shell',
-  imports: [RouterLink, RouterOutlet],
+  imports: [ClubChatWidgetComponent, RouterLink, RouterOutlet],
   templateUrl: './app-shell.component.html',
   styleUrl: './app-shell.component.scss',
 })
 export class AppShellComponent {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(MemberAuthService);
 
   protected readonly currentPageTitle = signal('');
   protected readonly logoUrl =
     'https://seeturtlesphsa.blob.core.windows.net/spa/Assets/SPCLogo.png';
   protected readonly isNavigating = signal(false);
+  protected readonly member = this.auth.member;
   protected readonly breadcrumbParent = signal<{
     label: string;
     route: string;

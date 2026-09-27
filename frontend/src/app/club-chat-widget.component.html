@@ -1,0 +1,50 @@
+<section class="chat-widget" [class.expanded]="isOpen()" aria-label="Club chat">
+  @if (isOpen()) {
+    <div class="chat-panel">
+      <header class="chat-header">
+        <div class="chat-title">
+          <span class="online-mark" aria-hidden="true"></span>
+          <div><strong>Club thread</strong><small>Messages visible to signed-in members</small></div>
+        </div>
+        <button type="button" class="icon-button" aria-label="Minimize club chat" title="Minimize" (click)="toggle()">&minus;</button>
+      </header>
+
+      <div class="message-list" aria-live="polite" aria-relevant="additions text">
+        @if (isLoading()) {
+          <p class="chat-state">Loading messages...</p>
+        } @else if (!messages().length && !errorMessage()) {
+          <p class="chat-state">No messages yet. Start the conversation.</p>
+        }
+        @for (message of messages(); track message.messageId) {
+          <article class="message">
+            <div class="message-meta"><strong>{{ message.senderName }}</strong><time>{{ message.sentAt | date: 'shortTime' }}</time></div>
+            <p>{{ message.text }}</p>
+          </article>
+        }
+        @if (errorMessage()) {<p class="chat-error" role="alert">{{ errorMessage() }}</p>}
+      </div>
+
+      <form class="composer" (ngSubmit)="sendMessage()">
+        <textarea
+          name="message"
+          [ngModel]="draft()"
+          (ngModelChange)="draft.set($event)"
+          maxlength="1000"
+          rows="2"
+          placeholder="Write a message..."
+          aria-label="Message text"
+          required
+        ></textarea>
+        <div class="composer-footer">
+          <span>{{ draft().length }}/1000</span>
+          <button type="submit" [disabled]="!draft().trim() || isSending()">{{ isSending() ? 'Sending...' : 'Send' }}</button>
+        </div>
+      </form>
+    </div>
+  } @else {
+    <button type="button" class="chat-launcher" (click)="toggle()" aria-label="Open club chat">
+      <span class="chat-icon" aria-hidden="true">&#9993;</span>
+      <span>Club chat</span>
+    </button>
+  }
+</section>

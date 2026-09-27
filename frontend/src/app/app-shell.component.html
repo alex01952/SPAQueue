@@ -24,4 +24,7 @@
     </nav>
   }
   <router-outlet />
+  @if (member()) {
+    <app-club-chat-widget />
+  }
 </div>

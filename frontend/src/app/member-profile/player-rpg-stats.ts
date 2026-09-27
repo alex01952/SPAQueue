@@ -4,7 +4,7 @@ export interface PlayerRpgStat {
   score: number;
   maximum: number;
   percentage: number;
-  jobTitle: string;
+  jobTitle: string | null;
 }
 
 interface StatDefinition {
@@ -128,7 +128,11 @@ export function calculatePlayerRpgStats(
       (total, skill) => total + Math.min(Math.max(Number(skills?.[skill] ?? 0), 0), 10),
       0,
     );
-    const jobTitle = definition.jobs.find((job) => score <= job.maximumScore)?.title ?? definition.jobs.at(-1)?.title ?? 'Unranked';
+    const jobTitle = score === 0
+      ? null
+      : definition.jobs.find((job) => score <= job.maximumScore)?.title ??
+        definition.jobs.at(-1)?.title ??
+        null;
 
     return {
       key: definition.key,
@@ -145,6 +149,6 @@ export function calculatePlayerRpgStats(
   return {
     stats,
     highestStats,
-    jobTitles: highestStats.map((stat) => stat.jobTitle),
+    jobTitles: highestStats.flatMap((stat) => stat.jobTitle ? [stat.jobTitle] : []),
   };
 }

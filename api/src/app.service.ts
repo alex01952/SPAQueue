@@ -3,6 +3,8 @@ import {
   BadGatewayException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -223,6 +225,14 @@ export interface ClubMemberAssignment {
   memberId: string;
 }
 
+export interface ClubChatMessage {
+  messageId: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  sentAt: string;
+}
+
 export interface MemberAccountDetails extends AuthenticatedMember {
   email: string;
   contactNo: string;
@@ -300,6 +310,14 @@ export class AppService {
   private readonly clubsAzureTable = process.env.CLUBS_AZURE_TABLE ?? 'Clubs';
   private readonly clubMembersAzureTable =
     process.env.CLUB_MEMBERS_AZURE_TABLE ?? 'ClubMembers';
+  private readonly messagesAzureTable =
+    process.env.MESSAGES_AZURE_TABLE ?? 'Messages';
+  private readonly chatRetentionDays = Math.max(
+    1,
+    Number.parseInt(process.env.CHAT_RETENTION_DAYS ?? '30', 10) || 30,
+  );
+  private readonly chatRateLimits = new Map<string, number[]>();
+  private lastChatCleanupAt = 0;
   private readonly sessionsAzureTable =
     process.env.MEMBERS_SESSIONS_AZURE_TABLE ?? 'Sessions';
   private readonly balancesAzureTable =
@@ -990,6 +1008,81 @@ export class AppService {
 
       throw this.createMemberAuthenticationStorageException(error);
     }
+  }
+
+  async getClubChatMessages(sessionToken: string): Promise<ClubChatMessage[]> {
+    await this.getMemberSession(sessionToken);
+    await this.cleanupExpiredClubChatMessages();
+    const messages: ClubChatMessage[] = [];
+
+    try {
+      const entities = this.getMessagesTableClient().listEntities({
+        queryOptions: {
+          filter: "PartitionKey eq 'club-chat'",
+          select: ['RowKey', 'SenderId', 'SenderName', 'Text', 'SentAt', 'ExpiresAt'],
+        },
+      });
+
+      // Inverted timestamp RowKeys make ascending table order newest-first.
+      for await (const entity of entities) {
+        const expiresAt = Date.parse(String(entity.ExpiresAt ?? ''));
+        if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) continue;
+        messages.push({
+          messageId: String(entity.rowKey ?? ''),
+          senderId: String(entity.SenderId ?? ''),
+          senderName: String(entity.SenderName ?? 'Member'),
+          text: String(entity.Text ?? ''),
+          sentAt: String(entity.SentAt ?? ''),
+        });
+        if (messages.length >= 50) break;
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return messages.reverse();
+  }
+
+  async sendClubChatMessage(
+    sessionToken: string,
+    textInput: string,
+  ): Promise<ClubChatMessage> {
+    const session = await this.getMemberSession(sessionToken);
+    const text = textInput.trim();
+    if (!text || text.length > 1000) {
+      throw new BadRequestException('Messages must contain 1 to 1000 characters.');
+    }
+
+    this.enforceChatRateLimit(session.member.memberId);
+    await this.cleanupExpiredClubChatMessages();
+    const sentAt = new Date().toISOString();
+    const rowKey = `${String(Number.MAX_SAFE_INTEGER - Date.now()).padStart(16, '0')}_${randomUUID()}`;
+    const expiresAt = new Date(
+      Date.now() + this.chatRetentionDays * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const message: ClubChatMessage = {
+      messageId: rowKey,
+      senderId: session.member.memberId,
+      senderName: session.member.name,
+      text,
+      sentAt,
+    };
+
+    try {
+      await this.getMessagesTableClient().createEntity({
+        partitionKey: 'club-chat',
+        rowKey,
+        SenderId: message.senderId,
+        SenderName: message.senderName,
+        Text: message.text,
+        SentAt: sentAt,
+        ExpiresAt: expiresAt,
+      });
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return message;
   }
 
   async getMemberDirectory(
@@ -1968,6 +2061,74 @@ export class AppService {
       this.clubMembersAzureTable,
       new DefaultAzureCredential(),
     );
+  }
+
+  private getMessagesTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount || !this.messagesAzureTable) {
+      throw new BadRequestException(
+        'MEMBERS_AZURE_STORAGE_ACCOUNT and MESSAGES_AZURE_TABLE are required for chat.',
+      );
+    }
+
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.messagesAzureTable,
+      new DefaultAzureCredential(),
+    );
+  }
+
+  private enforceChatRateLimit(memberId: string) {
+    const now = Date.now();
+    const recentSends = (this.chatRateLimits.get(memberId) ?? []).filter(
+      (timestamp) => now - timestamp < 60_000,
+    );
+    if (recentSends.length >= 5) {
+      throw new HttpException(
+        'Please wait before sending another message.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    recentSends.push(now);
+    this.chatRateLimits.set(memberId, recentSends);
+
+    if (this.chatRateLimits.size > 5000) {
+      for (const [key, timestamps] of this.chatRateLimits) {
+        if (!timestamps.some((timestamp) => now - timestamp < 60_000)) {
+          this.chatRateLimits.delete(key);
+        }
+      }
+    }
+  }
+
+  private async cleanupExpiredClubChatMessages() {
+    const now = Date.now();
+    if (now - this.lastChatCleanupAt < 5 * 60_000) return;
+    this.lastChatCleanupAt = now;
+
+    try {
+      const expired = this.getMessagesTableClient().listEntities({
+        queryOptions: {
+          filter: `PartitionKey eq 'club-chat' and ExpiresAt le '${new Date(now).toISOString()}'`,
+          select: ['RowKey'],
+        },
+      });
+      let deleted = 0;
+      for await (const entity of expired) {
+        if (entity.rowKey) {
+          await this.getMessagesTableClient()
+            .deleteEntity('club-chat', String(entity.rowKey))
+            .catch((error: unknown) => {
+              if (!this.isAzureNotFound(error)) throw error;
+            });
+          deleted += 1;
+        }
+        if (deleted >= 100) break;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Unable to clean expired club chat messages: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
   }
 
   private async getClubMemberIds(clubId: string): Promise<Set<string>> {

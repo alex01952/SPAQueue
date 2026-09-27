@@ -4,6 +4,7 @@ import {
   Controller,
   DefaultValuePipe,
   Delete,
+  ForbiddenException,
   Get,
   Headers,
   Param,
@@ -35,6 +36,7 @@ import type {
   MemberBalanceInput,
   ClubSummary,
   ClubMemberAssignment,
+  ClubChatMessage,
   EmailVerificationRequestResult,
   EmailVerificationResult,
   MonthlyParticipationUploadConfig,
@@ -114,6 +116,26 @@ export class AppController {
   ): Promise<MemberSessionResult> {
     return this.appService.getMemberSession(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Get('chat/messages')
+  getClubChatMessages(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<ClubChatMessage[]> {
+    return this.appService.getClubChatMessages(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Post('chat/messages')
+  sendClubChatMessage(
+    @Body('text') text = '',
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<ClubChatMessage> {
+    return this.appService.sendClubChatMessage(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      text,
     );
   }
 
@@ -403,11 +425,10 @@ export class AppController {
   }
 
   @Get('participation/monthly/upload-config')
-  getMonthlyParticipationUploadConfig(
-    @Headers('x-dashboard-password') dashboardPassword = '',
-  ): MonthlyParticipationUploadConfig {
-    this.appService.validateDashboardPassword(dashboardPassword);
-
+  async getMonthlyParticipationUploadConfig(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<MonthlyParticipationUploadConfig> {
+    await this.requireAdminMember(cookieHeader);
     return this.appService.getMonthlyParticipationUploadConfig();
   }
 
@@ -428,11 +449,20 @@ export class AppController {
       mimetype?: string;
       size: number;
     }> = [],
-    @Headers('x-dashboard-password') dashboardPassword = '',
+    @Headers('cookie') cookieHeader = '',
   ): Promise<MonthlyParticipationUploadResult> {
-    this.appService.validateDashboardPassword(dashboardPassword);
+    await this.requireAdminMember(cookieHeader);
 
     return this.appService.uploadMonthlyParticipationFiles(month ?? '', files);
+  }
+
+  private async requireAdminMember(cookieHeader: string): Promise<void> {
+    const session = await this.appService.getMemberSession(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+    if (session.member.role !== 'admin') {
+      throw new ForbiddenException('Administrator access is required.');
+    }
   }
 
   @Get('queue')

@@ -1,7 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { finalize, timeout } from 'rxjs';
-import { DashboardAuthService } from '../dashboard-auth.service';
 import { getApiBaseUrl } from '../api-base-url';
 
 interface MonthlyParticipationUploadConfig {
@@ -30,7 +29,6 @@ interface MonthlyParticipationUploadResult {
 })
 export class ParticipationUploadPageComponent implements OnInit {
   private readonly http = inject(HttpClient);
-  private readonly dashboardAuth = inject(DashboardAuthService);
   private readonly apiBaseUrl = getApiBaseUrl();
 
   protected readonly isLoadingConfig = signal(true);
@@ -62,7 +60,7 @@ export class ParticipationUploadPageComponent implements OnInit {
     this.http
       .get<MonthlyParticipationUploadConfig>(
         `${this.apiBaseUrl}/participation/monthly/upload-config`,
-        { headers: this.dashboardAuth.getAuthHeaders() },
+        { withCredentials: true },
       )
       .subscribe({
         next: (config) => {
@@ -115,7 +113,7 @@ export class ParticipationUploadPageComponent implements OnInit {
       .post<MonthlyParticipationUploadResult>(
         `${this.apiBaseUrl}/participation/monthly/uploads`,
         formData,
-        { headers: this.dashboardAuth.getAuthHeaders() },
+        { withCredentials: true },
       )
       .pipe(
         timeout(45000),
@@ -165,10 +163,6 @@ export class ParticipationUploadPageComponent implements OnInit {
 
     if (typeof error === 'object' && error !== null && 'error' in error) {
       const httpError = error as { status?: number; error?: { message?: string } };
-
-      if (httpError.status === 401) {
-        this.dashboardAuth.clearPassword();
-      }
 
       return httpError.error?.message || 'Unable to upload the selected files.';
     }
