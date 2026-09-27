@@ -2,16 +2,32 @@
   <header>
     <p class="eyebrow">Clubs</p>
     <h1>Playing communities</h1>
+    <a class="review-link" routerLink="/club-join-requests">Review club requests <span aria-hidden="true">&rarr;</span></a>
   </header>
 
+  @if (feedbackMessage()) {<p class="feedback" role="status">{{ feedbackMessage() }}</p>}
+  @if (errorMessage()) {<p class="feedback error" role="alert">{{ errorMessage() }}</p>}
+
   <section class="club-list" aria-label="Club directory">
-    <article class="club-entry">
-      <img [src]="logoUrl" alt="Sorsogon Pickleball Club logo" />
-      <div>
-        <p class="club-location">Sorsogon City</p>
-        <h2>Sorsogon Pickleball Club</h2>
-        <p>Home club for local open play, member matches, and arena events.</p>
-      </div>
-    </article>
+    @if (isLoading()) {<p>Loading clubs...</p>}
+    @for (club of clubs(); track club.clubId) {
+      <article class="club-entry">
+        <img [src]="logoUrl" [alt]="club.name + ' logo'" />
+        <div>
+          <p class="club-location">Community club</p>
+          <h2>{{ club.name }}</h2>
+          <p>Connect with members, discover games, and grow your pickleball community.</p>
+          @if (requestStatus(club.clubId) === 'Pending') {
+            <span class="request-state pending">Request pending</span>
+          } @else if (requestStatus(club.clubId) === 'Approved') {
+            <span class="request-state approved">You are a member</span>
+          } @else {
+            <button type="button" (click)="requestToJoin(club)">{{ requestStatus(club.clubId) === 'Rejected' ? 'Request to join again' : 'Request to join' }}</button>
+          }
+        </div>
+      </article>
+    } @empty {
+      @if (!isLoading()) {<p>No clubs are available yet.</p>}
+    }
   </section>
 </main>

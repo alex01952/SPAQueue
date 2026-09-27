@@ -223,6 +223,19 @@ export interface ClubSummary {
 export interface ClubMemberAssignment {
   clubId: string;
   memberId: string;
+  role?: 'Member' | 'Officer';
+}
+
+export type ClubJoinRequestStatus = 'Pending' | 'Approved' | 'Rejected';
+
+export interface ClubJoinRequest {
+  clubId: string;
+  memberId: string;
+  memberName: string;
+  status: ClubJoinRequestStatus;
+  requestedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
 }
 
 export interface ClubChatMessage {
@@ -310,6 +323,8 @@ export class AppService {
   private readonly clubsAzureTable = process.env.CLUBS_AZURE_TABLE ?? 'Clubs';
   private readonly clubMembersAzureTable =
     process.env.CLUB_MEMBERS_AZURE_TABLE ?? 'ClubMembers';
+  private readonly clubJoinRequestsAzureTable =
+    process.env.CLUB_JOIN_REQUESTS_AZURE_TABLE ?? 'ClubJoinRequests';
   private readonly messagesAzureTable =
     process.env.MESSAGES_AZURE_TABLE ?? 'Messages';
   private readonly chatRetentionDays = Math.max(
@@ -1169,6 +1184,183 @@ export class AppService {
     return clubs.sort((left, right) => left.name.localeCompare(right.name));
   }
 
+  async getMyClubJoinRequests(sessionToken: string): Promise<ClubJoinRequest[]> {
+    const session = await this.getMemberSession(sessionToken);
+    const requests: ClubJoinRequest[] = [];
+    try {
+      const entities = this.getClubJoinRequestsTableClient().listEntities({
+        queryOptions: { filter: `RowKey eq '${session.member.memberId}'` },
+      });
+      for await (const entity of entities) {
+        const clubId = String(entity.ClubId ?? entity.partitionKey ?? '');
+        const status = String(entity.Status ?? 'Pending') as ClubJoinRequestStatus;
+        if (!clubId || !this.isClubJoinRequestStatus(status)) continue;
+        requests.push({
+          clubId,
+          memberId: session.member.memberId,
+          memberName: session.member.name,
+          status,
+          requestedAt: String(entity.RequestedAt ?? ''),
+          ...(entity.ReviewedAt ? { reviewedAt: String(entity.ReviewedAt) } : {}),
+          ...(entity.ReviewedBy ? { reviewedBy: String(entity.ReviewedBy) } : {}),
+        });
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return requests;
+  }
+
+  async requestToJoinClub(
+    sessionToken: string,
+    clubIdInput: string,
+  ): Promise<ClubJoinRequest> {
+    const session = await this.getMemberSession(sessionToken);
+    const clubId = clubIdInput.trim();
+    if (!clubId || !/^[A-Za-z0-9_-]{1,200}$/.test(clubId)) {
+      throw new BadRequestException('Invalid club identifier.');
+    }
+    await this.assertClubExists(clubId);
+
+    try {
+      await this.getClubMembersTableClient().getEntity(clubId, session.member.memberId);
+      throw new ConflictException('You are already a member of this club.');
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      if (!this.isAzureNotFound(error)) {
+        throw this.createMemberAuthenticationStorageException(error);
+      }
+    }
+
+    const requests = this.getClubJoinRequestsTableClient();
+    try {
+      const existing = await requests.getEntity(clubId, session.member.memberId);
+      if (String(existing.Status ?? 'Pending') === 'Pending') {
+        throw new ConflictException('Your request to join this club is already pending.');
+      }
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      if (!this.isAzureNotFound(error)) {
+        throw this.createMemberAuthenticationStorageException(error);
+      }
+    }
+
+    const requestedAt = new Date().toISOString();
+    try {
+      await requests.upsertEntity(
+        {
+          partitionKey: clubId,
+          rowKey: session.member.memberId,
+          ClubId: clubId,
+          MemberId: session.member.memberId,
+          MemberName: session.member.name,
+          Status: 'Pending',
+          RequestedAt: requestedAt,
+        },
+        'Replace',
+      );
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return { clubId, memberId: session.member.memberId, memberName: session.member.name, status: 'Pending', requestedAt };
+  }
+
+  async getPendingClubJoinRequests(
+    sessionToken: string,
+    clubId: string,
+  ): Promise<ClubJoinRequest[]> {
+    const actor = await this.getMemberSession(sessionToken);
+    await this.assertCanManageClub(actor.member, clubId);
+    const requests: ClubJoinRequest[] = [];
+    try {
+      const entities = this.getClubJoinRequestsTableClient().listEntities({
+        queryOptions: {
+          filter: `PartitionKey eq '${clubId}' and Status eq 'Pending'`,
+        },
+      });
+      for await (const entity of entities) {
+        const memberId = String(entity.MemberId ?? entity.rowKey ?? '');
+        if (!memberId) continue;
+        requests.push({
+          clubId,
+          memberId,
+          memberName: String(entity.MemberName ?? 'Member'),
+          status: 'Pending',
+          requestedAt: String(entity.RequestedAt ?? ''),
+        });
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return requests.sort((left, right) => left.requestedAt.localeCompare(right.requestedAt));
+  }
+
+  async reviewClubJoinRequest(
+    sessionToken: string,
+    clubId: string,
+    memberId: string,
+    decision: 'Approved' | 'Rejected',
+  ): Promise<ClubJoinRequest> {
+    const actor = await this.getMemberSession(sessionToken);
+    await this.assertCanManageClub(actor.member, clubId);
+    this.validateMemberId(memberId);
+    if (decision !== 'Approved' && decision !== 'Rejected') {
+      throw new BadRequestException('Decision must be Approved or Rejected.');
+    }
+
+    const requests = this.getClubJoinRequestsTableClient();
+    let request: Record<string, unknown>;
+    try {
+      request = await requests.getEntity(clubId, memberId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Join request was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    if (String(request.Status ?? 'Pending') !== 'Pending') {
+      throw new ConflictException('This join request has already been reviewed.');
+    }
+
+    const reviewedAt = new Date().toISOString();
+    if (decision === 'Approved') {
+      await this.getClubMembersTableClient().upsertEntity(
+        {
+          partitionKey: clubId,
+          rowKey: memberId,
+          ClubId: clubId,
+          MemberId: memberId,
+          Role: 'Member',
+          JoinedAt: reviewedAt,
+        },
+        'Merge',
+      );
+    }
+
+    try {
+      await requests.updateEntity(
+        {
+          partitionKey: clubId,
+          rowKey: memberId,
+          Status: decision,
+          ReviewedAt: reviewedAt,
+          ReviewedBy: actor.member.memberId,
+        },
+        'Merge',
+      );
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return {
+      clubId,
+      memberId,
+      memberName: String(request.MemberName ?? 'Member'),
+      status: decision,
+      requestedAt: String(request.RequestedAt ?? ''),
+      reviewedAt,
+      reviewedBy: actor.member.memberId,
+    };
+  }
+
   async getClubAssignments(sessionToken: string): Promise<ClubMemberAssignment[]> {
     await this.requireAdminSession(sessionToken);
     const assignments: ClubMemberAssignment[] = [];
@@ -1178,7 +1370,14 @@ export class AppService {
       for await (const entity of entities) {
         const clubId = String(entity.ClubId ?? entity.partitionKey ?? '').trim();
         const memberId = String(entity.MemberId ?? entity.rowKey ?? '').trim();
-        if (clubId && memberId) assignments.push({ clubId, memberId });
+        if (clubId && memberId) {
+          const role = String(entity.Role ?? 'Member');
+          assignments.push({
+            clubId,
+            memberId,
+            role: role === 'Officer' ? 'Officer' : 'Member',
+          });
+        }
       }
     } catch (error) {
       throw this.createMemberAuthenticationStorageException(error);
@@ -1191,15 +1390,38 @@ export class AppService {
     sessionToken: string,
     clubId: string,
     memberId: string,
+    roleInput = 'Member',
   ): Promise<ClubMemberAssignment> {
-    await this.requireAdminSession(sessionToken);
+    const session = await this.getMemberSession(sessionToken);
     this.validateMemberId(memberId);
     if (!clubId.trim()) throw new BadRequestException('Club is required.');
-    const assignment = { clubId: clubId.trim(), memberId };
+    if (roleInput !== 'Officer' && roleInput !== 'Member') {
+      throw new BadRequestException('Club role must be Member or Officer.');
+    }
+    if (session.member.role === 'admin') {
+      await this.assertClubExists(clubId.trim());
+    } else {
+      if (roleInput === 'Officer') {
+        throw new ForbiddenException('Only administrators can assign club officers.');
+      }
+      await this.assertCanManageClub(session.member, clubId.trim());
+    }
+    const role = roleInput;
+    const assignment: ClubMemberAssignment = {
+      clubId: clubId.trim(),
+      memberId,
+      role,
+    };
 
     try {
       await this.getClubMembersTableClient().upsertEntity(
-        { partitionKey: assignment.clubId, rowKey: assignment.memberId, ...assignment },
+        {
+          partitionKey: assignment.clubId,
+          rowKey: assignment.memberId,
+          ClubId: assignment.clubId,
+          MemberId: assignment.memberId,
+          Role: assignment.role,
+        },
         'Merge',
       );
     } catch (error) {
@@ -2061,6 +2283,63 @@ export class AppService {
       this.clubMembersAzureTable,
       new DefaultAzureCredential(),
     );
+  }
+
+  private getClubJoinRequestsTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount || !this.clubJoinRequestsAzureTable) {
+      throw new BadRequestException('Club join request table configuration is required.');
+    }
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.clubJoinRequestsAzureTable,
+      new DefaultAzureCredential(),
+    );
+  }
+
+  private async assertClubExists(clubId: string) {
+    try {
+      const entities = this.getClubsTableClient().listEntities({
+        queryOptions: { select: ['RowKey', 'ClubId'] },
+      });
+      for await (const entity of entities) {
+        if (String(entity.rowKey ?? entity.ClubId ?? '') === clubId) return;
+      }
+      throw new NotFoundException('Club was not found.');
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  private async assertCanManageClub(
+    actor: AuthenticatedMember,
+    clubId: string,
+  ) {
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(clubId)) {
+      throw new BadRequestException('Invalid club identifier.');
+    }
+    await this.assertClubExists(clubId);
+    if (actor.role === 'admin') return;
+
+    try {
+      const relationship = await this.getClubMembersTableClient().getEntity(
+        clubId,
+        actor.memberId,
+      );
+      const clubRole = String(relationship.Role ?? '').trim().toLowerCase();
+      if (clubRole === 'owner' || clubRole === 'officer' || clubRole === 'club-owner') {
+        return;
+      }
+    } catch (error) {
+      if (!this.isAzureNotFound(error)) {
+        throw this.createMemberAuthenticationStorageException(error);
+      }
+    }
+    throw new ForbiddenException('You are not an officer of this club.');
+  }
+
+  private isClubJoinRequestStatus(value: string): value is ClubJoinRequestStatus {
+    return value === 'Pending' || value === 'Approved' || value === 'Rejected';
   }
 
   private getMessagesTableClient(): TableClient {

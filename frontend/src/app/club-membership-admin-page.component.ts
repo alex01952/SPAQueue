@@ -4,7 +4,7 @@ import { getApiBaseUrl } from './api-base-url';
 
 interface Member { memberId: string; name: string; }
 interface Club { clubId: string; name: string; }
-interface Assignment { clubId: string; memberId: string; }
+interface Assignment { clubId: string; memberId: string; role?: 'Member' | 'Officer'; }
 
 @Component({
   selector: 'app-club-membership-admin-page',
@@ -19,6 +19,7 @@ export class ClubMembershipAdminPageComponent implements OnInit {
   protected readonly assignments = signal<Assignment[]>([]);
   protected readonly selectedMemberId = signal('');
   protected readonly selectedClubId = signal('');
+  protected readonly selectedRole = signal<'Member' | 'Officer'>('Member');
   protected readonly errorMessage = signal('');
   protected readonly feedbackMessage = signal('');
 
@@ -33,7 +34,7 @@ export class ClubMembershipAdminPageComponent implements OnInit {
   protected assign() {
     if (!this.selectedMemberId() || !this.selectedClubId()) return;
     this.http.post<Assignment>(`${getApiBaseUrl()}/admin/club-members`, {
-      memberId: this.selectedMemberId(), clubId: this.selectedClubId(),
+      memberId: this.selectedMemberId(), clubId: this.selectedClubId(), role: this.selectedRole(),
     }, { withCredentials: true }).subscribe({
       next: (assignment) => {
         this.assignments.update((items) => [...items.filter((item) => !(item.clubId === assignment.clubId && item.memberId === assignment.memberId)), assignment]);
@@ -56,6 +57,11 @@ export class ClubMembershipAdminPageComponent implements OnInit {
   private load() {
     this.http.get<Member[]>(`${getApiBaseUrl()}/members`, { withCredentials: true }).subscribe({ next: (members) => this.members.set(members), error: () => this.errorMessage.set('Unable to load members.') });
     this.http.get<Club[]>(`${getApiBaseUrl()}/clubs/options`, { withCredentials: true }).subscribe({ next: (clubs) => this.clubs.set(clubs), error: () => this.errorMessage.set('Unable to load clubs.') });
-    this.http.get<Assignment[]>(`${getApiBaseUrl()}/admin/club-members`, { withCredentials: true }).subscribe({ next: (items) => this.assignments.set(items), error: () => this.errorMessage.set('Unable to load assignments.') });
+    this.http.get<Assignment[]>(`${getApiBaseUrl()}/admin/club-members`, { withCredentials: true }).subscribe({
+      next: (items) => this.assignments.set(items),
+      error: (error: HttpErrorResponse) => {
+        if (error.status !== 403) this.errorMessage.set('Unable to load assignments.');
+      },
+    });
   }
 }

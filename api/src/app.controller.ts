@@ -36,6 +36,7 @@ import type {
   MemberBalanceInput,
   ClubSummary,
   ClubMemberAssignment,
+  ClubJoinRequest,
   ClubChatMessage,
   EmailVerificationRequestResult,
   EmailVerificationResult,
@@ -159,6 +160,52 @@ export class AppController {
     );
   }
 
+  @Get('clubs/me/join-requests')
+  getMyClubJoinRequests(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<ClubJoinRequest[]> {
+    return this.appService.getMyClubJoinRequests(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Post('clubs/:clubId/join-requests')
+  requestToJoinClub(
+    @Param('clubId') clubId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<ClubJoinRequest> {
+    return this.appService.requestToJoinClub(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      clubId,
+    );
+  }
+
+  @Get('clubs/:clubId/join-requests/pending')
+  getPendingClubJoinRequests(
+    @Param('clubId') clubId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<ClubJoinRequest[]> {
+    return this.appService.getPendingClubJoinRequests(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      clubId,
+    );
+  }
+
+  @Patch('clubs/:clubId/join-requests/:memberId')
+  reviewClubJoinRequest(
+    @Param('clubId') clubId: string,
+    @Param('memberId') memberId: string,
+    @Body('decision') decision: 'Approved' | 'Rejected',
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<ClubJoinRequest> {
+    return this.appService.reviewClubJoinRequest(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      clubId,
+      memberId,
+      decision,
+    );
+  }
+
   @Get('admin/club-members')
   getClubAssignments(@Headers('cookie') cookieHeader = ''): Promise<ClubMemberAssignment[]> {
     return this.appService.getClubAssignments(
@@ -170,12 +217,14 @@ export class AppController {
   assignMemberToClub(
     @Body('clubId') clubId = '',
     @Body('memberId') memberId = '',
+    @Body('role') role = 'Member',
     @Headers('cookie') cookieHeader = '',
   ): Promise<ClubMemberAssignment> {
     return this.appService.assignMemberToClub(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
       clubId,
       memberId,
+      role,
     );
   }
 

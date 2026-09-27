@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { App } from './app';
 import { ClubsPageComponent } from './clubs/clubs-page.component';
 import { ClubMembershipAdminPageComponent } from './club-membership-admin-page.component';
+import { ClubJoinRequestsPageComponent } from './club-join-requests-page.component';
 import { dashboardAuthGuard } from './dashboard-auth.guard';
 import { EditProfilePageComponent } from './edit-profile/edit-profile-page.component';
 import { HomePageComponent } from './home/home-page.component';
@@ -124,9 +125,20 @@ export const routes: Routes = [
   {
     path: 'club-memberships',
     component: ClubMembershipAdminPageComponent,
-    canActivate: [memberAuthGuard, memberRoleGuard],
-    data: { allowedRoles: ['admin'] },
+    canActivate: [memberAuthGuard],
     title: 'Club Memberships',
+  },
+  {
+    path: 'club-join-requests',
+    component: ClubJoinRequestsPageComponent,
+    canActivate: [memberAuthGuard],
+    title: 'Club Join Requests',
+  },
+  {
+    path: 'club-join-requests',
+    component: ClubJoinRequestsPageComponent,
+    canActivate: [memberAuthGuard],
+    title: 'Club Join Requests',
   },
   {
     path: 'clubs',

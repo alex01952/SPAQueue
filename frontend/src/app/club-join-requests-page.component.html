@@ -1,0 +1,39 @@
+<main class="requests-shell">
+  <header class="requests-heading">
+    <p class="eyebrow">Club officers</p>
+    <h1>Join requests</h1>
+    <p>Review membership requests for clubs where you are an officer.</p>
+  </header>
+
+  <section class="requests-panel">
+    <label class="club-select">
+      <span>Club</span>
+      <select [value]="selectedClubId()" (change)="selectClub($any($event.target).value)">
+        <option value="">Select a club</option>
+        @for (club of clubs(); track club.clubId) {<option [value]="club.clubId">{{ club.name }}</option>}
+      </select>
+    </label>
+
+    @if (feedbackMessage()) {<p class="feedback success" role="status">{{ feedbackMessage() }}</p>}
+    @if (errorMessage()) {<p class="feedback error" role="alert">{{ errorMessage() }}</p>}
+    @if (isLoading()) {<p class="empty-state">Loading pending requests...</p>}
+    @else if (selectedClubId() && !errorMessage()) {
+      <div class="request-list">
+        @for (request of requests(); track request.memberId) {
+          <article class="request-row">
+            <div class="request-person">
+              <strong>{{ request.memberName }}</strong>
+              <span>Requested {{ request.requestedAt | date: 'mediumDate' }}</span>
+            </div>
+            <div class="request-actions">
+              <button type="button" class="approve" (click)="review(request, 'Approved')">Approve</button>
+              <button type="button" class="reject" (click)="review(request, 'Rejected')">Reject</button>
+            </div>
+          </article>
+        } @empty {
+          <p class="empty-state">No pending join requests for this club.</p>
+        }
+      </div>
+    }
+  </section>
+</main>
