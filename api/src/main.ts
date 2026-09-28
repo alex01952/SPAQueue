@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppModule } from './app.module';
 import { isAllowedCorsOrigin } from './cors.config';
+import { shouldServeSpaFallback } from './spa-fallback.config';
 
 config({ path: join(__dirname, '..', '.env') });
 
@@ -30,10 +31,7 @@ async function bootstrap() {
   if (existsSync(frontendIndexPath)) {
     app.useStaticAssets(frontendPath);
     app.use((request, response, next) => {
-      const isApiRoute =
-        /^(\/queue|\/participation|\/players|\/games|\/members)(\/|$)/.test(request.path);
-
-      if (request.method !== 'GET' || isApiRoute) {
+      if (!shouldServeSpaFallback(request.method, request.headers.accept)) {
         next();
         return;
       }
