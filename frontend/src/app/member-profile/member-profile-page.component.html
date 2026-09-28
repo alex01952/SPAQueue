@@ -25,7 +25,12 @@
         @if (rpgStats().jobTitles.length) {
           <div class="section-heading">
             <p class="eyebrow">Player class</p>
-            <h2 id="rpg-stats-title">{{ rpgStats().jobTitles.join(' / ') }}</h2>
+            <div class="player-class-heading">
+              <h2 id="rpg-stats-title">{{ rpgStats().jobTitles.join(' / ') }}</h2>
+              @if (skillCategory(); as category) {
+                <span class="skill-category">{{ category }}</span>
+              }
+            </div>
             <p class="job-caption">Strongest area{{ rpgStats().highestStats.length === 1 ? '' : 's' }}: {{ rpgStats().highestStats.map((stat) => stat.label).join(', ') }}</p>
           </div>
         }

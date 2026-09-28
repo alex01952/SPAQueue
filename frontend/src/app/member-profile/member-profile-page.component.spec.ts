@@ -89,4 +89,34 @@ describe('MemberProfilePageComponent', () => {
     expect(text).not.toContain('CURRENT-DUPR');
     http.verify();
   });
+
+  it('classifies the 250 skill points in five 50-point bands next to the job', async () => {
+    const { fixture, http } = await configure();
+    fixture.detectChanges();
+
+    for (const [total, category] of [
+      [0, 'Beginner'], [1, 'Beginner'], [50, 'Beginner'],
+      [51, 'Novice'], [100, 'Novice'],
+      [101, 'Low Intermediate'], [150, 'Low Intermediate'],
+      [151, 'High Intermediate'], [200, 'High Intermediate'],
+      [201, 'Advanced'], [250, 'Advanced'],
+    ] as const) {
+      const skills = Object.fromEntries(
+        Array.from({ length: 25 }, (_, index) => [
+          index === 0 ? 'serve' : `skill${index}`,
+          Math.min(10, Math.max(0, total - index * 10)),
+        ]),
+      );
+      fixture.componentInstance['member'].set({ ...currentMember, emailValidated: true, skills });
+      fixture.detectChanges();
+      expect(fixture.componentInstance['skillCategory']()).toBe(category);
+      if (total > 0) {
+        const heading = fixture.nativeElement.querySelector('.player-class-heading') as HTMLElement;
+        expect(heading.querySelector('h2')?.textContent).toBeTruthy();
+        expect(heading.querySelector('.skill-category')?.textContent?.trim()).toBe(category);
+      }
+    }
+
+    http.verify();
+  });
 });

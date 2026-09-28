@@ -69,6 +69,16 @@ export class MemberProfilePageComponent implements OnInit {
   protected readonly rpgStats = computed(() =>
     calculatePlayerRpgStats(this.member()?.skills),
   );
+  protected readonly skillCategory = computed(() => {
+    if (!this.skills().length) return null;
+
+    const total = this.skills().reduce(
+      (sum, skill) => sum + Math.min(Math.max(skill.rating, 0), 10),
+      0,
+    );
+    const categories = ['Beginner', 'Novice', 'Low Intermediate', 'High Intermediate', 'Advanced'];
+    return categories[Math.min(Math.max(Math.ceil(total / 50) - 1, 0), categories.length - 1)];
+  });
 
   ngOnInit() {
     this.route.paramMap
