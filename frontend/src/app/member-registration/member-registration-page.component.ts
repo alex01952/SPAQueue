@@ -1,11 +1,7 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import {
-  ImageCroppedEvent,
-  ImageCropperComponent,
-  ImageTransform,
-} from 'ngx-image-cropper';
+import { ImageCroppedEvent, ImageCropperComponent, ImageTransform } from 'ngx-image-cropper';
 import { getApiBaseUrl } from '../api-base-url';
 
 interface MemberRegistration {
@@ -35,18 +31,47 @@ interface MemberRegistration {
 export class MemberRegistrationPageComponent {
   private readonly http = inject(HttpClient);
   protected readonly sorsogonTowns = [
-    'Barcelona', 'Bulan', 'Bulusan', 'Castilla', 'Casiguran', 'Donsol',
-    'Gubat', 'Irosin', 'Juban', 'Magallanes', 'Matnog', 'Pilar',
-    'Prieto Diaz', 'Santa Magdalena', 'Sorsogon City',
+    'Barcelona',
+    'Bulan',
+    'Bulusan',
+    'Castilla',
+    'Casiguran',
+    'Donsol',
+    'Gubat',
+    'Irosin',
+    'Juban',
+    'Magallanes',
+    'Matnog',
+    'Pilar',
+    'Prieto Diaz',
+    'Santa Magdalena',
+    'Sorsogon City',
   ];
   protected readonly skillFields = [
-    ['serve', 'Serve'], ['return', 'Return'], ['drive', 'Drive'], ['drop', 'Drop'],
-    ['dink', 'Dink'], ['volley', 'Volley'], ['lob', 'Lob'], ['overhead', 'Overhead'],
-    ['reset', 'Reset'], ['block', 'Block'], ['speedUp', 'Speed-up'], ['counter', 'Counter'],
-    ['flick', 'Flick'], ['roll', 'Roll'], ['attack', 'Attack'], ['defense', 'Defense'],
-    ['footwork', 'Footwork'], ['positioning', 'Positioning'], ['courtCoverage', 'Court Coverage'],
-    ['consistency', 'Consistency'], ['accuracy', 'Accuracy'], ['shotPlacement', 'Shot Placement'],
-    ['shotSelection', 'Shot Selection'], ['courtAwareness', 'Court Awareness'],
+    ['serve', 'Serve'],
+    ['return', 'Return'],
+    ['drive', 'Drive'],
+    ['drop', 'Drop'],
+    ['dink', 'Dink'],
+    ['volley', 'Volley'],
+    ['lob', 'Lob'],
+    ['overhead', 'Overhead'],
+    ['reset', 'Reset'],
+    ['block', 'Block'],
+    ['speedUp', 'Speed-up'],
+    ['counter', 'Counter'],
+    ['flick', 'Flick'],
+    ['roll', 'Roll'],
+    ['attack', 'Attack'],
+    ['defense', 'Defense'],
+    ['footwork', 'Footwork'],
+    ['positioning', 'Positioning'],
+    ['courtCoverage', 'Court Coverage'],
+    ['consistency', 'Consistency'],
+    ['accuracy', 'Accuracy'],
+    ['shotPlacement', 'Shot Placement'],
+    ['shotSelection', 'Shot Selection'],
+    ['courtAwareness', 'Court Awareness'],
     ['communication', 'Communication'],
   ] as const;
   protected readonly registrationMessage = signal('');
@@ -80,8 +105,9 @@ export class MemberRegistrationPageComponent {
   };
 
   protected passwordsMatch() {
-    return Boolean(this.member.password) &&
-      this.member.password === this.member.passwordConfirmation;
+    return (
+      Boolean(this.member.password) && this.member.password === this.member.passwordConfirmation
+    );
   }
 
   protected skillProgress(skillKey: string) {
@@ -177,10 +203,7 @@ export class MemberRegistrationPageComponent {
         continue;
       }
 
-      registration.append(
-        field,
-        field === 'skills' ? JSON.stringify(value) : String(value ?? ''),
-      );
+      registration.append(field, field === 'skills' ? JSON.stringify(value) : String(value ?? ''));
     }
 
     const profileImage = this.selectedProfileImage();
@@ -189,15 +212,18 @@ export class MemberRegistrationPageComponent {
     }
 
     this.http
-      .post<{ memberId: string; registered: true }>(
-        `${getApiBaseUrl()}/members/register`,
-        registration,
-      )
+      .post<{
+        memberId: string;
+        registered: true;
+        verificationSent: true;
+      }>(`${getApiBaseUrl()}/members/register`, registration)
       .subscribe({
         next: () => {
           this.member.password = '';
           this.member.passwordConfirmation = '';
-          this.registrationMessage.set('Registration complete. Welcome to the club.');
+          this.registrationMessage.set(
+            'Registration submitted. Check your email to verify your address. Your application will then be reviewed by an administrator.',
+          );
           this.isSubmitting.set(false);
         },
         error: (error: HttpErrorResponse) => {

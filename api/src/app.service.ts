@@ -175,6 +175,22 @@ export interface MemberRegistrationInput {
 export interface MemberRegistrationResult {
   memberId: string;
   registered: true;
+  verificationSent: true;
+}
+
+export type MemberRegistrationStatus = 'Pending' | 'Approved';
+
+export interface PendingMemberRegistration {
+  memberId: string;
+  name: string;
+  email: string;
+  createdAt: string;
+  emailValidated: boolean;
+}
+
+export interface MemberRegistrationApprovalResult {
+  memberId: string;
+  status: 'Approved';
 }
 
 export interface AuthenticatedMember {
@@ -898,7 +914,9 @@ export class AppService {
         Email: member.email,
         ContactNo: member.contactNo,
         EmergencyContact: member.emergencyContact,
-        ...(member.birthday ? { Birthday: member.birthday } : { Age: member.age }),
+        ...(member.birthday
+          ? { Birthday: member.birthday }
+          : { Age: member.age }),
         ShowAge: member.showAge === true,
         LocationType: member.locationType,
         Location: member.location,
@@ -907,6 +925,7 @@ export class AppService {
         ReclubId: member.reClubId,
         ProfileImageUrl: profileImageUrl,
         EmailValidated: false,
+        Status: 'Pending',
         Role: 'member',
         ...(passwordHash ? { PasswordHash: passwordHash } : {}),
         Skills: JSON.stringify(member.skills),
@@ -922,10 +941,22 @@ export class AppService {
       throw this.createMemberRegistrationStorageException(error);
     }
 
-    return { memberId: emailKey, registered: true };
+    try {
+      await this.requestEmailVerification(emailKey);
+    } catch (error) {
+      await tableClient
+        .deleteEntity('members', emailKey)
+        .catch(() => undefined);
+      throw error;
+    }
+
+    return { memberId: emailKey, registered: true, verificationSent: true };
   }
 
-  async loginMember(emailInput: string, password: string): Promise<MemberLoginResult> {
+  async loginMember(
+    emailInput: string,
+    password: string,
+  ): Promise<MemberLoginResult> {
     const email = emailInput.trim().toLowerCase();
 
     if (!email || !password) {
@@ -951,6 +982,10 @@ export class AppService {
 
     if (!passwordIsValid) {
       throw new UnauthorizedException('Invalid email or password.');
+    }
+
+    if (member.Status !== undefined && member.Status !== 'Approved') {
+      throw new ForbiddenException('Your registration is pending approval.');
     }
 
     const sessionToken = randomBytes(32).toString('base64url');
@@ -994,7 +1029,9 @@ export class AppService {
       session = await sessionsTableClient.getEntity('sessions', sessionId);
     } catch (error) {
       if (this.isAzureNotFound(error)) {
-        throw new UnauthorizedException('Member session is invalid or expired.');
+        throw new UnauthorizedException(
+          'Member session is invalid or expired.',
+        );
       }
 
       throw this.createMemberAuthenticationStorageException(error);
@@ -1018,7 +1055,9 @@ export class AppService {
       };
     } catch (error) {
       if (this.isAzureNotFound(error)) {
-        throw new UnauthorizedException('Member session is invalid or expired.');
+        throw new UnauthorizedException(
+          'Member session is invalid or expired.',
+        );
       }
 
       throw this.createMemberAuthenticationStorageException(error);
@@ -1034,7 +1073,14 @@ export class AppService {
       const entities = this.getMessagesTableClient().listEntities({
         queryOptions: {
           filter: "PartitionKey eq 'club-chat'",
-          select: ['RowKey', 'SenderId', 'SenderName', 'Text', 'SentAt', 'ExpiresAt'],
+          select: [
+            'RowKey',
+            'SenderId',
+            'SenderName',
+            'Text',
+            'SentAt',
+            'ExpiresAt',
+          ],
         },
       });
 
@@ -1065,7 +1111,9 @@ export class AppService {
     const session = await this.getMemberSession(sessionToken);
     const text = textInput.trim();
     if (!text || text.length > 1000) {
-      throw new BadRequestException('Messages must contain 1 to 1000 characters.');
+      throw new BadRequestException(
+        'Messages must contain 1 to 1000 characters.',
+      );
     }
 
     this.enforceChatRateLimit(session.member.memberId);
@@ -1184,7 +1232,9 @@ export class AppService {
     return clubs.sort((left, right) => left.name.localeCompare(right.name));
   }
 
-  async getMyClubJoinRequests(sessionToken: string): Promise<ClubJoinRequest[]> {
+  async getMyClubJoinRequests(
+    sessionToken: string,
+  ): Promise<ClubJoinRequest[]> {
     const session = await this.getMemberSession(sessionToken);
     const requests: ClubJoinRequest[] = [];
     try {
@@ -1193,7 +1243,9 @@ export class AppService {
       });
       for await (const entity of entities) {
         const clubId = String(entity.ClubId ?? entity.partitionKey ?? '');
-        const status = String(entity.Status ?? 'Pending') as ClubJoinRequestStatus;
+        const status = String(
+          entity.Status ?? 'Pending',
+        ) as ClubJoinRequestStatus;
         if (!clubId || !this.isClubJoinRequestStatus(status)) continue;
         requests.push({
           clubId,
@@ -1201,8 +1253,12 @@ export class AppService {
           memberName: session.member.name,
           status,
           requestedAt: String(entity.RequestedAt ?? ''),
-          ...(entity.ReviewedAt ? { reviewedAt: String(entity.ReviewedAt) } : {}),
-          ...(entity.ReviewedBy ? { reviewedBy: String(entity.ReviewedBy) } : {}),
+          ...(entity.ReviewedAt
+            ? { reviewedAt: String(entity.ReviewedAt) }
+            : {}),
+          ...(entity.ReviewedBy
+            ? { reviewedBy: String(entity.ReviewedBy) }
+            : {}),
         });
       }
     } catch (error) {
@@ -1223,7 +1279,10 @@ export class AppService {
     await this.assertClubExists(clubId);
 
     try {
-      await this.getClubMembersTableClient().getEntity(clubId, session.member.memberId);
+      await this.getClubMembersTableClient().getEntity(
+        clubId,
+        session.member.memberId,
+      );
       throw new ConflictException('You are already a member of this club.');
     } catch (error) {
       if (error instanceof ConflictException) throw error;
@@ -1234,9 +1293,14 @@ export class AppService {
 
     const requests = this.getClubJoinRequestsTableClient();
     try {
-      const existing = await requests.getEntity(clubId, session.member.memberId);
+      const existing = await requests.getEntity(
+        clubId,
+        session.member.memberId,
+      );
       if (String(existing.Status ?? 'Pending') === 'Pending') {
-        throw new ConflictException('Your request to join this club is already pending.');
+        throw new ConflictException(
+          'Your request to join this club is already pending.',
+        );
       }
     } catch (error) {
       if (error instanceof ConflictException) throw error;
@@ -1262,7 +1326,13 @@ export class AppService {
     } catch (error) {
       throw this.createMemberAuthenticationStorageException(error);
     }
-    return { clubId, memberId: session.member.memberId, memberName: session.member.name, status: 'Pending', requestedAt };
+    return {
+      clubId,
+      memberId: session.member.memberId,
+      memberName: session.member.name,
+      status: 'Pending',
+      requestedAt,
+    };
   }
 
   async getPendingClubJoinRequests(
@@ -1292,7 +1362,9 @@ export class AppService {
     } catch (error) {
       throw this.createMemberAuthenticationStorageException(error);
     }
-    return requests.sort((left, right) => left.requestedAt.localeCompare(right.requestedAt));
+    return requests.sort((left, right) =>
+      left.requestedAt.localeCompare(right.requestedAt),
+    );
   }
 
   async reviewClubJoinRequest(
@@ -1313,11 +1385,14 @@ export class AppService {
     try {
       request = await requests.getEntity(clubId, memberId);
     } catch (error) {
-      if (this.isAzureNotFound(error)) throw new NotFoundException('Join request was not found.');
+      if (this.isAzureNotFound(error))
+        throw new NotFoundException('Join request was not found.');
       throw this.createMemberAuthenticationStorageException(error);
     }
     if (String(request.Status ?? 'Pending') !== 'Pending') {
-      throw new ConflictException('This join request has already been reviewed.');
+      throw new ConflictException(
+        'This join request has already been reviewed.',
+      );
     }
 
     const reviewedAt = new Date().toISOString();
@@ -1361,14 +1436,18 @@ export class AppService {
     };
   }
 
-  async getClubAssignments(sessionToken: string): Promise<ClubMemberAssignment[]> {
+  async getClubAssignments(
+    sessionToken: string,
+  ): Promise<ClubMemberAssignment[]> {
     await this.requireAdminSession(sessionToken);
     const assignments: ClubMemberAssignment[] = [];
 
     try {
       const entities = this.getClubMembersTableClient().listEntities();
       for await (const entity of entities) {
-        const clubId = String(entity.ClubId ?? entity.partitionKey ?? '').trim();
+        const clubId = String(
+          entity.ClubId ?? entity.partitionKey ?? '',
+        ).trim();
         const memberId = String(entity.MemberId ?? entity.rowKey ?? '').trim();
         if (clubId && memberId) {
           const role = String(entity.Role ?? 'Member');
@@ -1402,7 +1481,9 @@ export class AppService {
       await this.assertClubExists(clubId.trim());
     } else {
       if (roleInput === 'Officer') {
-        throw new ForbiddenException('Only administrators can assign club officers.');
+        throw new ForbiddenException(
+          'Only administrators can assign club officers.',
+        );
       }
       await this.assertCanManageClub(session.member, clubId.trim());
     }
@@ -1492,7 +1573,9 @@ export class AppService {
   ): Promise<MemberRoleUpdateResult> {
     const actorSession = await this.getMemberSession(actorSessionToken);
     if (actorSession.member.role !== 'admin') {
-      throw new ForbiddenException('Only administrators can assign member roles.');
+      throw new ForbiddenException(
+        'Only administrators can assign member roles.',
+      );
     }
 
     if (!/^[A-Za-z0-9_-]{1,200}$/.test(memberId)) {
@@ -1519,6 +1602,88 @@ export class AppService {
     }
 
     return { memberId, role: role as MemberRole };
+  }
+
+  async getPendingMemberRegistrations(
+    actorSessionToken: string,
+  ): Promise<PendingMemberRegistration[]> {
+    await this.requireAdminSession(actorSessionToken);
+    const registrations: PendingMemberRegistration[] = [];
+
+    try {
+      const entities = this.getMembersTableClient().listEntities({
+        queryOptions: {
+          filter: "PartitionKey eq 'members' and Status eq 'Pending'",
+          select: ['RowKey', 'Name', 'Email', 'CreatedAt', 'EmailValidated'],
+        },
+      });
+
+      for await (const entity of entities) {
+        const memberId = String(entity.rowKey ?? '');
+        if (!memberId) continue;
+        registrations.push({
+          memberId,
+          name: String(entity.Name ?? ''),
+          email: String(entity.Email ?? ''),
+          createdAt: String(entity.CreatedAt ?? ''),
+          emailValidated: entity.EmailValidated === true,
+        });
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return registrations.sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt),
+    );
+  }
+
+  async approveMemberRegistration(
+    actorSessionToken: string,
+    memberId: string,
+  ): Promise<MemberRegistrationApprovalResult> {
+    await this.requireAdminSession(actorSessionToken);
+    this.validateMemberId(memberId);
+    const tableClient = this.getMembersTableClient();
+    let member: Record<string, unknown>;
+
+    try {
+      member = await tableClient.getEntity('members', memberId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException('Member account was not found.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    if (member.EmailValidated !== true) {
+      throw new ConflictException(
+        'The member must verify their email before approval.',
+      );
+    }
+
+    try {
+      await tableClient.updateEntity(
+        {
+          partitionKey: 'members',
+          rowKey: memberId,
+          Status: 'Approved',
+          ApprovedAt: new Date().toISOString(),
+        },
+        'Merge',
+      );
+      await this.sendRegistrationApprovedEmail(
+        String(member.Email ?? ''),
+        String(member.Name ?? 'Member'),
+      );
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadGatewayException(
+        'Registration was approved, but the approval email could not be sent.',
+      );
+    }
+
+    return { memberId, status: 'Approved' };
   }
 
   async getBalanceTypes(sessionToken: string): Promise<string[]> {
@@ -1582,7 +1747,9 @@ export class AppService {
 
       for await (const entity of entities) {
         const amount = Number(entity.Amount);
-        const balanceType = String(entity.BalanceType ?? entity.Type ?? '').trim();
+        const balanceType = String(
+          entity.BalanceType ?? entity.Type ?? '',
+        ).trim();
         const balanceDate = String(entity.BalanceDate ?? '').trim();
         if (entity.rowKey && balanceType && Number.isFinite(amount)) {
           balances.push({
@@ -1710,7 +1877,9 @@ export class AppService {
       throw this.createMemberAuthenticationStorageException(error);
     }
 
-    const email = String(member.Email ?? '').trim().toLowerCase();
+    const email = String(member.Email ?? '')
+      .trim()
+      .toLowerCase();
     if (!email) {
       throw new BadRequestException('Member email is not configured.');
     }
@@ -1775,7 +1944,9 @@ export class AppService {
       );
     } catch (error) {
       if (this.isAzureNotFound(error)) {
-        throw new BadRequestException('Verification link is invalid or expired.');
+        throw new BadRequestException(
+          'Verification link is invalid or expired.',
+        );
       }
 
       throw this.createMemberAuthenticationStorageException(error);
@@ -1827,7 +1998,9 @@ export class AppService {
           Name: member.name,
           ContactNo: member.contactNo,
           EmergencyContact: member.emergencyContact,
-          ...(member.birthday ? { Birthday: member.birthday } : { Age: member.age }),
+          ...(member.birthday
+            ? { Birthday: member.birthday }
+            : { Age: member.age }),
           ShowAge: member.showAge === true,
           LocationType: member.locationType,
           Location: member.location,
@@ -1881,12 +2054,17 @@ export class AppService {
     const showAge =
       entity.ShowAge === true ||
       (entity.ShowAge === undefined && entity.Age !== undefined);
-    const storedAge = birthday ? this.calculateAge(birthday) : Number(entity.Age);
+    const storedAge = birthday
+      ? this.calculateAge(birthday)
+      : Number(entity.Age);
 
     return {
       memberId,
       name: String(entity.Name ?? ''),
-      age: showAge && storedAge !== null && Number.isFinite(storedAge) ? storedAge : null,
+      age:
+        showAge && storedAge !== null && Number.isFinite(storedAge)
+          ? storedAge
+          : null,
       ...(birthday ? { birthday } : {}),
       ...(entity.ShowAge !== undefined ? { showAge } : {}),
       gender: String(entity.Gender ?? ''),
@@ -1897,13 +2075,17 @@ export class AppService {
       createdAt: String(entity.CreatedAt ?? ''),
       emailValidated: entity.EmailValidated === true,
       role: this.getMemberRole(entity),
-      ...(entity.LocationType ? { locationType: String(entity.LocationType) as MemberLocationType } : {}),
+      ...(entity.LocationType
+        ? { locationType: String(entity.LocationType) as MemberLocationType }
+        : {}),
       ...(entity.Location ? { location: String(entity.Location) } : {}),
     };
   }
 
   private getMemberRole(entity: Record<string, unknown>): MemberRole {
-    const role = String(entity.Role ?? '').trim().toLowerCase();
+    const role = String(entity.Role ?? '')
+      .trim()
+      .toLowerCase();
     return MEMBER_ROLES.includes(role as MemberRole)
       ? (role as MemberRole)
       : 'member';
@@ -1940,7 +2122,9 @@ export class AppService {
     };
   }
 
-  private parseStoredMemberSkills(value: unknown): Record<string, number | null> {
+  private parseStoredMemberSkills(
+    value: unknown,
+  ): Record<string, number | null> {
     let skills: unknown = value;
 
     if (typeof value === 'string') {
@@ -1951,7 +2135,11 @@ export class AppService {
       }
     }
 
-    if (typeof skills !== 'object' || skills === null || Array.isArray(skills)) {
+    if (
+      typeof skills !== 'object' ||
+      skills === null ||
+      Array.isArray(skills)
+    ) {
       return {};
     }
 
@@ -1970,7 +2158,9 @@ export class AppService {
   ) {
     const apiKey = process.env.MAILGUN_API_KEY;
     const domain = process.env.MAILGUN_DOMAIN;
-    const baseUrl = (process.env.MAILGUN_BASE_URL ?? 'https://api.mailgun.net').replace(/\/$/, '');
+    const baseUrl = (
+      process.env.MAILGUN_BASE_URL ?? 'https://api.mailgun.net'
+    ).replace(/\/$/, '');
     const from = process.env.EMAIL_FROM;
 
     if (!apiKey || !domain || !from) {
@@ -1999,7 +2189,56 @@ export class AppService {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(`Mailgun API responded with ${response.status}: ${errorText}`);
+      throw new Error(
+        `Mailgun API responded with ${response.status}: ${errorText}`,
+      );
+    }
+  }
+
+  private async sendRegistrationApprovedEmail(
+    email: string,
+    memberName: string,
+  ) {
+    await this.sendEmail(
+      email,
+      'Your Sorsogon Pickleball Arena registration is approved',
+      `Hello ${memberName},\n\nYour registration has been approved. You can now sign in at ${this.publicAppUrl}/login.`,
+      `<p>Hello ${this.escapeHtml(memberName)},</p><p>Your registration has been approved.</p><p><a href="${this.escapeHtml(`${this.publicAppUrl}/login`)}">Sign in to your account</a></p>`,
+    );
+  }
+
+  private async sendEmail(
+    email: string,
+    subject: string,
+    text: string,
+    html: string,
+  ) {
+    const apiKey = process.env.MAILGUN_API_KEY;
+    const domain = process.env.MAILGUN_DOMAIN;
+    const baseUrl = (
+      process.env.MAILGUN_BASE_URL ?? 'https://api.mailgun.net'
+    ).replace(/\/$/, '');
+    const from = process.env.EMAIL_FROM;
+
+    if (!apiKey || !domain || !from) {
+      throw new BadRequestException('Email delivery is not configured.');
+    }
+
+    const body = new URLSearchParams({ from, to: email, subject, text, html });
+    const response = await fetch(`${baseUrl}/v3/${domain}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`api:${apiKey}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(
+        `Mailgun API responded with ${response.status}: ${errorText}`,
+      );
     }
   }
 
@@ -2086,7 +2325,10 @@ export class AppService {
     return blockBlobClient.url;
   }
 
-  private hasExpectedImageSignature(buffer: Buffer, extension: string): boolean {
+  private hasExpectedImageSignature(
+    buffer: Buffer,
+    extension: string,
+  ): boolean {
     if (extension === 'jpg') {
       return buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]));
     }
@@ -2276,7 +2518,9 @@ export class AppService {
 
   private getClubMembersTableClient(): TableClient {
     if (!this.membersAzureStorageAccount || !this.clubMembersAzureTable) {
-      throw new BadRequestException('Club member table configuration is required.');
+      throw new BadRequestException(
+        'Club member table configuration is required.',
+      );
     }
     return new TableClient(
       `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
@@ -2287,7 +2531,9 @@ export class AppService {
 
   private getClubJoinRequestsTableClient(): TableClient {
     if (!this.membersAzureStorageAccount || !this.clubJoinRequestsAzureTable) {
-      throw new BadRequestException('Club join request table configuration is required.');
+      throw new BadRequestException(
+        'Club join request table configuration is required.',
+      );
     }
     return new TableClient(
       `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
@@ -2326,8 +2572,14 @@ export class AppService {
         clubId,
         actor.memberId,
       );
-      const clubRole = String(relationship.Role ?? '').trim().toLowerCase();
-      if (clubRole === 'owner' || clubRole === 'officer' || clubRole === 'club-owner') {
+      const clubRole = String(relationship.Role ?? '')
+        .trim()
+        .toLowerCase();
+      if (
+        clubRole === 'owner' ||
+        clubRole === 'officer' ||
+        clubRole === 'club-owner'
+      ) {
         return;
       }
     } catch (error) {
@@ -2338,7 +2590,9 @@ export class AppService {
     throw new ForbiddenException('You are not an officer of this club.');
   }
 
-  private isClubJoinRequestStatus(value: string): value is ClubJoinRequestStatus {
+  private isClubJoinRequestStatus(
+    value: string,
+  ): value is ClubJoinRequestStatus {
     return value === 'Pending' || value === 'Approved' || value === 'Rejected';
   }
 
@@ -2499,7 +2753,9 @@ export class AppService {
     if (
       emptyField ||
       (!input.birthday &&
-        (!Number.isInteger(legacyAge) || legacyAge === undefined || legacyAge < 1))
+        (!Number.isInteger(legacyAge) ||
+          legacyAge === undefined ||
+          legacyAge < 1))
     ) {
       throw new BadRequestException('Complete all required member details.');
     }
@@ -2507,7 +2763,10 @@ export class AppService {
     if (input.birthday && !this.isValidBirthday(input.birthday)) {
       throw new BadRequestException('Enter a valid birthday.');
     }
-    const location = this.validateMemberLocation(input.locationType, input.location);
+    const location = this.validateMemberLocation(
+      input.locationType,
+      input.location,
+    );
 
     const email = input.email.trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(email)) {
@@ -2515,14 +2774,19 @@ export class AppService {
     }
 
     if (!input.password || input.password.length < 8) {
-      throw new BadRequestException('Password must contain at least 8 characters.');
+      throw new BadRequestException(
+        'Password must contain at least 8 characters.',
+      );
     }
 
     const skills = Object.fromEntries(
       Object.entries(input.skills ?? {}).map(([name, rating]) => {
         if (
           rating !== null &&
-          (!Number.isFinite(rating) || !Number.isInteger(rating) || rating < 0 || rating > 10)
+          (!Number.isFinite(rating) ||
+            !Number.isInteger(rating) ||
+            rating < 0 ||
+            rating > 10)
         ) {
           throw new BadRequestException(
             `Skill rating for ${name} must be a whole number from 0 to 10.`,
@@ -2565,7 +2829,9 @@ export class AppService {
     if (
       emptyField ||
       (!input.birthday &&
-        (!Number.isInteger(legacyAge) || legacyAge === undefined || legacyAge < 1))
+        (!Number.isInteger(legacyAge) ||
+          legacyAge === undefined ||
+          legacyAge < 1))
     ) {
       throw new BadRequestException('Complete all required member details.');
     }
@@ -2573,7 +2839,10 @@ export class AppService {
     if (input.birthday && !this.isValidBirthday(input.birthday)) {
       throw new BadRequestException('Enter a valid birthday.');
     }
-    const location = this.validateMemberLocation(input.locationType, input.location);
+    const location = this.validateMemberLocation(
+      input.locationType,
+      input.location,
+    );
 
     const skills = Object.fromEntries(
       Object.entries(input.skills ?? {}).map(([name, rating]) => {
@@ -2632,7 +2901,9 @@ export class AppService {
     }
 
     if (locationType !== 'Sorsogon' && locationType !== 'Other') {
-      throw new BadRequestException('Select whether your location is Sorsogon or Other.');
+      throw new BadRequestException(
+        'Select whether your location is Sorsogon or Other.',
+      );
     }
 
     const location = locationInput?.trim() ?? '';
@@ -2640,7 +2911,10 @@ export class AppService {
       throw new BadRequestException('Select or enter your location.');
     }
 
-    if (locationType === 'Sorsogon' && !SORSOGON_TOWNS.includes(location as (typeof SORSOGON_TOWNS)[number])) {
+    if (
+      locationType === 'Sorsogon' &&
+      !SORSOGON_TOWNS.includes(location as (typeof SORSOGON_TOWNS)[number])
+    ) {
       throw new BadRequestException('Select a valid Sorsogon town or city.');
     }
 
@@ -2666,7 +2940,11 @@ export class AppService {
       return false;
     }
 
-    const actualHash = (await scrypt(password, salt, expectedHash.length)) as Buffer;
+    const actualHash = (await scrypt(
+      password,
+      salt,
+      expectedHash.length,
+    )) as Buffer;
 
     return timingSafeEqual(expectedHash, actualHash);
   }

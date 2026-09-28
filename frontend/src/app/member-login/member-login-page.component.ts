@@ -30,9 +30,7 @@ export class MemberLoginPageComponent {
     this.auth.login(this.email, this.password).subscribe({
       next: () => {
         const requestedUrl = this.route.snapshot.queryParamMap.get('returnUrl');
-        const destination = requestedUrl?.startsWith('/')
-          ? requestedUrl
-          : '/home';
+        const destination = requestedUrl?.startsWith('/') ? requestedUrl : '/home';
 
         void this.router.navigateByUrl(destination);
       },
@@ -40,7 +38,9 @@ export class MemberLoginPageComponent {
         this.loginError.set(
           error.status === 401
             ? 'The email or password is incorrect.'
-            : 'Login is temporarily unavailable. Please try again.',
+            : error.status === 403
+              ? (error.error?.message ?? 'Your registration is pending approval.')
+              : 'Login is temporarily unavailable. Please try again.',
         );
         this.isSubmitting.set(false);
       },

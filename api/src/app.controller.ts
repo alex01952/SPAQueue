@@ -32,6 +32,8 @@ import type {
   MemberAccountDetails,
   MemberProfileUpdateInput,
   MemberRoleUpdateResult,
+  PendingMemberRegistration,
+  MemberRegistrationApprovalResult,
   MemberBalance,
   MemberBalanceInput,
   ClubSummary,
@@ -80,7 +82,9 @@ export class AppController {
       birthday: String(body.birthday ?? ''),
       age: body.age === undefined ? undefined : Number(body.age),
       showAge: String(body.showAge).toLowerCase() === 'true',
-      locationType: String(body.locationType ?? '') as MemberRegistrationInput['locationType'],
+      locationType: String(
+        body.locationType ?? '',
+      ) as MemberRegistrationInput['locationType'],
       location: String(body.location ?? ''),
       gender: String(body.gender ?? ''),
       duprId: String(body.duprId ?? ''),
@@ -207,7 +211,9 @@ export class AppController {
   }
 
   @Get('admin/club-members')
-  getClubAssignments(@Headers('cookie') cookieHeader = ''): Promise<ClubMemberAssignment[]> {
+  getClubAssignments(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<ClubMemberAssignment[]> {
     return this.appService.getClubAssignments(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
     );
@@ -265,10 +271,28 @@ export class AppController {
     );
   }
 
-  @Get('balance-types')
-  getBalanceTypes(
+  @Get('admin/member-registrations/pending')
+  getPendingMemberRegistrations(
     @Headers('cookie') cookieHeader = '',
-  ): Promise<string[]> {
+  ): Promise<PendingMemberRegistration[]> {
+    return this.appService.getPendingMemberRegistrations(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Patch('admin/member-registrations/:memberId/approve')
+  approveMemberRegistration(
+    @Param('memberId') memberId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<MemberRegistrationApprovalResult> {
+    return this.appService.approveMemberRegistration(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      memberId,
+    );
+  }
+
+  @Get('balance-types')
+  getBalanceTypes(@Headers('cookie') cookieHeader = ''): Promise<string[]> {
     return this.appService.getBalanceTypes(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
     );
@@ -366,7 +390,9 @@ export class AppController {
       birthday: String(body.birthday ?? ''),
       age: body.age === undefined ? undefined : Number(body.age),
       showAge: String(body.showAge).toLowerCase() === 'true',
-      locationType: String(body.locationType ?? '') as MemberProfileUpdateInput['locationType'],
+      locationType: String(
+        body.locationType ?? '',
+      ) as MemberProfileUpdateInput['locationType'],
       location: String(body.location ?? ''),
       gender: String(body.gender ?? ''),
       duprId: String(body.duprId ?? ''),
@@ -458,7 +484,11 @@ export class AppController {
     try {
       const skills: unknown = JSON.parse(String(value));
 
-      if (typeof skills !== 'object' || skills === null || Array.isArray(skills)) {
+      if (
+        typeof skills !== 'object' ||
+        skills === null ||
+        Array.isArray(skills)
+      ) {
         throw new Error('Invalid skills payload.');
       }
 

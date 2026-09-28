@@ -94,6 +94,8 @@ Email verification uses `PUBLIC_APP_URL` to build the secure link and Mailgun's 
 
 Member login stores password hashes and hashed, expiring session tokens in the configured table. The API sends the raw session token only as an `HttpOnly` cookie. Grant the API managed identity the `Storage Table Data Contributor` role on the storage account; image uploads also require `Storage Blob Data Contributor`.
 
+New member rows are created with `Status=Pending`. Registration sends the email verification message automatically; after verification, an administrator must approve the registration before login is allowed. Existing member rows without a `Status` property remain login-compatible and are treated as approved.
+
 Notes:
 
 - The container should contain month subfolders under the configured prefix (for example `2026/June`).

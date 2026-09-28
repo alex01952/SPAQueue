@@ -28,9 +28,9 @@ describe('VerifyEmailPageComponent', () => {
     fixture.detectChanges();
 
     expect(confirmEmailVerification).toHaveBeenCalledWith('secure-token');
-    expect(fixture.nativeElement.textContent).toContain('Email verified');
+    expect(fixture.nativeElement.textContent).toContain('Registration pending approval');
     expect(fixture.nativeElement.textContent).toContain(
-      'Your email address has been verified.',
+      'We will email you when an administrator approves your account.',
     );
   });
 });

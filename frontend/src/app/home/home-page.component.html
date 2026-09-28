@@ -19,11 +19,21 @@
     <p>Choose where you want to go next.</p>
   </section>
 
-  <section class="email-verification" [class.verified]="member()?.emailValidated" aria-label="Email verification">
+  <section
+    class="email-verification"
+    [class.verified]="member()?.emailValidated"
+    aria-label="Email verification"
+  >
     <div>
       <span class="verification-label">Email status</span>
       <strong>{{ member()?.emailValidated ? 'Verified' : 'Verification required' }}</strong>
-      <p>{{ member()?.emailValidated ? 'Your email address has been confirmed.' : 'Verify your email to secure your member account.' }}</p>
+      <p>
+        {{
+          member()?.emailValidated
+            ? 'Your email address has been confirmed.'
+            : 'Verify your email to secure your member account.'
+        }}
+      </p>
     </div>
     @if (!member()?.emailValidated) {
       <button type="button" [disabled]="isSendingVerification()" (click)="sendVerificationEmail()">
@@ -60,7 +70,9 @@
       <span class="menu-index">05</span>
       <span class="menu-copy">
         <strong>My balances</strong>
-        <small>{{ memberHasBalances() ? 'you have unpaid balances' : 'you do not have any unpaid balances' }}</small>
+        <small>{{
+          memberHasBalances() ? 'you have unpaid balances' : 'you do not have any unpaid balances'
+        }}</small>
       </span>
       <span class="menu-arrow" aria-hidden="true">&rarr;</span>
     </a>
@@ -90,10 +102,23 @@
         </span>
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
+      <a routerLink="/member-registration-approvals" class="menu-item">
+        <span class="menu-index">09</span>
+        <span class="menu-copy">
+          <strong>Registration approvals</strong>
+          <small>Review verified applicants and approve member access.</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
     }
 
-    <button type="button" class="menu-item logout-item" [disabled]="isLoggingOut()" (click)="logout()">
-      <span class="menu-index">{{ member()?.role === 'admin' ? '09' : '06' }}</span>
+    <button
+      type="button"
+      class="menu-item logout-item"
+      [disabled]="isLoggingOut()"
+      (click)="logout()"
+    >
+      <span class="menu-index">{{ member()?.role === 'admin' ? '10' : '06' }}</span>
       <span class="menu-copy">
         <strong>{{ isLoggingOut() ? 'Logging out...' : 'Logout' }}</strong>
         <small>End your member session on this device.</small>

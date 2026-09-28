@@ -26,7 +26,9 @@ export class VerifyEmailPageComponent implements OnInit {
     this.auth.confirmEmailVerification(token).subscribe({
       next: () => {
         this.status.set('verified');
-        this.message.set('Your email address has been verified.');
+        this.message.set(
+          'Your registration is pending approval. We will email you when an administrator approves your account.',
+        );
       },
       error: () => {
         this.status.set('error');

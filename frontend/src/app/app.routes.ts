@@ -16,6 +16,7 @@ import { LandingPageComponent } from './landing-page.component';
 import { MembersPageComponent } from './members/members-page.component';
 import { MonthlyParticipationPageComponent } from './monthly-participation/monthly-participation-page.component';
 import { MemberRegistrationPageComponent } from './member-registration/member-registration-page.component';
+import { MemberRegistrationApprovalsPageComponent } from './member-registration-approvals/member-registration-approvals-page.component';
 import { ParticipationUploadPageComponent } from './participation-upload/participation-upload-page.component';
 import { TeamMatchingPageComponent } from './team-matching/team-matching-page.component';
 import { VerifyEmailPageComponent } from './verify-email/verify-email-page.component';
@@ -121,6 +122,13 @@ export const routes: Routes = [
     canActivate: [memberAuthGuard, memberRoleGuard],
     data: { allowedRoles: ['admin'] },
     title: 'Member Balances',
+  },
+  {
+    path: 'member-registration-approvals',
+    component: MemberRegistrationApprovalsPageComponent,
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'] },
+    title: 'Registration Approvals',
   },
   {
     path: 'club-memberships',

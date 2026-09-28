@@ -1,0 +1,44 @@
+<main class="approvals-shell">
+  <header>
+    <p class="eyebrow">Administration</p>
+    <h1>Registration approvals</h1>
+    <p>Review new member registrations after their email address is verified.</p>
+  </header>
+
+  @if (feedbackMessage()) {
+    <p class="feedback success" role="status">{{ feedbackMessage() }}</p>
+  }
+  @if (errorMessage()) {
+    <p class="feedback error" role="alert">{{ errorMessage() }}</p>
+  }
+
+  <section class="registration-list" aria-label="Pending registrations">
+    @if (isLoading()) {
+      <p>Loading pending registrations...</p>
+    } @else if (!registrations().length) {
+      <p>No registrations are awaiting approval.</p>
+    }
+
+    @for (registration of registrations(); track registration.memberId) {
+      <article>
+        <div>
+          <strong>{{ registration.name }}</strong>
+          <span>{{ registration.email }}</span>
+          <small>Submitted {{ registration.createdAt | date: 'mediumDate' }}</small>
+        </div>
+        <div class="approval-action">
+          <span [class.verified]="registration.emailValidated">
+            {{ registration.emailValidated ? 'Email verified' : 'Awaiting email verification' }}
+          </span>
+          <button
+            type="button"
+            [disabled]="!registration.emailValidated || !!approvingMemberId()"
+            (click)="approve(registration)"
+          >
+            {{ approvingMemberId() === registration.memberId ? 'Approving...' : 'Approve' }}
+          </button>
+        </div>
+      </article>
+    }
+  </section>
+</main>

@@ -290,9 +290,19 @@ describe('AppController', () => {
   describe('member registration', () => {
     it('should store the uploaded profile URL and a verifiable password hash', async () => {
       const createEntity = jest.fn().mockResolvedValue(undefined);
+      const deleteEntity = jest.fn().mockResolvedValue(undefined);
       jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
         createEntity,
+        deleteEntity,
+        getEntity: jest.fn().mockResolvedValue({
+          Name: 'Alex Member',
+          Email: 'alex@example.com',
+          EmailValidated: false,
+        }),
       });
+      jest
+        .spyOn(appService as any, 'sendVerificationEmail')
+        .mockResolvedValue(undefined);
       jest
         .spyOn(appService as any, 'uploadMemberProfileImage')
         .mockResolvedValue(
@@ -324,6 +334,7 @@ describe('AppController', () => {
       );
       expect(entity.Password).toBeUndefined();
       expect(entity.PasswordHash).toMatch(/^scrypt\$/);
+      expect(entity.Status).toBe('Pending');
       await expect(
         appService.verifyPassword('strong-password', entity.PasswordHash),
       ).resolves.toBe(true);
@@ -443,6 +454,66 @@ describe('AppController', () => {
       await expect(
         appService.loginMember('alex@example.com', 'wrong-password'),
       ).rejects.toThrow('Invalid email or password.');
+    });
+
+    it('should reject a valid login while registration is pending', async () => {
+      const passwordHash = await (appService as any).hashPassword(
+        'strong-password',
+      );
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn().mockResolvedValue({
+          PasswordHash: passwordHash,
+          Status: 'Pending',
+        }),
+      });
+
+      await expect(
+        appService.loginMember('alex@example.com', 'strong-password'),
+      ).rejects.toThrow('Your registration is pending approval.');
+    });
+
+    it('should let an administrator approve a verified registration', async () => {
+      jest.spyOn(appService, 'getMemberSession').mockResolvedValue({
+        authenticated: true,
+        member: {
+          memberId: 'admin-member',
+          name: 'Admin',
+          age: null,
+          gender: '',
+          duprId: '',
+          reClubId: '',
+          profileImageUrl: '',
+          skills: {},
+          createdAt: '',
+          emailValidated: true,
+          role: 'admin',
+        },
+      });
+      const updateEntity = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn().mockResolvedValue({
+          Name: 'Alex Member',
+          Email: 'alex@example.com',
+          EmailValidated: true,
+          Status: 'Pending',
+        }),
+        updateEntity,
+      });
+      jest
+        .spyOn(appService as any, 'sendRegistrationApprovedEmail')
+        .mockResolvedValue(undefined);
+
+      await expect(
+        appService.approveMemberRegistration('admin-session', 'alex-member'),
+      ).resolves.toEqual({ memberId: 'alex-member', status: 'Approved' });
+      expect(updateEntity).toHaveBeenCalledWith(
+        expect.objectContaining({
+          partitionKey: 'members',
+          rowKey: 'alex-member',
+          Status: 'Approved',
+        }),
+        'Merge',
+      );
     });
 
     it('should return only public member directory fields in name order', async () => {
@@ -669,9 +740,11 @@ describe('AppController', () => {
         deleteEntity,
       });
 
-      await expect(appService.confirmEmailVerification(token)).resolves.toEqual({
-        verified: true,
-      });
+      await expect(appService.confirmEmailVerification(token)).resolves.toEqual(
+        {
+          verified: true,
+        },
+      );
 
       expect(updateEntity.mock.calls[0][0]).toMatchObject({
         partitionKey: 'members',

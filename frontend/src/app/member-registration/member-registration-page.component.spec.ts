@@ -1,8 +1,5 @@
 import { provideHttpClient } from '@angular/common/http';
-import {
-  HttpTestingController,
-  provideHttpClientTesting,
-} from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { MemberRegistrationPageComponent } from './member-registration-page.component';
 
@@ -17,6 +14,8 @@ describe('MemberRegistrationPageComponent', () => {
     const http = TestBed.inject(HttpTestingController);
     const original = new File(['original'], 'portrait.png', { type: 'image/png' });
     const croppedBlob = new Blob(['cropped'], { type: 'image/webp' });
+    component.member.password = 'strong-password';
+    component.member.passwordConfirmation = 'strong-password';
 
     component.selectProfileImage({
       target: { files: [original], value: '' },
@@ -31,8 +30,8 @@ describe('MemberRegistrationPageComponent', () => {
     });
     component.submitRegistration();
 
-    const request = http.expectOne(({ url, method }) =>
-      method === 'POST' && url.endsWith('/members/register'),
+    const request = http.expectOne(
+      ({ url, method }) => method === 'POST' && url.endsWith('/members/register'),
     );
     const body = request.request.body as FormData;
     const uploadedImage = body.get('profileImage') as File;
@@ -43,7 +42,9 @@ describe('MemberRegistrationPageComponent', () => {
     expect(await uploadedImage.text()).toBe('cropped');
     expect(uploadedImage).not.toBe(original);
 
-    request.flush({ memberId: 'member-1', registered: true });
+    request.flush({ memberId: 'member-1', registered: true, verificationSent: true });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Check your email');
     http.verify();
   });
 });
