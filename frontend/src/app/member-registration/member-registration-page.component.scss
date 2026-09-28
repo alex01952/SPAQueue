@@ -30,6 +30,14 @@ image-cropper { display: block; height: 420px; background: #2f221a; border-radiu
 .crop-error { margin: 0; color: #9e3e2b; font-size: .78rem; }
 .field-invalid input, .field-invalid select { border-color: #b84331; box-shadow: 0 0 0 2px rgba(184, 67, 49, .14); }
 .field-invalid small { display: block; }
+.phone-input { display: flex; min-width: 0; }
+.phone-input .phone-prefix { display: grid; place-items: center; flex: 0 0 48px; color: var(--text-primary); background: rgba(103, 70, 41, .07); border: 1px solid rgba(103, 70, 41, .18); border-right: 0; border-radius: 6px 0 0 6px; font-size: .9rem; }
+.phone-input input { flex: 1; min-width: 0; border-radius: 0 6px 6px 0; }
+.terms-agreement { grid-template-columns: 20px minmax(0, 1fr); align-items: center; justify-self: start; column-gap: 10px; }
+.terms-agreement input[type='checkbox'] { width: 20px; height: 20px; padding: 0; accent-color: #3f8c55; }
+.terms-agreement span { display: block; line-height: 1.5; }
+.terms-agreement a { color: var(--accent-dark); text-decoration: underline; }
+.terms-agreement small { grid-column: 2; }
 .full-width { grid-column: 1 / -1; }
 input, select, button { font: inherit; }
 input, select { width: 100%; min-width: 0; padding: 10px 12px; color: var(--text-primary); background: rgba(255, 255, 255, .78); border: 1px solid rgba(103, 70, 41, .18); border-radius: 6px; }

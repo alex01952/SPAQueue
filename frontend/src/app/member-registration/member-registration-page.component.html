@@ -17,8 +17,8 @@
       <div class="form-grid">
         <label [class.field-invalid]="registrationForm.submitted && name.invalid"><span>Name <b aria-hidden="true">*</b></span><input #name="ngModel" name="name" [(ngModel)]="member.name" required /><small>Name is required.</small></label>
         <label [class.field-invalid]="registrationForm.submitted && email.invalid"><span>Email <b aria-hidden="true">*</b></span><input #email="ngModel" type="email" name="email" [(ngModel)]="member.email" required /><small>Enter a valid email address.</small></label>
-        <label [class.field-invalid]="registrationForm.submitted && contactNo.invalid"><span>Contact number <b aria-hidden="true">*</b></span><input #contactNo="ngModel" type="tel" name="contactNo" [(ngModel)]="member.contactNo" required /><small>Contact number is required.</small></label>
-        <label [class.field-invalid]="registrationForm.submitted && emergencyContact.invalid"><span>Emergency contact <b aria-hidden="true">*</b></span><input #emergencyContact="ngModel" name="emergencyContact" [(ngModel)]="member.emergencyContact" required /><small>Emergency contact is required.</small></label>
+        <label [class.field-invalid]="(registrationForm.submitted || contactNo.touched) && contactNo.invalid"><span>Contact number <b aria-hidden="true">*</b></span><div class="phone-input"><span class="phone-prefix">+63</span><input #contactNo="ngModel" type="tel" inputmode="numeric" name="contactNo" [(ngModel)]="member.contactNo" placeholder="9171234567" pattern="9[0-9]{9}" maxlength="10" required /></div><small>Enter 10 digits starting with 9.</small></label>
+        <label [class.field-invalid]="(registrationForm.submitted || emergencyContact.touched) && emergencyContact.invalid"><span>Emergency contact <b aria-hidden="true">*</b></span><div class="phone-input"><span class="phone-prefix">+63</span><input #emergencyContact="ngModel" type="tel" inputmode="numeric" name="emergencyContact" [(ngModel)]="member.emergencyContact" placeholder="9171234567" pattern="9[0-9]{9}" maxlength="10" required /></div><small>Enter 10 digits starting with 9.</small></label>
         <label [class.field-invalid]="registrationForm.submitted && birthday.invalid"><span>Birthday <b aria-hidden="true">*</b></span><input #birthday="ngModel" type="date" name="birthday" [(ngModel)]="member.birthday" required /><small>Enter your birthday.</small></label>
         <label class="toggle-field"><span>Show age on profile</span><input type="checkbox" name="showAge" [(ngModel)]="member.showAge" role="switch" /><small>Allow members to see your age.</small></label>
         <label [class.field-invalid]="registrationForm.submitted && locationType.invalid"><span>Location <b aria-hidden="true">*</b></span><select #locationType="ngModel" name="locationType" [(ngModel)]="member.locationType" (ngModelChange)="member.location = ''" required><option value="" disabled>Select area</option><option value="Sorsogon">Sorsogon</option><option value="Other">Other</option></select><small>Select Sorsogon or Other.</small></label>
@@ -114,6 +114,12 @@
         }
       </div>
     </section>
+
+    <label class="terms-agreement" [class.field-invalid]="registrationForm.submitted && termsAgreement.invalid">
+      <input #termsAgreement="ngModel" type="checkbox" name="termsAgreement" [(ngModel)]="agreedToTerms" required />
+      <span>I agree to the <a [href]="termsAndConditionsUrl" target="_blank" rel="noopener noreferrer">terms and conditions</a> <b aria-hidden="true">*</b></span>
+      <small>You must agree before registering.</small>
+    </label>
 
     <button type="submit" class="submit-button" [disabled]="registrationForm.invalid || !passwordsMatch() || isSubmitting() || (sourceProfileImage() && !selectedProfileImage())">{{ isSubmitting() ? 'Registering...' : 'Register' }}</button>
     @if (registrationMessage()) {

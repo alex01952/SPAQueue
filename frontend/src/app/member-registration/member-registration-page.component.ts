@@ -3,6 +3,9 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ImageCroppedEvent, ImageCropperComponent, ImageTransform } from 'ngx-image-cropper';
 import { getApiBaseUrl } from '../api-base-url';
+import { isValidPhilippineMobile, toPhilippineMobile } from '../philippine-mobile';
+
+declare const TERMS_AND_CONDITIONS_URL: string;
 
 interface MemberRegistration {
   name: string;
@@ -82,6 +85,9 @@ export class MemberRegistrationPageComponent {
   protected readonly cropError = signal('');
   protected readonly cropZoom = signal(1);
   protected readonly cropRotation = signal(0);
+  protected agreedToTerms = false;
+  protected readonly termsAndConditionsUrl =
+    typeof TERMS_AND_CONDITIONS_URL === 'undefined' ? '' : TERMS_AND_CONDITIONS_URL;
   protected readonly imageTransform = computed<ImageTransform>(() => ({
     scale: this.cropZoom(),
     rotate: this.cropRotation(),
@@ -184,6 +190,16 @@ export class MemberRegistrationPageComponent {
       return;
     }
 
+    if (!isValidPhilippineMobile(this.member.contactNo) || !isValidPhilippineMobile(this.member.emergencyContact)) {
+      this.registrationMessage.set('Enter 10 digits starting with 9 for both mobile numbers.');
+      return;
+    }
+
+    if (!this.agreedToTerms) {
+      this.registrationMessage.set('Agree to the terms and conditions before registering.');
+      return;
+    }
+
     if (!this.passwordsMatch()) {
       this.registrationMessage.set('Passwords do not match.');
       return;
@@ -203,7 +219,8 @@ export class MemberRegistrationPageComponent {
         continue;
       }
 
-      registration.append(field, field === 'skills' ? JSON.stringify(value) : String(value ?? ''));
+      registration.append(field, field === 'skills' ? JSON.stringify(value) :
+        field === 'contactNo' || field === 'emergencyContact' ? toPhilippineMobile(String(value)) : String(value ?? ''));
     }
 
     const profileImage = this.selectedProfileImage();

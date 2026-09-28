@@ -4,10 +4,12 @@ This project was generated using [Angular CLI](https://github.com/angular/angula
 
 ## Development server
 
+The public terms and conditions PDF URL is configured by `TERMS_AND_CONDITIONS_URL` in `.env.example`. To override it locally, create a `.env` in this directory with the same key, or set the environment variable. Environment variables take precedence over `.env`, which takes precedence over `.env.example`. The `npm start`, `npm run build`, and `npm run watch` scripts embed this URL in the Angular bundle at build time; restart the server after changing it. Do not store secrets here because the URL is visible to browsers.
+
 To start a local development server, run:
 
 ```bash
-ng serve
+npm start
 ```
 
 Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.

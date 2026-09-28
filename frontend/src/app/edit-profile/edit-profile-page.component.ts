@@ -8,6 +8,7 @@ import {
   ImageTransform,
 } from 'ngx-image-cropper';
 import { getApiBaseUrl } from '../api-base-url';
+import { isValidPhilippineMobile, normalizePhilippineMobile, toPhilippineMobile } from '../philippine-mobile';
 import {
   MemberAccountDetails,
   MemberAuthService,
@@ -101,8 +102,8 @@ export class EditProfilePageComponent implements OnInit {
           this.currentProfileImageUrl.set(account.profileImageUrl);
           Object.assign(this.profile, {
             name: account.name,
-            contactNo: account.contactNo,
-            emergencyContact: account.emergencyContact,
+            contactNo: normalizePhilippineMobile(account.contactNo),
+            emergencyContact: normalizePhilippineMobile(account.emergencyContact),
             birthday: account.birthday ?? '',
             showAge: account.showAge === true,
             locationType: account.locationType ?? '',
@@ -126,6 +127,11 @@ export class EditProfilePageComponent implements OnInit {
       return;
     }
 
+    if (!isValidPhilippineMobile(this.profile.contactNo) || !isValidPhilippineMobile(this.profile.emergencyContact)) {
+      this.errorMessage.set('Enter 10 digits starting with 9 for both mobile numbers.');
+      return;
+    }
+
     if (this.sourceProfileImage() && !this.selectedProfileImage()) {
       this.errorMessage.set('Finish cropping the profile image before saving.');
       return;
@@ -139,7 +145,8 @@ export class EditProfilePageComponent implements OnInit {
     for (const [field, value] of Object.entries(this.profile)) {
       update.append(
         field,
-        field === 'skills' ? JSON.stringify(value) : String(value ?? ''),
+        field === 'skills' ? JSON.stringify(value) :
+          field === 'contactNo' || field === 'emergencyContact' ? toPhilippineMobile(String(value)) : String(value ?? ''),
       );
     }
     const profileImage = this.selectedProfileImage();
