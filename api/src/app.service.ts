@@ -236,6 +236,10 @@ export interface ClubSummary {
   name: string;
 }
 
+export interface ClubCreateResult extends ClubSummary {
+  createdAt: string;
+}
+
 export interface ClubMemberAssignment {
   clubId: string;
   memberId: string;
@@ -1171,6 +1175,7 @@ export class AppService {
             'ProfileImageUrl',
             'LocationType',
             'Location',
+            'Status',
           ],
         },
       });
@@ -1180,6 +1185,9 @@ export class AppService {
         const name = String(entity.Name ?? '').trim();
 
         if (!memberId || !name) {
+          continue;
+        }
+        if (entity.Status !== undefined && entity.Status !== 'Approved') {
           continue;
         }
 
@@ -1230,6 +1238,55 @@ export class AppService {
     }
 
     return clubs.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async createClub(
+    sessionToken: string,
+    nameInput: string,
+  ): Promise<ClubCreateResult> {
+    const session = await this.getMemberSession(sessionToken);
+    if (session.member.role !== 'admin') {
+      throw new ForbiddenException('Administrator access is required.');
+    }
+
+    const name = nameInput.trim().replace(/\s+/g, ' ');
+    if (name.length < 2 || name.length > 100) {
+      throw new BadRequestException(
+        'Club name must contain between 2 and 100 characters.',
+      );
+    }
+
+    const clubId = name
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 100);
+    if (!clubId) {
+      throw new BadRequestException(
+        'Club name must contain letters or numbers.',
+      );
+    }
+
+    const createdAt = new Date().toISOString();
+    try {
+      await this.getClubsTableClient().createEntity({
+        partitionKey: 'clubs',
+        rowKey: clubId,
+        ClubId: clubId,
+        Name: name,
+        CreatedAt: createdAt,
+        CreatedBy: session.member.memberId,
+      });
+    } catch (error) {
+      if (this.isAzureConflict(error)) {
+        throw new ConflictException('A club with this name already exists.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return { clubId, name, createdAt };
   }
 
   async getMyClubJoinRequests(

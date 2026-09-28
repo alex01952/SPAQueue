@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { App } from './app';
 import { ClubsPageComponent } from './clubs/clubs-page.component';
+import { ClubAdminPageComponent } from './club-admin/club-admin-page.component';
 import { ClubMembershipAdminPageComponent } from './club-membership-admin-page.component';
 import { ClubJoinRequestsPageComponent } from './club-join-requests-page.component';
 import { dashboardAuthGuard } from './dashboard-auth.guard';
@@ -135,6 +136,13 @@ export const routes: Routes = [
     component: ClubMembershipAdminPageComponent,
     canActivate: [memberAuthGuard],
     title: 'Club Memberships',
+  },
+  {
+    path: 'club-management',
+    component: ClubAdminPageComponent,
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'] },
+    title: 'Manage Clubs',
   },
   {
     path: 'club-join-requests',

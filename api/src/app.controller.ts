@@ -37,6 +37,7 @@ import type {
   MemberBalance,
   MemberBalanceInput,
   ClubSummary,
+  ClubCreateResult,
   ClubMemberAssignment,
   ClubJoinRequest,
   ClubChatMessage,
@@ -216,6 +217,17 @@ export class AppController {
   ): Promise<ClubMemberAssignment[]> {
     return this.appService.getClubAssignments(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Post('admin/clubs')
+  createClub(
+    @Body('name') name = '',
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<ClubCreateResult> {
+    return this.appService.createClub(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      name,
     );
   }
 

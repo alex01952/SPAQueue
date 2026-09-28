@@ -110,6 +110,14 @@
         </span>
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
+      <a routerLink="/club-management" class="menu-item">
+        <span class="menu-index">10</span>
+        <span class="menu-copy">
+          <strong>Manage clubs</strong>
+          <small>Create clubs and appoint club officers.</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
     }
 
     <button
@@ -118,7 +126,7 @@
       [disabled]="isLoggingOut()"
       (click)="logout()"
     >
-      <span class="menu-index">{{ member()?.role === 'admin' ? '10' : '06' }}</span>
+      <span class="menu-index">{{ member()?.role === 'admin' ? '11' : '06' }}</span>
       <span class="menu-copy">
         <strong>{{ isLoggingOut() ? 'Logging out...' : 'Logout' }}</strong>
         <small>End your member session on this device.</small>

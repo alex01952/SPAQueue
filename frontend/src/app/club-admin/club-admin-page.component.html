@@ -1,0 +1,111 @@
+<main class="club-admin-shell">
+  <header>
+    <p class="eyebrow">Administration</p>
+    <h1>Manage clubs</h1>
+    <p>Create clubs and appoint approved members as club officers.</p>
+  </header>
+
+  @if (feedbackMessage()) {
+    <p class="feedback success" role="status">{{ feedbackMessage() }}</p>
+  }
+  @if (errorMessage()) {
+    <p class="feedback error" role="alert">{{ errorMessage() }}</p>
+  }
+
+  <section aria-labelledby="create-club-title">
+    <div class="section-heading">
+      <span>01</span>
+      <div>
+        <h2 id="create-club-title">Create a club</h2>
+        <p>The club will immediately appear in member club selections.</p>
+      </div>
+    </div>
+    <div class="control-row">
+      <label>
+        <span>Club name</span>
+        <input
+          type="text"
+          maxlength="100"
+          [value]="newClubName()"
+          (input)="newClubName.set($any($event.target).value)"
+          placeholder="Club name"
+        />
+      </label>
+      <button
+        type="button"
+        [disabled]="!newClubName().trim() || isCreating()"
+        (click)="createClub()"
+      >
+        {{ isCreating() ? 'Creating...' : 'Create club' }}
+      </button>
+    </div>
+  </section>
+
+  <section aria-labelledby="assign-officer-title">
+    <div class="section-heading">
+      <span>02</span>
+      <div>
+        <h2 id="assign-officer-title">Assign an officer</h2>
+        <p>Officers can review join requests and manage regular club members.</p>
+      </div>
+    </div>
+    <div class="control-row officer-controls">
+      <label>
+        <span>Club</span>
+        <select [value]="selectedClubId()" (change)="selectedClubId.set($any($event.target).value)">
+          <option value="">Select club</option>
+          @for (club of clubs(); track club.clubId) {
+            <option [value]="club.clubId">{{ club.name }}</option>
+          }
+        </select>
+      </label>
+      <label>
+        <span>Approved member</span>
+        <select
+          [value]="selectedMemberId()"
+          (change)="selectedMemberId.set($any($event.target).value)"
+        >
+          <option value="">Select member</option>
+          @for (member of members(); track member.memberId) {
+            <option [value]="member.memberId">{{ member.name }}</option>
+          }
+        </select>
+      </label>
+      <button
+        type="button"
+        [disabled]="!selectedClubId() || !selectedMemberId() || isAssigning()"
+        (click)="assignOfficer()"
+      >
+        {{ isAssigning() ? 'Assigning...' : 'Assign officer' }}
+      </button>
+    </div>
+  </section>
+
+  <section aria-labelledby="officers-title">
+    <div class="section-heading">
+      <span>03</span>
+      <div>
+        <h2 id="officers-title">Current officers</h2>
+        <p>Officer access is scoped to the assigned club.</p>
+      </div>
+    </div>
+    <div class="officer-list">
+      @for (
+        assignment of officerAssignments();
+        track assignment.clubId + ':' + assignment.memberId
+      ) {
+        <article>
+          <div>
+            <strong>{{ memberName(assignment.memberId) }}</strong>
+            <span>{{ clubName(assignment.clubId) }}</span>
+          </div>
+          <button type="button" class="remove-button" (click)="removeOfficer(assignment)">
+            Remove
+          </button>
+        </article>
+      } @empty {
+        <p>No club officers have been assigned.</p>
+      }
+    </div>
+  </section>
+</main>
