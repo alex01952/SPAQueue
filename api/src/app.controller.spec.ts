@@ -516,7 +516,7 @@ describe('AppController', () => {
       );
     });
 
-    it('should return only public member directory fields in name order', async () => {
+    it('should return only approved, email-validated public directory members in name order', async () => {
       jest.spyOn(appService, 'getMemberSession').mockResolvedValue({
         authenticated: true,
         member: {
@@ -537,6 +537,8 @@ describe('AppController', () => {
             yield {
               rowKey: 'zoe-member',
               Name: 'Zoe Member',
+              Status: 'Approved',
+              EmailValidated: true,
               Email: 'zoe@example.com',
               ContactNo: '09123456789',
               PasswordHash: 'secret',
@@ -547,6 +549,24 @@ describe('AppController', () => {
               Name: 'Alex Member',
               Role: 'Arena Master',
               ProfileImageUrl: '',
+              Status: 'Approved',
+              EmailValidated: true,
+            };
+            yield {
+              rowKey: 'pending-member',
+              Name: 'Pending Member',
+              Status: 'Pending',
+              EmailValidated: true,
+            };
+            yield {
+              rowKey: 'unverified-member',
+              Name: 'Unverified Member',
+              Status: 'Approved',
+              EmailValidated: false,
+            };
+            yield {
+              rowKey: 'incomplete-member',
+              Name: 'Incomplete Member',
             };
           })(),
         ),

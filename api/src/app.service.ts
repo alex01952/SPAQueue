@@ -1176,6 +1176,7 @@ export class AppService {
             'LocationType',
             'Location',
             'Status',
+            'EmailValidated',
           ],
         },
       });
@@ -1187,7 +1188,7 @@ export class AppService {
         if (!memberId || !name) {
           continue;
         }
-        if (entity.Status !== undefined && entity.Status !== 'Approved') {
+        if (entity.Status !== 'Approved' || entity.EmailValidated !== true) {
           continue;
         }
 
