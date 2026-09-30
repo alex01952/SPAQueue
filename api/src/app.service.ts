@@ -2346,12 +2346,6 @@ export class AppService {
       );
     }
 
-    if (!this.hasExpectedImageSignature(file.buffer, extension)) {
-      throw new BadRequestException(
-        'Profile image contents do not match the selected file type.',
-      );
-    }
-
     if (!file.size || file.size > 5 * 1024 * 1024) {
       throw new BadRequestException('Profile image must be 5 MB or smaller.');
     }
@@ -2381,31 +2375,6 @@ export class AppService {
     }
 
     return blockBlobClient.url;
-  }
-
-  private hasExpectedImageSignature(
-    buffer: Buffer,
-    extension: string,
-  ): boolean {
-    if (extension === 'jpg') {
-      return buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]));
-    }
-
-    if (extension === 'png') {
-      return buffer
-        .subarray(0, 8)
-        .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-    }
-
-    if (extension === 'gif') {
-      const signature = buffer.subarray(0, 6).toString('ascii');
-      return signature === 'GIF87a' || signature === 'GIF89a';
-    }
-
-    return (
-      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
-      buffer.subarray(8, 12).toString('ascii') === 'WEBP'
-    );
   }
 
   async uploadMonthlyParticipationFiles(
