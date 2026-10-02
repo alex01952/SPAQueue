@@ -1,0 +1,213 @@
+<main class="tournaments-shell">
+  <header class="page-heading">
+    <p class="eyebrow">Compete together</p>
+    <h1>Tournaments</h1>
+    <p>Browse upcoming events, invite a partner, and track your team entry.</p>
+  </header>
+
+  @if (feedbackMessage()) { <p class="notice success" role="status">{{ feedbackMessage() }}</p> }
+  @if (errorMessage()) { <p class="notice error" role="alert">{{ errorMessage() }}</p> }
+
+  <section class="event-section" aria-labelledby="available-title">
+    <div class="section-heading">
+      <div><p class="eyebrow">Open entry</p><h2 id="available-title">Available tournaments</h2></div>
+      <span class="section-count">{{ tournaments().length }} events</span>
+    </div>
+    @if (isLoading()) {
+      <p class="empty-state">Loading tournaments...</p>
+    } @else if (!tournaments().length) {
+      <p class="empty-state">There are no tournaments available yet.</p>
+    } @else {
+      <div class="tournament-list">
+        @for (tournament of tournaments(); track tournament.tournamentId) {
+          <article class="tournament-row" [class.is-selected]="activeTournament()?.tournamentId === tournament.tournamentId">
+            <div class="event-date" aria-label="Tournament date">
+              @if (tournament.date) { <strong>{{ tournament.date | date: 'd' }}</strong><span>{{ tournament.date | date: 'MMM yyyy' }}</span> }
+              @else { <strong>Open</strong><span>Entry</span> }
+            </div>
+            <div class="event-details">
+              <h3>{{ tournament.name }}</h3>
+              <p>{{ tournament.category }} <span aria-hidden="true">/</span> {{ tournament.level }}</p>
+              @if (tournament.location) { <small>{{ tournament.location }}</small> }
+            </div>
+            <div class="event-slots">
+              <strong>{{ tournament.registrationCount }} / {{ tournament.maxSlots }}</strong>
+              <span>teams</span>
+              <div class="slot-track"><span [style.width.%]="slotPercentage(tournament)"></span></div>
+            </div>
+            <button type="button" class="action-button" [disabled]="isFull(tournament) || isWorking()" (click)="openRegistration(tournament)">
+              {{ isFull(tournament) ? 'Full' : 'Register' }}
+            </button>
+          </article>
+          @if (activeTournament()?.tournamentId === tournament.tournamentId) {
+            <form #registrationForm="ngForm" class="registration-panel" (ngSubmit)="register()">
+              <div><h3>Choose your partner</h3><p>{{ tournament.category }} eligibility is applied to this list.</p></div>
+              <label>
+                <span>Search eligible members</span>
+                <input type="search" name="partnerSearch" [ngModel]="partnerSearchTerm()" (ngModelChange)="searchEligiblePartners($event)" placeholder="Enter at least 2 characters" autocomplete="off" />
+              </label>
+              <div class="partner-results" role="listbox" aria-label="Matching eligible members">
+                @if (isSearchingPartners()) {
+                  <p class="inline-note">Searching members...</p>
+                } @else if (partnerSearchTerm().trim().length < 2) {
+                  <p class="inline-note">Enter at least 2 characters to search.</p>
+                } @else if (!eligiblePartners().length) {
+                  <p class="inline-note">No approved members match this search.</p>
+                } @else {
+                  @for (partner of eligiblePartners(); track partner.memberId) {
+                    <button type="button" class="partner-result" role="option" [disabled]="!partner.eligible" [attr.aria-selected]="selectedPartnerId() === partner.memberId" [class.is-selected]="selectedPartnerId() === partner.memberId" (click)="selectedPartnerId.set(partner.memberId)">
+                      <span>{{ partner.name }}</span>
+                      @if (partner.unavailableReason) { <small>{{ partner.unavailableReason }}</small> }
+                    </button>
+                  }
+                }
+              </div>
+              @if (selectedPartnerId()) { <p class="selected-partner">Partner selected</p> }
+              <fieldset class="experience-questions">
+                <legend>Your tournament history</legend>
+                <div class="experience-fields">
+                  <label>
+                    <span>Have you joined any tournaments before?</span>
+                    <select name="memberHasJoined" [(ngModel)]="memberExperienceForm.hasJoinedTournaments" required>
+                      <option [ngValue]="''">Choose an answer</option>
+                      <option [ngValue]="true">Yes</option>
+                      <option [ngValue]="false">No</option>
+                    </select>
+                  </label>
+                  @if (memberExperienceForm.hasJoinedTournaments === true) {
+                    <label>
+                      <span>Highest level of tournament joined</span>
+                      <select name="memberHighestLevel" [(ngModel)]="memberExperienceForm.highestTournamentLevel" required>
+                        <option value="">Choose a level</option>
+                        @for (level of tournamentLevels; track level) { <option [value]="level">{{ level }}</option> }
+                      </select>
+                    </label>
+                  }
+                  <label>
+                    <span>Have you won a tournament or earned a podium finish?</span>
+                    <select name="memberHasWon" [(ngModel)]="memberExperienceForm.hasWonTournaments" required>
+                      <option [ngValue]="''">Choose an answer</option>
+                      <option [ngValue]="true">Yes</option>
+                      <option [ngValue]="false">No</option>
+                    </select>
+                  </label>
+                  @if (memberExperienceForm.hasWonTournaments === true) {
+                    <label>
+                      <span>Highest level won</span>
+                      <select name="memberHighestWinningLevel" [(ngModel)]="memberExperienceForm.highestWinningLevel" required>
+                        <option value="">Choose a level</option>
+                        @for (level of tournamentLevels; track level) { <option [value]="level">{{ level }}</option> }
+                      </select>
+                    </label>
+                    <label>
+                      <span>Wins or podium finishes at this level</span>
+                      <input name="memberWinsOrPodiums" type="number" [(ngModel)]="memberExperienceForm.winsOrPodiums" min="1" step="1" required />
+                    </label>
+                  }
+                </div>
+                @if (memberExperienceForm.hasWonTournaments === true && memberExperienceForm.hasJoinedTournaments !== true) {
+                  <p class="inline-note">A tournament win or podium finish requires a Yes answer for having joined tournaments.</p>
+                }
+                <p class="truthfulness-note">Please answer truthfully. The club may disqualify participants during the tournament, even after approval, without a refund if answers are found to be untruthful.</p>
+              </fieldset>
+              <div class="panel-actions">
+                <button type="button" class="quiet-button" (click)="closeRegistration()">Cancel</button>
+                <button type="submit" class="action-button" [disabled]="registrationForm.invalid || !selectedPartnerId() || !isExperienceFormComplete(memberExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : 'Send invitation' }}</button>
+              </div>
+            </form>
+          }
+        }
+      </div>
+    }
+  </section>
+
+  <section class="registration-section" aria-labelledby="my-entries-title">
+    <div class="section-heading"><div><p class="eyebrow">Your entries</p><h2 id="my-entries-title">Team registrations</h2></div></div>
+    @if (isLoadingRegistrations()) {
+      <p class="empty-state">Loading your invitations and registrations...</p>
+    } @else if (!registrations().length) {
+      <p class="empty-state">Your tournament invitations and registrations will appear here.</p>
+    } @else {
+      <div class="registration-list">
+        @for (registration of registrations(); track registration.registrationId) {
+          <article class="registration-row">
+            <div class="registration-copy">
+              <strong>{{ registration.tournamentName }}</strong>
+              <span>{{ registration.memberName }} + {{ registration.partnerName }} · {{ registration.category }}</span>
+            </div>
+            <span class="status-pill" [attr.data-status]="registration.status">{{ registration.status }}</span>
+            @if (isIncomingInvitation(registration)) {
+              @if (respondingInvitationId() !== registration.registrationId) {
+                <div class="row-actions">
+                  <button type="button" class="action-button" [disabled]="isWorking()" (click)="beginAccepting(registration)">Accept</button>
+                  <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="respond(registration, 'Declined')">Decline</button>
+                </div>
+              } @else {
+                <form class="partner-experience-form" (ngSubmit)="respond(registration, 'Accepted')">
+                  <fieldset class="experience-questions">
+                    <legend>Your tournament history</legend>
+                    <div class="experience-fields">
+                      <label>
+                        <span>Have you joined any tournaments before?</span>
+                        <select name="partnerHasJoined" [(ngModel)]="partnerExperienceForm.hasJoinedTournaments" required>
+                          <option [ngValue]="''">Choose an answer</option>
+                          <option [ngValue]="true">Yes</option>
+                          <option [ngValue]="false">No</option>
+                        </select>
+                      </label>
+                      @if (partnerExperienceForm.hasJoinedTournaments === true) {
+                        <label>
+                          <span>Highest level of tournament joined</span>
+                          <select name="partnerHighestLevel" [(ngModel)]="partnerExperienceForm.highestTournamentLevel" required>
+                            <option value="">Choose a level</option>
+                            @for (level of tournamentLevels; track level) { <option [value]="level">{{ level }}</option> }
+                          </select>
+                        </label>
+                      }
+                      <label>
+                        <span>Have you won a tournament or earned a podium finish?</span>
+                        <select name="partnerHasWon" [(ngModel)]="partnerExperienceForm.hasWonTournaments" required>
+                          <option [ngValue]="''">Choose an answer</option>
+                          <option [ngValue]="true">Yes</option>
+                          <option [ngValue]="false">No</option>
+                        </select>
+                      </label>
+                      @if (partnerExperienceForm.hasWonTournaments === true) {
+                        <label>
+                          <span>Highest level won</span>
+                          <select name="partnerHighestWinningLevel" [(ngModel)]="partnerExperienceForm.highestWinningLevel" required>
+                            <option value="">Choose a level</option>
+                            @for (level of tournamentLevels; track level) { <option [value]="level">{{ level }}</option> }
+                          </select>
+                        </label>
+                        <label>
+                          <span>Wins or podium finishes at this level</span>
+                          <input name="partnerWinsOrPodiums" type="number" [(ngModel)]="partnerExperienceForm.winsOrPodiums" min="1" step="1" required />
+                        </label>
+                      }
+                    </div>
+                    @if (partnerExperienceForm.hasWonTournaments === true && partnerExperienceForm.hasJoinedTournaments !== true) {
+                      <p class="inline-note">A tournament win or podium finish requires a Yes answer for having joined tournaments.</p>
+                    }
+                    <p class="truthfulness-note">Please answer truthfully. The club may disqualify participants during the tournament, even after approval, without a refund if answers are found to be untruthful.</p>
+                  </fieldset>
+                  <div class="row-actions">
+                    <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="respondingInvitationId.set('')">Cancel</button>
+                    <button type="submit" class="action-button" [disabled]="!isExperienceFormComplete(partnerExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : 'Accept invitation' }}</button>
+                  </div>
+                </form>
+              }
+            } @else if (registration.status === 'Approved') {
+              <div class="proof-action">
+                <label class="file-button">Choose proof<input #proofInput type="file" accept="application/pdf,image/jpeg,image/png" /></label>
+                <button type="button" class="action-button" [disabled]="isWorking() || !proofInput.files?.[0]" (click)="uploadProof(registration, proofInput.files?.[0])">Upload</button>
+              </div>
+            } @else if (registration.status === 'Payment Submitted' && registration.paymentProofUrl) {
+              <a class="proof-link" [href]="registration.paymentProofUrl" target="_blank" rel="noopener">View payment proof</a>
+            }
+          </article>
+        }
+      </div>
+    }
+  </section>
+</main>

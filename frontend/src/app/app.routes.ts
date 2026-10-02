@@ -21,6 +21,8 @@ import { MemberRegistrationApprovalsPageComponent } from './member-registration-
 import { ParticipationUploadPageComponent } from './participation-upload/participation-upload-page.component';
 import { TeamMatchingPageComponent } from './team-matching/team-matching-page.component';
 import { VerifyEmailPageComponent } from './verify-email/verify-email-page.component';
+import { TournamentsPageComponent } from './tournaments/tournaments-page.component';
+import { TournamentManagementPageComponent } from './tournaments/tournament-management-page.component';
 
 export const routes: Routes = [
   {
@@ -161,6 +163,19 @@ export const routes: Routes = [
     component: ClubsPageComponent,
     canActivate: [memberAuthGuard],
     title: 'Clubs',
+  },
+  {
+    path: 'tournaments',
+    component: TournamentsPageComponent,
+    canActivate: [memberAuthGuard],
+    title: 'Tournaments',
+  },
+  {
+    path: 'tournament-management',
+    component: TournamentManagementPageComponent,
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'] },
+    title: 'Tournament Management',
   },
   {
     path: '**',

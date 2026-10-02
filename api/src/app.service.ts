@@ -258,6 +258,94 @@ export interface ClubJoinRequest {
   reviewedBy?: string;
 }
 
+export const TOURNAMENT_CATEGORIES = [
+  "Mens Doubles",
+  "Womens Doubles",
+  "Mixed Doubles",
+  "Team Tournament",
+] as const;
+export type TournamentCategory = (typeof TOURNAMENT_CATEGORIES)[number];
+
+export const TOURNAMENT_LEVELS = [
+  "Beginner",
+  "Novice",
+  "Low Intermediate",
+  "Intermediate",
+  "High Intermediate",
+  "Advanced",
+] as const;
+export type TournamentLevel = (typeof TOURNAMENT_LEVELS)[number];
+
+export type TournamentRegistrationStatus =
+  | "Invitation Pending"
+  | "Invitation Declined"
+  | "Pending Approval"
+  | "Approved"
+  | "Payment Submitted";
+
+export interface Tournament {
+  tournamentId: string;
+  name: string;
+  category: TournamentCategory;
+  level: TournamentLevel;
+  maxSlots: number;
+  date: string;
+  location: string;
+  registrationCount: number;
+  createdAt: string;
+}
+
+export interface TournamentCreateInput {
+  name: string;
+  category: TournamentCategory;
+  level: TournamentLevel;
+  maxSlots: number;
+  date?: string;
+  location?: string;
+}
+
+export interface TournamentRegistration {
+  tournamentId: string;
+  registrationId: string;
+  tournamentName: string;
+  category: TournamentCategory;
+  level: TournamentLevel;
+  memberId: string;
+  memberName: string;
+  partnerId: string;
+  partnerName: string;
+  memberExperience?: TournamentExperienceDetails;
+  partnerExperience?: TournamentExperienceDetails;
+  isIncomingInvitation?: boolean;
+  status: TournamentRegistrationStatus;
+  registeredAt: string;
+  approvedAt?: string;
+  paymentProofUrl?: string;
+}
+
+export interface TournamentExperienceDetails {
+  hasJoinedTournaments: boolean;
+  highestTournamentLevel?: TournamentLevel;
+  hasWonTournaments: boolean;
+  highestWinningLevel?: TournamentLevel;
+  winsOrPodiums?: number;
+}
+
+export interface TournamentPaymentProofUploadInput {
+  originalname: string;
+  buffer: Buffer;
+  mimetype?: string;
+  size: number;
+}
+
+export interface TournamentPartnerSearchResult {
+  memberId: string;
+  name: string;
+  gender: string;
+  eligible: boolean;
+  unavailableReason?: string;
+}
+
 export interface ClubChatMessage {
   messageId: string;
   senderId: string;
@@ -345,6 +433,10 @@ export class AppService {
     process.env.CLUB_MEMBERS_AZURE_TABLE ?? 'ClubMembers';
   private readonly clubJoinRequestsAzureTable =
     process.env.CLUB_JOIN_REQUESTS_AZURE_TABLE ?? 'ClubJoinRequests';
+  private readonly tournamentsAzureTable =
+    process.env.TOURNAMENTS_AZURE_TABLE ?? 'Tournaments';
+  private readonly tournamentRegistrationsAzureTable =
+    process.env.TOURNAMENT_REGISTRATIONS_AZURE_TABLE ?? 'TournamentRegistrations';
   private readonly messagesAzureTable =
     process.env.MESSAGES_AZURE_TABLE ?? 'Messages';
   private readonly chatRetentionDays = Math.max(
@@ -1239,6 +1331,409 @@ export class AppService {
     }
 
     return clubs.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async getTournaments(sessionToken: string): Promise<Tournament[]> {
+    await this.getMemberSession(sessionToken);
+    const tournaments: Tournament[] = [];
+    const registrationCounts = new Map<string, number>();
+
+    try {
+      for await (const entity of this.getTournamentRegistrationsTableClient().listEntities()) {
+        const status = String(entity.Status ?? '');
+        if (status === 'Invitation Declined') continue;
+        const tournamentId = String(entity.TournamentId ?? entity.partitionKey ?? '');
+        registrationCounts.set(tournamentId, (registrationCounts.get(tournamentId) ?? 0) + 1);
+      }
+
+      for await (const entity of this.getTournamentsTableClient().listEntities({
+        queryOptions: { filter: "PartitionKey eq 'tournaments'" },
+      })) {
+        const tournament = this.toTournament(entity);
+        if (tournament) {
+          tournaments.push({
+            ...tournament,
+            registrationCount: registrationCounts.get(tournament.tournamentId) ?? 0,
+          });
+        }
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return tournaments.sort((left, right) => left.date.localeCompare(right.date) || left.name.localeCompare(right.name));
+  }
+
+  async createTournament(
+    sessionToken: string,
+    input: TournamentCreateInput,
+  ): Promise<Tournament> {
+    const session = await this.getMemberSession(sessionToken);
+    if (session.member.role !== 'admin') {
+      throw new ForbiddenException('Administrator access is required.');
+    }
+
+    const name = String(input?.name ?? '').trim().replace(/\s+/g, ' ');
+    const category = input?.category;
+    const level = input?.level;
+    const maxSlots = Number(input?.maxSlots);
+    const date = String(input?.date ?? '').trim();
+    const location = String(input?.location ?? '').trim();
+    if (!name || name.length > 120) {
+      throw new BadRequestException('Tournament name is required and must be 120 characters or fewer.');
+    }
+    if (!TOURNAMENT_CATEGORIES.includes(category)) {
+      throw new BadRequestException('Select a valid tournament category.');
+    }
+    if (!TOURNAMENT_LEVELS.includes(level)) {
+      throw new BadRequestException('Select a valid tournament level.');
+    }
+    if (!Number.isInteger(maxSlots) || maxSlots < 1 || maxSlots > 10000) {
+      throw new BadRequestException('Maximum slots must be a whole number from 1 to 10000.');
+    }
+    if (date && Number.isNaN(Date.parse(date))) {
+      throw new BadRequestException('Enter a valid tournament date.');
+    }
+
+    const tournamentId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const tournament: Tournament = {
+      tournamentId,
+      name,
+      category,
+      level,
+      maxSlots,
+      date,
+      location,
+      registrationCount: 0,
+      createdAt,
+    };
+
+    try {
+      await this.getTournamentsTableClient().createEntity({
+        partitionKey: 'tournaments',
+        rowKey: tournamentId,
+        ...this.toTournamentEntity(tournament),
+        CreatedBy: session.member.memberId,
+      });
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return tournament;
+  }
+
+  async getEligibleTournamentPartners(
+    sessionToken: string,
+    tournamentId: string,
+    searchInput: string,
+  ): Promise<TournamentPartnerSearchResult[]> {
+    const session = await this.getMemberSession(sessionToken);
+    const tournament = await this.getTournament(tournamentId);
+    const searchTerm = String(searchInput ?? '').trim().toLocaleLowerCase();
+    if (searchTerm.length < 2) return [];
+    const partners: TournamentPartnerSearchResult[] = [];
+    const activeRegistrations = (await this.getTournamentRegistrationEntities(tournamentId))
+      .filter((entity) => String(entity.Status ?? '') !== 'Invitation Declined');
+    const committedMemberIds = new Set(
+      activeRegistrations.flatMap((entity) => [
+        String(entity.MemberId ?? ''),
+        String(entity.PartnerId ?? ''),
+      ]),
+    );
+    const entries = this.getMembersTableClient().listEntities({
+      queryOptions: {
+        filter: "PartitionKey eq 'members' and Status eq 'Approved'",
+        select: ['RowKey', 'Name', 'Gender'],
+      },
+    });
+
+    try {
+      for await (const entity of entries) {
+        const memberId = String(entity.rowKey ?? '');
+        const name = String(entity.Name ?? '');
+        const gender = String(entity.Gender ?? '');
+        if (!memberId || !name || !name.toLocaleLowerCase().includes(searchTerm)) continue;
+
+        let unavailableReason: string | undefined;
+        if (memberId === session.member.memberId) {
+          unavailableReason = 'This is your account.';
+        } else if (committedMemberIds.has(memberId)) {
+          unavailableReason = 'Already registered or invited for this tournament.';
+        } else if (!this.isTournamentGenderEligible(tournament.category, session.member.gender, gender)) {
+          unavailableReason = 'Does not meet this tournament category\'s gender requirements.';
+        }
+        partners.push({
+          memberId,
+          name,
+          gender,
+          eligible: !unavailableReason,
+          ...(unavailableReason ? { unavailableReason } : {}),
+        });
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return partners.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async getMyTournamentRegistrations(
+    sessionToken: string,
+  ): Promise<TournamentRegistration[]> {
+    const session = await this.getMemberSession(sessionToken);
+    const registrations: TournamentRegistration[] = [];
+    try {
+      for await (const entity of this.getTournamentRegistrationsTableClient().listEntities()) {
+        if (
+          String(entity.MemberId ?? '') !== session.member.memberId &&
+          String(entity.PartnerId ?? '') !== session.member.memberId
+        ) {
+          continue;
+        }
+        const registration = this.toTournamentRegistration(entity);
+        if (registration) {
+          registrations.push({
+            ...registration,
+            isIncomingInvitation:
+              registration.status === 'Invitation Pending' &&
+              registration.partnerId === session.member.memberId,
+          });
+        }
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return registrations.sort((left, right) => right.registeredAt.localeCompare(left.registeredAt));
+  }
+
+  async registerTournamentTeam(
+    sessionToken: string,
+    tournamentId: string,
+    partnerIdInput: string,
+    memberExperienceInput: unknown,
+  ): Promise<TournamentRegistration> {
+    const session = await this.getMemberSession(sessionToken);
+    const tournament = await this.getTournament(tournamentId);
+    const memberExperience = this.validateTournamentExperience(memberExperienceInput);
+    const partnerId = String(partnerIdInput ?? '').trim();
+    if (!partnerId || partnerId === session.member.memberId) {
+      throw new BadRequestException('Select another member as your partner.');
+    }
+
+    const partner = await this.getTournamentMember(partnerId);
+    if (!this.isTournamentGenderEligible(tournament.category, session.member.gender, partner.gender)) {
+      throw new BadRequestException('Your selected partner does not meet this tournament category\'s gender requirements.');
+    }
+    if (this.isTournamentCategoryGenderRestricted(tournament.category) && !this.isTournamentGenderEligible(tournament.category, session.member.gender, session.member.gender)) {
+      throw new BadRequestException('Your gender does not meet this tournament category\'s requirements.');
+    }
+
+    const registrations = await this.getTournamentRegistrationEntities(tournamentId);
+    const existing = registrations.find((entity) => String(entity.MemberId ?? '') === session.member.memberId);
+    const activeRegistrations = registrations.filter((entity) => String(entity.Status ?? '') !== 'Invitation Declined');
+    if (activeRegistrations.some((entity) =>
+      [String(entity.MemberId ?? ''), String(entity.PartnerId ?? '')].includes(session.member.memberId),
+    )) {
+      throw new ConflictException('You already have an active team registration for this tournament.');
+    }
+    if (
+      activeRegistrations.some((entity) =>
+        [String(entity.MemberId ?? ''), String(entity.PartnerId ?? '')].includes(partnerId),
+      )
+    ) {
+      throw new ConflictException('That member already has an active registration or invitation for this tournament.');
+    }
+    const activeCount = registrations.filter((entity) => String(entity.Status ?? '') !== 'Invitation Declined').length;
+    if (activeCount >= tournament.maxSlots) {
+      throw new ConflictException('This tournament has reached its maximum number of team slots.');
+    }
+
+    const registration: TournamentRegistration = {
+      tournamentId,
+      registrationId: session.member.memberId,
+      tournamentName: tournament.name,
+      category: tournament.category,
+      level: tournament.level,
+      memberId: session.member.memberId,
+      memberName: session.member.name,
+      partnerId,
+      partnerName: partner.name,
+      memberExperience,
+      status: 'Invitation Pending',
+      registeredAt: new Date().toISOString(),
+    };
+    const entity = this.toTournamentRegistrationEntity(registration);
+    const table = this.getTournamentRegistrationsTableClient();
+
+    try {
+      if (existing) {
+        await table.updateEntity({ ...entity, partitionKey: tournamentId, rowKey: session.member.memberId }, 'Replace');
+      } else {
+        await table.createEntity({ ...entity, partitionKey: tournamentId, rowKey: session.member.memberId });
+      }
+    } catch (error) {
+      if (this.isAzureConflict(error)) {
+        throw new ConflictException('Your team registration already exists.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return registration;
+  }
+
+  async respondToTournamentInvitation(
+    sessionToken: string,
+    tournamentId: string,
+    registrationId: string,
+    decision: 'Accepted' | 'Declined',
+    partnerExperienceInput?: unknown,
+  ): Promise<TournamentRegistration> {
+    const session = await this.getMemberSession(sessionToken);
+    if (decision !== 'Accepted' && decision !== 'Declined') {
+      throw new BadRequestException('Choose whether to accept or decline the invitation.');
+    }
+    const tournament = await this.getTournament(tournamentId);
+    const table = this.getTournamentRegistrationsTableClient();
+    let entity: Record<string, unknown>;
+    try {
+      entity = await table.getEntity(tournamentId, registrationId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament invitation was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    if (String(entity.PartnerId ?? '') !== session.member.memberId || String(entity.Status ?? '') !== 'Invitation Pending') {
+      throw new ForbiddenException('This invitation is not available to your account.');
+    }
+    if (decision === 'Accepted') {
+      const partnerExperience = this.validateTournamentExperience(partnerExperienceInput);
+      const otherActiveRegistration = (await this.getTournamentRegistrationEntities(tournamentId)).some((candidate) =>
+        String(candidate.rowKey ?? '') !== registrationId &&
+        String(candidate.Status ?? '') !== 'Invitation Declined' &&
+        [String(candidate.MemberId ?? ''), String(candidate.PartnerId ?? '')].includes(session.member.memberId),
+      );
+      if (otherActiveRegistration) {
+        throw new ConflictException('You already have an active team registration for this tournament.');
+      }
+      const primary = await this.getTournamentMember(String(entity.MemberId ?? ''));
+      if (!this.isTournamentGenderEligible(tournament.category, primary.gender, session.member.gender)) {
+        throw new ConflictException('Your gender no longer meets this tournament category\'s requirements.');
+      }
+      await table.updateEntity({
+        partitionKey: tournamentId,
+        rowKey: registrationId,
+        PartnerAccepted: true,
+        ...this.toTournamentExperienceEntity('Partner', partnerExperience),
+        Status: 'Pending Approval',
+      }, 'Merge');
+      return this.toTournamentRegistration({
+        ...entity,
+        ...this.toTournamentExperienceEntity('Partner', partnerExperience),
+        Status: 'Pending Approval',
+      })!;
+    } else {
+      await table.updateEntity({
+        partitionKey: tournamentId,
+        rowKey: registrationId,
+        PartnerAccepted: false,
+        Status: 'Invitation Declined',
+      }, 'Merge');
+    }
+    return this.toTournamentRegistration({ ...entity, Status: 'Invitation Declined' })!;
+  }
+
+  async getTournamentRegistrationsForAdmin(
+    sessionToken: string,
+  ): Promise<TournamentRegistration[]> {
+    await this.requireAdminSession(sessionToken);
+    const registrations: TournamentRegistration[] = [];
+    try {
+      for await (const entity of this.getTournamentRegistrationsTableClient().listEntities()) {
+        const registration = this.toTournamentRegistration(entity);
+        if (registration) registrations.push(registration);
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return registrations.sort((left, right) => left.registeredAt.localeCompare(right.registeredAt));
+  }
+
+  async approveTournamentRegistration(
+    sessionToken: string,
+    tournamentId: string,
+    registrationId: string,
+  ): Promise<TournamentRegistration> {
+    await this.requireAdminSession(sessionToken);
+    const table = this.getTournamentRegistrationsTableClient();
+    let entity: Record<string, unknown>;
+    try {
+      entity = await table.getEntity(tournamentId, registrationId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament registration was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    if (String(entity.Status ?? '') !== 'Pending Approval' || entity.PartnerAccepted !== true) {
+      throw new ConflictException('Only complete teams can be approved.');
+    }
+    const approvedAt = new Date().toISOString();
+    await table.updateEntity({ partitionKey: tournamentId, rowKey: registrationId, Status: 'Approved', ApprovedAt: approvedAt }, 'Merge');
+    return this.toTournamentRegistration({ ...entity, Status: 'Approved', ApprovedAt: approvedAt })!;
+  }
+
+  async uploadTournamentPaymentProof(
+    sessionToken: string,
+    tournamentId: string,
+    registrationId: string,
+    file: TournamentPaymentProofUploadInput,
+  ): Promise<TournamentRegistration> {
+    const session = await this.getMemberSession(sessionToken);
+    const table = this.getTournamentRegistrationsTableClient();
+    let entity: Record<string, unknown>;
+    try {
+      entity = await table.getEntity(tournamentId, registrationId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament registration was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    if (
+      String(entity.MemberId ?? '') !== session.member.memberId &&
+      String(entity.PartnerId ?? '') !== session.member.memberId
+    ) {
+      throw new ForbiddenException('You are not part of this tournament team.');
+    }
+    if (String(entity.Status ?? '') !== 'Approved') {
+      throw new ConflictException('Payment proof is available after the team registration is approved.');
+    }
+    const extensions: Record<string, string> = {
+      'application/pdf': 'pdf',
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+    };
+    const extension = file.mimetype ? extensions[file.mimetype.toLowerCase()] : undefined;
+    if (!extension || !file.size || file.size > 10 * 1024 * 1024) {
+      throw new BadRequestException('Payment proof must be a PDF, JPEG, or PNG file no larger than 10 MB.');
+    }
+    if (!this.azureStorageAccount || !this.azureContainerName) {
+      throw new BadRequestException('OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT and OP_PARTICIPATION_AZURE_CONTAINER are required for uploads.');
+    }
+    const blobName = `tournament-payment-proofs/${tournamentId}/${registrationId}/${randomUUID()}.${extension}`;
+    const blockBlobClient = new BlobServiceClient(
+      `https://${this.azureStorageAccount}.blob.core.windows.net`,
+      new DefaultAzureCredential(),
+      { retryOptions: { maxTries: 1, tryTimeoutInMs: this.azureUploadTimeoutMs } },
+    ).getContainerClient(this.azureContainerName).getBlockBlobClient(blobName);
+    try {
+      await this.uploadParticipationBlob(blockBlobClient, file.buffer, file.mimetype);
+    } catch (error) {
+      throw this.createAzureUploadException(error, blobName);
+    }
+    await table.updateEntity({
+      partitionKey: tournamentId,
+      rowKey: registrationId,
+      Status: 'Payment Submitted',
+      PaymentProofUrl: blockBlobClient.url,
+      PaymentSubmittedAt: new Date().toISOString(),
+    }, 'Merge');
+    return this.toTournamentRegistration({ ...entity, Status: 'Payment Submitted', PaymentProofUrl: blockBlobClient.url })!;
   }
 
   async createClub(
@@ -2567,6 +3062,284 @@ export class AppService {
       this.clubJoinRequestsAzureTable,
       new DefaultAzureCredential(),
     );
+  }
+
+  private getTournamentsTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount) {
+      throw new BadRequestException('MEMBERS_AZURE_STORAGE_ACCOUNT is required for tournaments.');
+    }
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.tournamentsAzureTable,
+      new DefaultAzureCredential(),
+    );
+  }
+
+  private getTournamentRegistrationsTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount) {
+      throw new BadRequestException('MEMBERS_AZURE_STORAGE_ACCOUNT is required for tournament registrations.');
+    }
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.tournamentRegistrationsAzureTable,
+      new DefaultAzureCredential(),
+    );
+  }
+
+  private async getTournament(tournamentId: string): Promise<Tournament> {
+    if (!/^[A-Fa-f0-9-]{36}$/.test(tournamentId)) {
+      throw new BadRequestException('Invalid tournament identifier.');
+    }
+    try {
+      const entity = await this.getTournamentsTableClient().getEntity('tournaments', tournamentId);
+      const tournament = this.toTournament(entity);
+      if (!tournament) throw new NotFoundException('Tournament was not found.');
+      return tournament;
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  private async getTournamentMember(memberId: string): Promise<{ name: string; gender: string }> {
+    this.validateMemberId(memberId);
+    try {
+      const member = await this.getMembersTableClient().getEntity('members', memberId);
+      if (String(member.Status ?? '') !== 'Approved') {
+        throw new BadRequestException('Tournament partners must be approved members.');
+      }
+      return { name: String(member.Name ?? ''), gender: String(member.Gender ?? '') };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament partner was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  private async getTournamentRegistrationEntities(tournamentId: string): Promise<Record<string, unknown>[]> {
+    const registrations: Record<string, unknown>[] = [];
+    const entities = this.getTournamentRegistrationsTableClient().listEntities({
+      queryOptions: { filter: `PartitionKey eq '${tournamentId}'` },
+    });
+    try {
+      for await (const entity of entities) registrations.push(entity);
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return registrations;
+  }
+
+  private toTournament(entity: Record<string, unknown>): Tournament | null {
+    const tournamentId = String(entity.rowKey ?? '');
+    const category = String(entity.Category ?? '') as TournamentCategory;
+    const level = String(entity.Level ?? '') as TournamentLevel;
+    const name = String(entity.Name ?? '');
+    if (
+      !tournamentId ||
+      !name ||
+      !TOURNAMENT_CATEGORIES.includes(category) ||
+      !TOURNAMENT_LEVELS.includes(level)
+    ) {
+      return null;
+    }
+    return {
+      tournamentId,
+      name,
+      category,
+      level,
+      maxSlots: Number(entity.MaxSlots ?? 0),
+      date: String(entity.Date ?? ''),
+      location: String(entity.Location ?? ''),
+      registrationCount: 0,
+      createdAt: String(entity.CreatedAt ?? ''),
+    };
+  }
+
+  private toTournamentEntity(tournament: Tournament) {
+    return {
+      TournamentId: tournament.tournamentId,
+      Name: tournament.name,
+      Category: tournament.category,
+      Level: tournament.level,
+      MaxSlots: tournament.maxSlots,
+      Date: tournament.date,
+      Location: tournament.location,
+      CreatedAt: tournament.createdAt,
+    };
+  }
+
+  private toTournamentRegistration(entity: Record<string, unknown>): TournamentRegistration | null {
+    const status = String(entity.Status ?? '') as TournamentRegistrationStatus;
+    const category = String(entity.Category ?? '') as TournamentCategory;
+    const level = String(entity.Level ?? '') as TournamentLevel;
+    const registrationId = String(entity.rowKey ?? entity.RegistrationId ?? '');
+    const tournamentId = String(entity.TournamentId ?? entity.partitionKey ?? '');
+    if (
+      !registrationId ||
+      !tournamentId ||
+      !TOURNAMENT_CATEGORIES.includes(category) ||
+      !TOURNAMENT_LEVELS.includes(level) ||
+      !['Invitation Pending', 'Invitation Declined', 'Pending Approval', 'Approved', 'Payment Submitted'].includes(status)
+    ) {
+      return null;
+    }
+    return {
+      tournamentId,
+      registrationId,
+      tournamentName: String(entity.TournamentName ?? ''),
+      category,
+      level,
+      memberId: String(entity.MemberId ?? ''),
+      memberName: String(entity.MemberName ?? ''),
+      partnerId: String(entity.PartnerId ?? ''),
+      partnerName: String(entity.PartnerName ?? ''),
+      ...(this.readTournamentExperience(entity, 'Member')
+        ? { memberExperience: this.readTournamentExperience(entity, 'Member') }
+        : {}),
+      ...(this.readTournamentExperience(entity, 'Partner')
+        ? { partnerExperience: this.readTournamentExperience(entity, 'Partner') }
+        : {}),
+      status,
+      registeredAt: String(entity.RegisteredAt ?? ''),
+      ...(entity.ApprovedAt ? { approvedAt: String(entity.ApprovedAt) } : {}),
+      ...(entity.PaymentProofUrl ? { paymentProofUrl: String(entity.PaymentProofUrl) } : {}),
+    };
+  }
+
+  private toTournamentRegistrationEntity(registration: TournamentRegistration) {
+    return {
+      TournamentId: registration.tournamentId,
+      RegistrationId: registration.registrationId,
+      TournamentName: registration.tournamentName,
+      Category: registration.category,
+      Level: registration.level,
+      MemberId: registration.memberId,
+      MemberName: registration.memberName,
+      PartnerId: registration.partnerId,
+      PartnerName: registration.partnerName,
+      ...(registration.memberExperience
+        ? this.toTournamentExperienceEntity('Member', registration.memberExperience)
+        : {}),
+      ...(registration.partnerExperience
+        ? this.toTournamentExperienceEntity('Partner', registration.partnerExperience)
+        : {}),
+      Status: registration.status,
+      RegisteredAt: registration.registeredAt,
+      PartnerAccepted: false,
+    };
+  }
+
+  private validateTournamentExperience(input: unknown): TournamentExperienceDetails {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      throw new BadRequestException('Answer the tournament experience questions before continuing.');
+    }
+    const details = input as Record<string, unknown>;
+    const hasJoinedTournaments = details.hasJoinedTournaments;
+    const hasWonTournaments = details.hasWonTournaments;
+    const highestTournamentLevel = details.highestTournamentLevel;
+    const highestWinningLevel = details.highestWinningLevel;
+    const winsOrPodiums = details.winsOrPodiums;
+
+    if (typeof hasJoinedTournaments !== 'boolean' || typeof hasWonTournaments !== 'boolean') {
+      throw new BadRequestException('Answer whether you have joined and won tournaments.');
+    }
+    if (
+      (hasJoinedTournaments && !TOURNAMENT_LEVELS.includes(highestTournamentLevel as TournamentLevel)) ||
+      (!hasJoinedTournaments && highestTournamentLevel !== undefined)
+    ) {
+      throw new BadRequestException('Select a valid highest tournament level, or leave it blank if you have not joined a tournament.');
+    }
+    if (hasWonTournaments) {
+      if (
+        !hasJoinedTournaments ||
+        !TOURNAMENT_LEVELS.includes(highestWinningLevel as TournamentLevel) ||
+        !Number.isInteger(winsOrPodiums) ||
+        Number(winsOrPodiums) < 1
+      ) {
+        throw new BadRequestException('For tournament wins, select the highest winning level and enter at least one win or podium finish.');
+      }
+    } else if (highestWinningLevel !== undefined || winsOrPodiums !== undefined) {
+      throw new BadRequestException('Winning details can only be supplied when you have won a tournament.');
+    }
+
+    return {
+      hasJoinedTournaments,
+      ...(hasJoinedTournaments ? { highestTournamentLevel: highestTournamentLevel as TournamentLevel } : {}),
+      hasWonTournaments,
+      ...(hasWonTournaments
+        ? {
+            highestWinningLevel: highestWinningLevel as TournamentLevel,
+            winsOrPodiums: Number(winsOrPodiums),
+          }
+        : {}),
+    };
+  }
+
+  private toTournamentExperienceEntity(
+    prefix: 'Member' | 'Partner',
+    details: TournamentExperienceDetails,
+  ) {
+    return {
+      [`${prefix}HasJoinedTournaments`]: details.hasJoinedTournaments,
+      ...(details.highestTournamentLevel
+        ? { [`${prefix}HighestTournamentLevel`]: details.highestTournamentLevel }
+        : {}),
+      [`${prefix}HasWonTournaments`]: details.hasWonTournaments,
+      ...(details.highestWinningLevel
+        ? { [`${prefix}HighestWinningLevel`]: details.highestWinningLevel }
+        : {}),
+      ...(details.winsOrPodiums !== undefined
+        ? { [`${prefix}WinsOrPodiums`]: details.winsOrPodiums }
+        : {}),
+    };
+  }
+
+  private readTournamentExperience(
+    entity: Record<string, unknown>,
+    prefix: 'Member' | 'Partner',
+  ): TournamentExperienceDetails | undefined {
+    const hasJoinedTournaments = entity[`${prefix}HasJoinedTournaments`];
+    const hasWonTournaments = entity[`${prefix}HasWonTournaments`];
+    if (typeof hasJoinedTournaments !== 'boolean' || typeof hasWonTournaments !== 'boolean') {
+      return undefined;
+    }
+    const highestTournamentLevel = entity[`${prefix}HighestTournamentLevel`];
+    const highestWinningLevel = entity[`${prefix}HighestWinningLevel`];
+    const winsOrPodiums = entity[`${prefix}WinsOrPodiums`];
+    return {
+      hasJoinedTournaments,
+      ...(typeof highestTournamentLevel === 'string'
+        ? { highestTournamentLevel: highestTournamentLevel as TournamentLevel }
+        : {}),
+      hasWonTournaments,
+      ...(typeof highestWinningLevel === 'string'
+        ? { highestWinningLevel: highestWinningLevel as TournamentLevel }
+        : {}),
+      ...(typeof winsOrPodiums === 'number' ? { winsOrPodiums } : {}),
+    };
+  }
+
+  private isTournamentCategoryGenderRestricted(category: TournamentCategory): boolean {
+    return category !== 'Team Tournament';
+  }
+
+  private isTournamentGenderEligible(
+    category: TournamentCategory,
+    firstGender: string,
+    secondGender: string,
+  ): boolean {
+    const normalizeGender = (gender: string) => gender.trim().toLowerCase();
+    const first = normalizeGender(firstGender);
+    const second = normalizeGender(secondGender);
+    const isMale = (gender: string) => gender === 'male' || gender === 'man';
+    const isFemale = (gender: string) => gender === 'female' || gender === 'woman';
+    if (category === 'Mens Doubles') return isMale(first) && isMale(second);
+    if (category === 'Womens Doubles') return isFemale(first) && isFemale(second);
+    if (category === 'Mixed Doubles') {
+      return (isMale(first) && isFemale(second)) || (isFemale(first) && isMale(second));
+    }
+    return true;
   }
 
   private async assertClubExists(clubId: string) {

@@ -46,6 +46,12 @@ import type {
   MonthlyParticipationUploadConfig,
   MonthlyParticipationUploadResult,
   MonthlyParticipationSummaryResponse,
+  TournamentCreateInput,
+  Tournament,
+  TournamentRegistration,
+  TournamentExperienceDetails,
+  TournamentPaymentProofUploadInput,
+  TournamentPartnerSearchResult,
 } from './app.service';
 import { GameScore } from './queue.types';
 import type { QueueSelectionMode, TeamMatchingMode } from './queue.types';
@@ -162,6 +168,123 @@ export class AppController {
   getClubOptions(@Headers('cookie') cookieHeader = ''): Promise<ClubSummary[]> {
     return this.appService.getClubs(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Get('tournaments')
+  getTournaments(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<Tournament[]> {
+    return this.appService.getTournaments(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Get('tournaments/:tournamentId/eligible-partners')
+  getEligibleTournamentPartners(
+    @Param('tournamentId') tournamentId: string,
+    @Query('search') search: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentPartnerSearchResult[]> {
+    return this.appService.getEligibleTournamentPartners(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      tournamentId,
+      search,
+    );
+  }
+
+  @Get('members/me/tournament-registrations')
+  getMyTournamentRegistrations(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentRegistration[]> {
+    return this.appService.getMyTournamentRegistrations(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Post('tournaments/:tournamentId/registrations')
+  registerTournamentTeam(
+    @Param('tournamentId') tournamentId: string,
+    @Body('partnerId') partnerId: string,
+    @Body('memberExperience') memberExperience: TournamentExperienceDetails,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentRegistration> {
+    return this.appService.registerTournamentTeam(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      tournamentId,
+      partnerId,
+      memberExperience,
+    );
+  }
+
+  @Post('tournaments/:tournamentId/registrations/:registrationId/respond')
+  respondToTournamentInvitation(
+    @Param('tournamentId') tournamentId: string,
+    @Param('registrationId') registrationId: string,
+    @Body('decision') decision: 'Accepted' | 'Declined',
+    @Body('partnerExperience') partnerExperience: TournamentExperienceDetails,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentRegistration> {
+    return this.appService.respondToTournamentInvitation(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      tournamentId,
+      registrationId,
+      decision,
+      partnerExperience,
+    );
+  }
+
+  @Post('admin/tournaments')
+  createTournament(
+    @Body() body: TournamentCreateInput,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<Tournament> {
+    return this.appService.createTournament(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      body,
+    );
+  }
+
+  @Get('admin/tournament-registrations')
+  getTournamentRegistrationsForAdmin(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentRegistration[]> {
+    return this.appService.getTournamentRegistrationsForAdmin(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Patch('admin/tournaments/:tournamentId/registrations/:registrationId/approve')
+  approveTournamentRegistration(
+    @Param('tournamentId') tournamentId: string,
+    @Param('registrationId') registrationId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentRegistration> {
+    return this.appService.approveTournamentRegistration(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      tournamentId,
+      registrationId,
+    );
+  }
+
+  @Post('tournaments/:tournamentId/registrations/:registrationId/payment-proof')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  uploadTournamentPaymentProof(
+    @Param('tournamentId') tournamentId: string,
+    @Param('registrationId') registrationId: string,
+    @UploadedFile() file: TournamentPaymentProofUploadInput,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentRegistration> {
+    if (!file) throw new BadRequestException('Select a payment-proof file to upload.');
+    return this.appService.uploadTournamentPaymentProof(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      tournamentId,
+      registrationId,
+      file,
     );
   }
 

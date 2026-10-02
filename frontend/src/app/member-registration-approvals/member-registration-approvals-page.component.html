@@ -25,6 +25,7 @@
           <strong>{{ registration.name }}</strong>
           <span>{{ registration.email }}</span>
           <small>Submitted {{ registration.createdAt | date: 'mediumDate' }}</small>
+          <button type="button" class="profile-button" (click)="showProfile(registration)">View profile</button>
         </div>
         <div class="approval-action">
           <span [class.verified]="registration.emailValidated">
@@ -41,4 +42,7 @@
       </article>
     }
   </section>
+  @if (profileMember(); as member) {
+    <app-member-profile-frame [memberId]="member.memberId" [memberName]="member.name" (closed)="closeProfile()" />
+  }
 </main>

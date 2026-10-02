@@ -50,6 +50,12 @@ export class HomePageComponent {
       route: '/masters-of-the-arena',
       index: '04',
     },
+    {
+      label: 'Tournaments',
+      description: 'Find events, choose a doubles partner, and manage your entries.',
+      route: '/tournaments',
+      index: '05',
+    },
   ] as const;
 
   constructor() {

@@ -1,0 +1,47 @@
+<main class="management-shell">
+  <header class="page-heading">
+    <p class="eyebrow">Administrator</p>
+    <h1>Tournament management</h1>
+    <p>Create events and approve complete teams.</p>
+  </header>
+
+  @if (feedbackMessage()) { <p class="notice success" role="status">{{ feedbackMessage() }}</p> }
+  @if (errorMessage()) { <p class="notice error" role="alert">{{ errorMessage() }}</p> }
+
+  <section class="create-section" aria-labelledby="create-title">
+    <div class="section-heading"><div><p class="eyebrow">New event</p><h2 id="create-title">Create tournament</h2></div></div>
+    <form #createForm="ngForm" class="create-form" (ngSubmit)="createTournament()">
+      <label class="wide"><span>Tournament name</span><input name="name" [(ngModel)]="form.name" required maxlength="120" /></label>
+      <label><span>Category</span><select name="category" [(ngModel)]="form.category" required>@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select></label>
+      <label><span>Level</span><select name="level" [(ngModel)]="form.level" required>@for (level of levels; track level) { <option [value]="level">{{ level }}</option> }</select></label>
+      <label><span>Maximum team slots</span><input name="maxSlots" type="number" [(ngModel)]="form.maxSlots" min="1" max="10000" required /></label>
+      <label><span>Date</span><input name="date" type="date" [(ngModel)]="form.date" /></label>
+      <label class="wide"><span>Location</span><input name="location" [(ngModel)]="form.location" maxlength="160" /></label>
+      <div class="form-submit"><button class="action-button" type="submit" [disabled]="createForm.invalid || isSaving()">{{ isSaving() ? 'Creating...' : 'Create tournament' }}</button></div>
+    </form>
+  </section>
+
+  <section class="approval-section" aria-labelledby="approval-title">
+    <div class="section-heading"><div><p class="eyebrow">Review queue</p><h2 id="approval-title">Team approvals</h2></div><span class="count">{{ pendingApprovals().length }} pending</span></div>
+    <div class="registration-list">
+      @for (registration of pendingApprovals(); track registration.registrationId) {
+        <article class="registration-row">
+          <div class="registration-copy"><strong>{{ registration.tournamentName }}</strong><span>{{ registration.memberName }} + {{ registration.partnerName }}</span><small>{{ registration.category }} · {{ registration.level }}</small><small>{{ experienceSummary(registration.memberName, registration.memberExperience) }}</small><small>{{ experienceSummary(registration.partnerName, registration.partnerExperience) }}</small></div>
+          <span class="status-pill">Pending approval</span>
+          <button type="button" class="action-button" [disabled]="isSaving()" (click)="approve(registration)">Approve team</button>
+        </article>
+      } @empty {
+        <p class="empty-state">No complete teams are waiting for approval.</p>
+      }
+    </div>
+  </section>
+
+  <section class="events-section" aria-labelledby="events-title">
+    <div class="section-heading"><div><p class="eyebrow">Published</p><h2 id="events-title">Tournaments</h2></div></div>
+    <div class="event-list">
+      @for (tournament of tournaments(); track tournament.tournamentId) {
+        <article class="event-row"><div><strong>{{ tournament.name }}</strong><span>{{ tournament.category }} · {{ tournament.level }}</span></div><span>{{ tournament.date ? (tournament.date | date: 'mediumDate') : 'Date not set' }}</span><strong>{{ tournament.registrationCount }} / {{ tournament.maxSlots }} teams</strong></article>
+      } @empty { <p class="empty-state">No tournaments have been created.</p> }
+    </div>
+  </section>
+</main>

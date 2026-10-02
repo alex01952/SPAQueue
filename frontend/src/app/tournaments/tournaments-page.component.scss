@@ -1,0 +1,63 @@
+:host { display: block; color: var(--text-primary); }
+.tournaments-shell { width: min(1080px, calc(100% - 40px)); margin: 0 auto; padding: 44px 0 72px; }
+.page-heading { max-width: 760px; padding: 26px 0 40px; }
+.eyebrow { margin: 0 0 10px; color: var(--accent-dark); font-size: .72rem; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+h1, h2, h3, p { margin-top: 0; }
+.page-heading h1 { margin-bottom: 14px; font-size: clamp(2.8rem, 7vw, 5.8rem); line-height: .98; }
+.page-heading > p:last-child { color: var(--text-secondary); font-size: 1rem; }
+.section-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding-bottom: 15px; border-bottom: 1px solid rgba(103, 70, 41, .2); }
+.section-heading h2 { margin: 0; font-size: 1.6rem; }
+.section-count { color: var(--text-secondary); font-size: .8rem; }
+.event-section, .registration-section { margin-top: 36px; }
+.tournament-list, .registration-list { display: grid; }
+.tournament-row { display: grid; grid-template-columns: 82px minmax(0, 1fr) 138px 130px; align-items: center; gap: 22px; min-height: 126px; padding: 20px 16px; border-bottom: 1px solid rgba(103, 70, 41, .17); transition: background 160ms ease; }
+.tournament-row:hover, .tournament-row.is-selected { background: rgba(255, 249, 240, .72); }
+.event-date { display: grid; gap: 3px; justify-items: center; padding: 10px 6px; color: #fff9f1; background: #2d6841; border-radius: 4px; }
+.event-date strong { font-size: 1.05rem; }
+.event-date span { font-size: .67rem; text-transform: uppercase; }
+.event-details h3 { margin: 0 0 7px; font-size: 1.18rem; }
+.event-details p { margin: 0 0 5px; color: var(--accent-dark); font-size: .81rem; font-weight: 700; }
+.event-details small, .event-slots span { color: var(--text-secondary); font-size: .76rem; }
+.event-slots { display: grid; gap: 4px; }
+.event-slots strong { font-size: .94rem; }
+.slot-track { height: 4px; overflow: hidden; background: rgba(103, 70, 41, .16); }
+.slot-track span { display: block; height: 100%; background: #cb5d33; }
+.action-button, .quiet-button { min-height: 40px; padding: 9px 14px; font: inherit; font-size: .8rem; font-weight: 700; border: 0; border-radius: 4px; cursor: pointer; }
+.action-button { color: #fff9f1; background: #2d6841; }
+.action-button:hover:not(:disabled) { background: #235333; }
+.quiet-button { color: var(--text-primary); background: rgba(103, 70, 41, .1); }
+.action-button:disabled, .quiet-button:disabled { cursor: not-allowed; opacity: .48; }
+.registration-panel { display: grid; grid-template-columns: 1fr; gap: 18px; padding: 22px; background: rgba(255, 249, 240, .9); border-bottom: 2px solid #2d6841; }
+.registration-panel h3 { margin: 0 0 5px; font-size: 1.1rem; }
+.registration-panel p { margin: 0; color: var(--text-secondary); font-size: .8rem; }
+.registration-panel label { display: grid; gap: 6px; color: var(--text-secondary); font-size: .76rem; font-weight: 700; }
+select, .registration-panel input[type='number'], .registration-panel input[type='search'] { min-height: 40px; padding: 8px 10px; color: var(--text-primary); font: inherit; background: #fffdf8; border: 1px solid rgba(103, 70, 41, .26); border-radius: 4px; }
+.partner-results { display:flex; flex-wrap: wrap; gap: 8px; max-height: 168px; overflow-y: auto; }
+.partner-results .inline-note { margin: 0; }
+.partner-result { display: grid; flex: 1 1 220px; gap:3px; padding: 8px 12px; color: var(--text-primary); font: inherit; font-size: .82rem; text-align: left; background: #fffdf8; border: 1px solid rgba(103, 70, 41, .24); border-radius: 4px; cursor: pointer; }
+.partner-result small { color: var(--text-secondary); font-size: .7rem; font-weight: 400; }
+.partner-result:disabled { cursor: not-allowed; opacity: .68; }
+.partner-result:hover, .partner-result.is-selected { border-color: #2d6841; background: rgba(45, 104, 65, .1); }
+.selected-partner { color: #245b35 !important; font-weight: 700; }
+.experience-questions { min-width: 0; margin: 0; padding: 16px 0 0; border: 0; border-top: 1px solid rgba(103, 70, 41, .18); }
+.experience-questions legend { padding: 0 10px 0 0; color: var(--text-primary); font-size: .9rem; font-weight: 800; }
+.experience-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.truthfulness-note { padding: 10px 12px; color: #743d25 !important; background: rgba(203, 93, 51, .09); border-left: 3px solid #cb5d33; }
+.partner-experience-form { display: grid; flex-basis: 100%; gap: 14px; }
+.panel-actions { display: flex; gap: 8px; }
+.inline-note { grid-column: 2; }
+.registration-row { display: flex; align-items: center; gap: 16px; min-height: 82px; padding: 15px 4px; border-bottom: 1px solid rgba(103, 70, 41, .17); }
+.registration-copy { display: grid; flex: 1; min-width: 0; gap: 5px; }
+.registration-copy span { color: var(--text-secondary); font-size: .78rem; }
+.status-pill { padding: 6px 9px; color: #664d24; font-size: .72rem; font-weight: 700; background: rgba(217, 139, 43, .16); border-radius: 99px; white-space: nowrap; }
+.status-pill[data-status='Approved'], .status-pill[data-status='Payment Submitted'] { color: #245b35; background: rgba(76, 140, 87, .16); }
+.row-actions, .proof-action { display: flex; align-items: center; gap: 8px; }
+.file-button { position: relative; display: inline-flex; align-items: center; min-height: 38px; padding: 8px 10px; overflow: hidden; color: var(--text-primary); font-size: .76rem; font-weight: 700; background: rgba(103, 70, 41, .1); border-radius: 4px; cursor: pointer; }
+.file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.proof-link { color: var(--accent-dark); font-size: .8rem; font-weight: 700; }
+.empty-state { margin: 0; padding: 24px 0; color: var(--text-secondary); font-size: .85rem; }
+.notice { margin: 0 0 14px; padding: 11px 14px; border-radius: 4px; }
+.notice.success { color: #245b35; background: rgba(76, 140, 87, .14); }
+.notice.error { color: #842f22; background: rgba(184, 67, 49, .12); }
+@media (max-width: 760px) { .tournament-row { grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; padding: 16px 4px; } .event-slots { grid-column: 2; grid-row: 2; grid-template-columns: auto 1fr; align-items: center; } .event-slots .slot-track { grid-column: 1 / -1; } .tournament-row > .action-button { grid-column: 3; grid-row: 1 / span 2; } .registration-panel { grid-template-columns: 1fr; } .experience-fields { grid-template-columns: 1fr; } .inline-note { grid-column: auto; } .registration-row { align-items: flex-start; flex-wrap: wrap; } .registration-copy { flex-basis: calc(100% - 10px); } }
+@media (max-width: 520px) { .tournaments-shell { width: calc(100% - 24px); padding: 28px 0 48px; } .page-heading { padding: 18px 0 28px; } .tournament-row { grid-template-columns: 54px minmax(0, 1fr); } .event-slots { grid-column: 2; grid-row: auto; } .tournament-row > .action-button { grid-column: 2; grid-row: auto; justify-self: start; } .row-actions, .proof-action { width: 100%; } }

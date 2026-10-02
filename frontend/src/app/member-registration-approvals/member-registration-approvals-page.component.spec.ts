@@ -29,7 +29,8 @@ describe('MemberRegistrationApprovalsPageComponent', () => {
       ]);
     fixture.detectChanges();
 
-    const approveButton = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    const approveButton = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'Approve') as HTMLButtonElement;
     approveButton.click();
     http
       .expectOne(
@@ -41,6 +42,37 @@ describe('MemberRegistrationApprovalsPageComponent', () => {
 
     expect(fixture.nativeElement.textContent).toContain("Alex Member's registration was approved.");
     expect(fixture.nativeElement.textContent).toContain('No registrations are awaiting approval.');
+    http.verify();
+  });
+
+  it('opens the selected registration profile in the iframe window', async () => {
+    await TestBed.configureTestingModule({
+      imports: [MemberRegistrationApprovalsPageComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(MemberRegistrationApprovalsPageComponent);
+    const http = TestBed.inject(HttpTestingController);
+
+    fixture.detectChanges();
+    http.expectOne(({ url }) => url.endsWith('/admin/member-registrations/pending')).flush([
+      {
+        memberId: 'member-42',
+        name: 'Casey Member',
+        email: 'casey@example.com',
+        createdAt: '2026-09-28T00:00:00.000Z',
+        emailValidated: true,
+      },
+    ]);
+    fixture.detectChanges();
+
+    const profileButton = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'View profile') as HTMLButtonElement;
+    profileButton.click();
+    fixture.detectChanges();
+
+    const iframe = fixture.nativeElement.querySelector('iframe') as HTMLIFrameElement;
+    expect(iframe.getAttribute('src')).toBe('/member-profile/member-42');
+    expect(iframe.getAttribute('title')).toBe('Casey Member member profile');
     http.verify();
   });
 });

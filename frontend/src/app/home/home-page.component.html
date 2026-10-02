@@ -67,7 +67,7 @@
       [class.has-balances]="memberHasBalances()"
       [class.no-balances]="!memberHasBalances()"
     >
-      <span class="menu-index">05</span>
+      <span class="menu-index">06</span>
       <span class="menu-copy">
         <strong>My balances</strong>
         <small>{{
@@ -79,7 +79,7 @@
 
     @if (member()?.role === 'admin') {
       <a routerLink="/queue-dashboard" class="menu-item">
-        <span class="menu-index">06</span>
+        <span class="menu-index">07</span>
         <span class="menu-copy">
           <strong>Queueing</strong>
           <small>Manage check-ins, courts, and the next games.</small>
@@ -87,7 +87,7 @@
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
       <a routerLink="/open-play-participation/upload" class="menu-item">
-        <span class="menu-index">07</span>
+        <span class="menu-index">08</span>
         <span class="menu-copy">
           <strong>Upload participation</strong>
           <small>Upload Open Play participation files.</small>
@@ -95,7 +95,7 @@
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
       <a routerLink="/member-balances" class="menu-item">
-        <span class="menu-index">08</span>
+        <span class="menu-index">09</span>
         <span class="menu-copy">
           <strong>Member balances</strong>
           <small>Manage balances for individual members.</small>
@@ -103,7 +103,7 @@
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
       <a routerLink="/member-registration-approvals" class="menu-item">
-        <span class="menu-index">09</span>
+        <span class="menu-index">10</span>
         <span class="menu-copy">
           <strong>Registration approvals</strong>
           <small>Review verified applicants and approve member access.</small>
@@ -111,10 +111,18 @@
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
       <a routerLink="/club-management" class="menu-item">
-        <span class="menu-index">10</span>
+        <span class="menu-index">11</span>
         <span class="menu-copy">
           <strong>Manage clubs</strong>
           <small>Create clubs and appoint club officers.</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
+      <a routerLink="/tournament-management" class="menu-item">
+        <span class="menu-index">12</span>
+        <span class="menu-copy">
+          <strong>Manage tournaments</strong>
+          <small>Create tournaments and approve complete team registrations.</small>
         </span>
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
@@ -126,7 +134,7 @@
       [disabled]="isLoggingOut()"
       (click)="logout()"
     >
-      <span class="menu-index">{{ member()?.role === 'admin' ? '11' : '06' }}</span>
+      <span class="menu-index">{{ member()?.role === 'admin' ? '13' : '07' }}</span>
       <span class="menu-copy">
         <strong>{{ isLoggingOut() ? 'Logging out...' : 'Logout' }}</strong>
         <small>End your member session on this device.</small>

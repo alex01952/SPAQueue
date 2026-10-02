@@ -19,6 +19,12 @@ This keeps the first version easy to change while preserving an API shape you ca
 - Shows a suggested next game from the ready, non-playing players
 - Tracks recent completed games
 
+## Tournament registrations
+
+Tournament definitions and team registrations are stored in Azure Tables using the member storage account. Configure `TOURNAMENTS_AZURE_TABLE` (default `Tournaments`) and `TOURNAMENT_REGISTRATIONS_AZURE_TABLE` (default `TournamentRegistrations`) alongside `MEMBERS_AZURE_STORAGE_ACCOUNT` and the existing member-table settings. Both tables must exist before members use tournament registration.
+
+Payment-proof uploads use the existing `OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT` and `OP_PARTICIPATION_AZURE_CONTAINER` settings. Admins can create tournaments and approve complete teams; only approved teams can upload proof.
+
 ## Run locally
 
 Start the API:

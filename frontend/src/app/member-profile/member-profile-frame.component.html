@@ -1,0 +1,12 @@
+<div class="profile-frame-backdrop" (keydown.escape)="closed.emit()" tabindex="-1">
+  <section class="profile-frame" role="dialog" aria-modal="true" aria-labelledby="profile-frame-title">
+    <header class="profile-frame-heading">
+      <div>
+        <p class="eyebrow">Registration review</p>
+        <h2 id="profile-frame-title">{{ memberName() }} profile</h2>
+      </div>
+      <button type="button" class="close-button" aria-label="Close member profile" (click)="closed.emit()">Close</button>
+    </header>
+    <iframe [src]="profileUrl()" [title]="memberName() + ' member profile'" loading="lazy"></iframe>
+  </section>
+</div>
