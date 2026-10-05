@@ -1,0 +1,83 @@
+<main class="registrations-shell">
+  <header class="page-heading">
+    <a class="back-link" routerLink="/tournament-management">Tournament management</a>
+    <p class="eyebrow">Administrator</p>
+    <h1>Tournament registrations</h1>
+    <p>Review partner invitations, accepted teams, and approved entries by tournament.</p>
+  </header>
+
+  @if (errorMessage()) { <p class="notice error" role="alert">{{ errorMessage() }}</p> }
+
+  <section class="registration-browser" aria-labelledby="registrations-title">
+    <div class="browser-heading">
+      <div>
+        <p class="eyebrow">Event entries</p>
+        <h2 id="registrations-title">Registrations</h2>
+      </div>
+      <label class="tournament-picker">
+        <span>Tournament</span>
+        <select [ngModel]="selectedTournamentId()" (ngModelChange)="setTournament($event)" aria-label="Select tournament">
+          <option value="">Select a tournament</option>
+          @for (tournament of tournaments(); track tournament.tournamentId) {
+            <option [value]="tournament.tournamentId">{{ tournament.name }}</option>
+          }
+        </select>
+      </label>
+    </div>
+
+    @if (isLoading()) {
+      <p class="empty-state">Loading tournaments and registrations...</p>
+    } @else if (!tournaments().length) {
+      <p class="empty-state">No tournaments have been created.</p>
+    } @else if (!selectedTournamentId()) {
+      <p class="empty-state">Select a tournament to view its registrations.</p>
+    } @else {
+      <div class="event-summary">
+        <div><span>Category</span><strong>{{ selectedTournament()?.category }}</strong></div>
+        <div><span>Level</span><strong>{{ selectedTournament()?.level }}</strong></div>
+        <div><span>Teams</span><strong>{{ tournamentRegistrations().length }} / {{ selectedTournament()?.maxSlots }}</strong></div>
+        <div><span>Event date</span><strong>{{ selectedTournament()?.date ? (selectedTournament()?.date | date: 'mediumDate') : 'Not set' }}</strong></div>
+      </div>
+
+      <nav class="status-filters" aria-label="Filter registrations by status">
+        @for (filter of statusFilters; track filter.value) {
+          <button type="button" [class.is-active]="statusFilter() === filter.value" [attr.aria-pressed]="statusFilter() === filter.value" (click)="setStatusFilter(filter.value)">
+            {{ filter.label }} <span>{{ countForStatus(filter.value) }}</span>
+          </button>
+        }
+      </nav>
+
+      <div class="registration-list">
+        @for (registration of filteredRegistrations(); track registration.registrationId) {
+          <article class="registration-row">
+            <div class="registration-copy">
+              <strong>
+                @if (registration.teamMembers?.length) {
+                  @for (member of registration.teamMembers ?? []; track member.memberId; let last = $last) {
+                    <a class="member-profile-link" [href]="memberProfileHref(member.memberId)" (click)="openMemberProfile(member.memberId, member.name, $event)">{{ member.name }}</a>
+                    @if (!last) { <span aria-hidden="true"> + </span> }
+                  }
+                } @else {
+                  <a class="member-profile-link" [href]="memberProfileHref(registration.memberId)" (click)="openMemberProfile(registration.memberId, registration.memberName, $event)">{{ registration.memberName }}</a>
+                  <span aria-hidden="true"> + </span>
+                  <a class="member-profile-link" [href]="memberProfileHref(registration.partnerId)" (click)="openMemberProfile(registration.partnerId, registration.partnerName, $event)">{{ registration.partnerName }}</a>
+                }
+              </strong>
+              <span>{{ registration.category }} · {{ registration.level }}</span>
+              <small>Registered {{ registration.registeredAt | date: 'medium' }}</small>
+            </div>
+            <span class="status-pill" [attr.data-status]="statusClass(registration.status)">{{ statusLabel(registration.status) }}</span>
+            @if (registration.paymentProofUrl) {
+              <a class="proof-link" [href]="registration.paymentProofUrl" target="_blank" rel="noopener">View payment proof</a>
+            }
+          </article>
+        } @empty {
+          <p class="empty-state">No registrations match this status for the selected tournament.</p>
+        }
+      </div>
+    }
+  </section>
+  @if (profileMember(); as member) {
+    <app-member-profile-frame [memberId]="member.memberId" [memberName]="member.name" (closed)="closeMemberProfile()" />
+  }
+</main>

@@ -26,7 +26,19 @@
     <div class="registration-list">
       @for (registration of pendingApprovals(); track registration.registrationId) {
         <article class="registration-row">
-          <div class="registration-copy"><strong>{{ registration.tournamentName }}</strong><span>{{ registration.memberName }} + {{ registration.partnerName }}</span><small>{{ registration.category }} · {{ registration.level }}</small><small>{{ experienceSummary(registration.memberName, registration.memberExperience) }}</small><small>{{ experienceSummary(registration.partnerName, registration.partnerExperience) }}</small></div>
+          <div class="registration-copy">
+            <strong>{{ registration.tournamentName }}</strong>
+            <span>{{ teamMemberNames(registration) }}</span>
+            <small>{{ registration.category }} · {{ registration.level }}</small>
+            @if (registration.teamMembers?.length) {
+              @for (member of registration.teamMembers; track member.memberId) {
+                <small>{{ experienceSummary(member.name, member.experience) }} {{ member.accepted ? 'Accepted' : 'Invitation pending' }}</small>
+              }
+            } @else {
+              <small>{{ experienceSummary(registration.memberName, registration.memberExperience) }}</small>
+              <small>{{ experienceSummary(registration.partnerName, registration.partnerExperience) }}</small>
+            }
+          </div>
           <span class="status-pill">Pending approval</span>
           <button type="button" class="action-button" [disabled]="isSaving()" (click)="approve(registration)">Approve team</button>
         </article>
@@ -40,7 +52,7 @@
     <div class="section-heading"><div><p class="eyebrow">Published</p><h2 id="events-title">Tournaments</h2></div></div>
     <div class="event-list">
       @for (tournament of tournaments(); track tournament.tournamentId) {
-        <article class="event-row"><div><strong>{{ tournament.name }}</strong><span>{{ tournament.category }} · {{ tournament.level }}</span></div><span>{{ tournament.date ? (tournament.date | date: 'mediumDate') : 'Date not set' }}</span><strong>{{ tournament.registrationCount }} / {{ tournament.maxSlots }} teams</strong></article>
+        <article class="event-row"><div><strong>{{ tournament.name }}</strong><span>{{ tournament.category }} · {{ tournament.level }}</span></div><span>{{ tournament.date ? (tournament.date | date: 'mediumDate') : 'Date not set' }}</span><strong>{{ tournament.registrationCount }} / {{ tournament.maxSlots }} teams</strong><a class="registrations-link" [routerLink]="['/tournament-registrations']" [queryParams]="{ tournamentId: tournament.tournamentId }">View registrations</a></article>
       } @empty { <p class="empty-state">No tournaments have been created.</p> }
     </div>
   </section>

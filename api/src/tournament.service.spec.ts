@@ -13,6 +13,11 @@ const tournament = {
   createdAt: '2026-10-01T00:00:00.000Z',
 };
 
+const teamTournament = {
+  ...tournament,
+  category: 'Team Tournament' as const,
+};
+
 const memberSession = (memberId: string, gender = 'Male', role = 'member') => ({
   authenticated: true as const,
   member: {
@@ -95,6 +100,41 @@ describe('AppService tournament registration', () => {
     ).resolves.toEqual([]);
   });
 
+  it('excludes all players already committed to a team tournament roster', async () => {
+    jest.spyOn(service as any, 'getTournament').mockResolvedValue(teamTournament);
+    jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('member-a'));
+    jest.spyOn(service as any, 'getTournamentRegistrationEntities').mockResolvedValue([{
+      MemberId: 'captain',
+      PartnerId: 'member-a',
+      Status: 'Invitation Pending',
+      TeamMembers: JSON.stringify([
+        { memberId: 'captain', name: 'Captain', gender: 'Male', accepted: true },
+        { memberId: 'member-a', name: 'Member A', gender: 'Male', accepted: false },
+        { memberId: 'member-b', name: 'Member B', gender: 'Female', accepted: false },
+        { memberId: 'member-c', name: 'Member C', gender: 'Female', accepted: false },
+      ]),
+    }]);
+    jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue({
+      listEntities: jest.fn(() => ({
+        async *[Symbol.asyncIterator]() {
+          yield { rowKey: 'member-a', Name: 'Member A', Gender: 'Male' };
+          yield { rowKey: 'member-b', Name: 'Member B', Gender: 'Female' };
+          yield { rowKey: 'member-c', Name: 'Member C', Gender: 'Female' };
+          yield { rowKey: 'free-member', Name: 'Free Member', Gender: 'Male' };
+        },
+      })),
+    });
+
+    await expect(
+      service.getEligibleTournamentPartners('session', tournament.tournamentId, 'member'),
+    ).resolves.toEqual([
+      { memberId: 'free-member', name: 'Free Member', gender: 'Male', eligible: true },
+      { memberId: 'member-a', name: 'Member A', gender: 'Male', eligible: false, unavailableReason: 'This is your account.' },
+      { memberId: 'member-b', name: 'Member B', gender: 'Female', eligible: false, unavailableReason: 'Already registered or invited for this tournament.' },
+      { memberId: 'member-c', name: 'Member C', gender: 'Female', eligible: false, unavailableReason: 'Already registered or invited for this tournament.' },
+    ]);
+  });
+
   it('marks an invitation as incoming for the invited member', async () => {
     const invitation = {
       rowKey: 'member-a',
@@ -124,6 +164,42 @@ describe('AppService tournament registration', () => {
     expect(registrations[0].isIncomingInvitation).toBe(true);
   });
 
+  it('lists team invitations for teammates who are not the primary partner', async () => {
+    const invitation = {
+      rowKey: 'captain',
+      partitionKey: teamTournament.tournamentId,
+      TournamentId: teamTournament.tournamentId,
+      TournamentName: teamTournament.name,
+      Category: teamTournament.category,
+      Level: teamTournament.level,
+      MemberId: 'captain',
+      MemberName: 'Captain',
+      PartnerId: 'member-b',
+      PartnerName: 'Member B',
+      Status: 'Invitation Pending',
+      RegisteredAt: '2026-10-01T00:00:00.000Z',
+      TeamMembers: JSON.stringify([
+        { memberId: 'captain', name: 'Captain', gender: 'Male', accepted: true, experience },
+        { memberId: 'member-b', name: 'Member B', gender: 'Male', accepted: false },
+        { memberId: 'member-c', name: 'Member C', gender: 'Female', accepted: false },
+        { memberId: 'member-d', name: 'Member D', gender: 'Female', accepted: false },
+      ]),
+    };
+    const table = {
+      listEntities: jest.fn(() => ({
+        async *[Symbol.asyncIterator]() { yield invitation; },
+      })),
+    };
+    jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('member-d', 'Female'));
+    jest.spyOn(service as any, 'getTournamentRegistrationsTableClient').mockReturnValue(table);
+
+    const registrations = await service.getMyTournamentRegistrations('session');
+
+    expect(registrations).toHaveLength(1);
+    expect(registrations[0].isIncomingInvitation).toBe(true);
+    expect(registrations[0].teamMembers).toHaveLength(4);
+  });
+
   it('creates an invitation for an eligible partner', async () => {
     const table = { createEntity: jest.fn().mockResolvedValue(undefined) };
     jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('member-a'));
@@ -147,6 +223,55 @@ describe('AppService tournament registration', () => {
         Status: 'Invitation Pending',
       }),
     );
+  });
+
+  it('creates a Team Tournament invitation for three teammates with a 2-and-2 roster', async () => {
+    const teamMembers = new Map([
+      ['member-b', { name: 'Member B', gender: 'Male' }],
+      ['member-c', { name: 'Member C', gender: 'Female' }],
+      ['member-d', { name: 'Member D', gender: 'Female' }],
+    ]);
+    const table = { createEntity: jest.fn().mockResolvedValue(undefined) };
+    jest.spyOn(service as any, 'getTournament').mockResolvedValue(teamTournament);
+    jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('member-a', 'Male'));
+    jest.spyOn(service as any, 'getTournamentMember').mockImplementation(async (memberId: string) => teamMembers.get(memberId)!);
+    jest.spyOn(service as any, 'getTournamentRegistrationEntities').mockResolvedValue([]);
+    jest.spyOn(service as any, 'getTournamentRegistrationsTableClient').mockReturnValue(table);
+
+    const registration = await service.registerTournamentTeam(
+      'session',
+      teamTournament.tournamentId,
+      'member-b',
+      experience,
+      ['member-b', 'member-c', 'member-d'],
+    );
+
+    expect(registration.status).toBe('Invitation Pending');
+    expect(registration.teamMembers?.map((member) => [member.memberId, member.accepted])).toEqual([
+      ['member-a', true],
+      ['member-b', false],
+      ['member-c', false],
+      ['member-d', false],
+    ]);
+    expect(JSON.parse(table.createEntity.mock.calls[0][0].TeamMembers)).toHaveLength(4);
+  });
+
+  it('rejects a Team Tournament roster that is not two men and two women', async () => {
+    const teamMembers = new Map([
+      ['member-b', { name: 'Member B', gender: 'Male' }],
+      ['member-c', { name: 'Member C', gender: 'Male' }],
+      ['member-d', { name: 'Member D', gender: 'Female' }],
+    ]);
+    jest.spyOn(service as any, 'getTournament').mockResolvedValue(teamTournament);
+    jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('member-a', 'Male'));
+    jest.spyOn(service as any, 'getTournamentMember').mockImplementation(async (memberId: string) => teamMembers.get(memberId)!);
+
+    await expect(
+      service.registerTournamentTeam(
+        'session', teamTournament.tournamentId, 'member-b', experience,
+        ['member-b', 'member-c', 'member-d'],
+      ),
+    ).rejects.toThrow('exactly two men and two women');
   });
 
   it('requires tournament experience answers before registering', async () => {
@@ -227,6 +352,61 @@ describe('AppService tournament registration', () => {
     );
   });
 
+  it('requires all three Team Tournament invitees to accept before admin review', async () => {
+    let currentMemberId = 'member-b';
+    let invitation: Record<string, unknown> = {
+      partitionKey: teamTournament.tournamentId,
+      rowKey: 'member-a',
+      MemberId: 'member-a',
+      MemberName: 'member-a',
+      PartnerId: 'member-b',
+      PartnerName: 'member-b',
+      TournamentId: teamTournament.tournamentId,
+      TournamentName: teamTournament.name,
+      Category: teamTournament.category,
+      Level: teamTournament.level,
+      RegisteredAt: '2026-10-01T00:00:00.000Z',
+      Status: 'Invitation Pending',
+      PartnerAccepted: false,
+      TeamMembers: JSON.stringify([
+        { memberId: 'member-a', name: 'member-a', gender: 'Male', accepted: true, experience },
+        { memberId: 'member-b', name: 'member-b', gender: 'Male', accepted: false },
+        { memberId: 'member-c', name: 'member-c', gender: 'Female', accepted: false },
+        { memberId: 'member-d', name: 'member-d', gender: 'Female', accepted: false },
+      ]),
+    };
+    const table = {
+      getEntity: jest.fn(async () => invitation),
+      updateEntity: jest.fn(async (update: Record<string, unknown>) => {
+        invitation = { ...invitation, ...update };
+      }),
+    };
+    jest.spyOn(service as any, 'getTournament').mockResolvedValue(teamTournament);
+    jest.spyOn(service as any, 'getMemberSession').mockImplementation(async () =>
+      memberSession(currentMemberId, currentMemberId === 'member-b' ? 'Male' : 'Female'),
+    );
+    jest.spyOn(service as any, 'getTournamentMember').mockResolvedValue({ name: 'member-a', gender: 'Male' });
+    jest.spyOn(service as any, 'getTournamentRegistrationEntities').mockImplementation(async () => [invitation]);
+    jest.spyOn(service as any, 'getTournamentRegistrationsTableClient').mockReturnValue(table);
+
+    for (const [memberId, expectedStatus] of [
+      ['member-b', 'Invitation Pending'],
+      ['member-c', 'Invitation Pending'],
+      ['member-d', 'Pending Approval'],
+    ] as const) {
+      currentMemberId = memberId;
+      const result = await service.respondToTournamentInvitation(
+        'session', teamTournament.tournamentId, 'member-a', 'Accepted', experience,
+      );
+      expect(result.status).toBe(expectedStatus);
+      expect(result.teamMembers?.find((member) => member.memberId === memberId)).toMatchObject({
+        accepted: true,
+        experience,
+      });
+    }
+    expect(JSON.parse(String(invitation.TeamMembers)).every((member: { accepted: boolean }) => member.accepted)).toBe(true);
+  });
+
   it('requires the invited partner tournament experience before accepting', async () => {
     const table = {
       getEntity: jest.fn().mockResolvedValue({
@@ -255,6 +435,35 @@ describe('AppService tournament registration', () => {
     await expect(
       service.respondToTournamentInvitation('session', tournament.tournamentId, 'member-a', 'Accepted'),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('does not approve a Team Tournament until every teammate has accepted', async () => {
+    const table = {
+      getEntity: jest.fn().mockResolvedValue({
+        rowKey: 'member-a',
+        partitionKey: teamTournament.tournamentId,
+        MemberId: 'member-a',
+        PartnerId: 'member-b',
+        Category: teamTournament.category,
+        Level: teamTournament.level,
+        Status: 'Pending Approval',
+        PartnerAccepted: true,
+        TeamMembers: JSON.stringify([
+          { memberId: 'member-a', name: 'A', gender: 'Male', accepted: true },
+          { memberId: 'member-b', name: 'B', gender: 'Male', accepted: true },
+          { memberId: 'member-c', name: 'C', gender: 'Female', accepted: false },
+          { memberId: 'member-d', name: 'D', gender: 'Female', accepted: true },
+        ]),
+      }),
+      updateEntity: jest.fn().mockResolvedValue(undefined),
+    };
+    jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('admin', 'Male', 'admin'));
+    jest.spyOn(service as any, 'getTournamentRegistrationsTableClient').mockReturnValue(table);
+
+    await expect(
+      service.approveTournamentRegistration('session', teamTournament.tournamentId, 'member-a'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(table.updateEntity).not.toHaveBeenCalled();
   });
 
   it('requires an approved registration before accepting payment proof', async () => {

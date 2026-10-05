@@ -207,6 +207,7 @@ export class AppController {
     @Param('tournamentId') tournamentId: string,
     @Body('partnerId') partnerId: string,
     @Body('memberExperience') memberExperience: TournamentExperienceDetails,
+    @Body('teamMemberIds') teamMemberIds: string[] | undefined,
     @Headers('cookie') cookieHeader = '',
   ): Promise<TournamentRegistration> {
     return this.appService.registerTournamentTeam(
@@ -214,6 +215,7 @@ export class AppController {
       tournamentId,
       partnerId,
       memberExperience,
+      teamMemberIds,
     );
   }
 

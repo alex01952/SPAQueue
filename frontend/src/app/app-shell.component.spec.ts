@@ -61,5 +61,11 @@ describe('AppShellComponent breadcrumbs', () => {
       '/home',
       '/members',
     ]);
+
+    await router.navigateByUrl('/member-profile/member-row-key?embedded=true');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.global-brand')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.breadcrumbs')).toBeNull();
   });
 });

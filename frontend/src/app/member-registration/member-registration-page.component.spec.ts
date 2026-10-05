@@ -4,6 +4,23 @@ import { TestBed } from '@angular/core/testing';
 import { MemberRegistrationPageComponent } from './member-registration-page.component';
 
 describe('MemberRegistrationPageComponent', () => {
+  it('asks for biological gender and offers only Female and Male', async () => {
+    await TestBed.configureTestingModule({
+      imports: [MemberRegistrationPageComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(MemberRegistrationPageComponent);
+    fixture.detectChanges();
+
+    const genderField = fixture.nativeElement.querySelector('select[name="gender"]') as HTMLSelectElement;
+    expect(genderField.labels?.[0].textContent).toContain('Biological gender');
+    expect(Array.from(genderField.options).map((option) => option.textContent?.trim())).toEqual([
+      'Select',
+      'Female',
+      'Male',
+    ]);
+  });
+
   it('should submit the cropped WebP profile image instead of the original file', async () => {
     await TestBed.configureTestingModule({
       imports: [MemberRegistrationPageComponent],

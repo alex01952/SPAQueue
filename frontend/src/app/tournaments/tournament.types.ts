@@ -25,6 +25,14 @@ export interface TournamentExperienceDetails {
   winsOrPodiums?: number;
 }
 
+export interface TournamentTeamMember {
+  memberId: string;
+  name: string;
+  gender: string;
+  accepted: boolean;
+  experience?: TournamentExperienceDetails;
+}
+
 export interface Tournament {
   tournamentId: string;
   name: string;
@@ -49,6 +57,7 @@ export interface TournamentRegistration {
   partnerName: string;
   memberExperience?: TournamentExperienceDetails;
   partnerExperience?: TournamentExperienceDetails;
+  teamMembers?: TournamentTeamMember[];
   isIncomingInvitation?: boolean;
   status:
     | 'Invitation Pending'

@@ -22,6 +22,7 @@ h1, h2, p { margin-top: 0; }
 .registration-copy span, .registration-copy small, .event-row span { color: var(--text-secondary); font-size: .78rem; }
 .status-pill { padding: 6px 9px; color: #664d24; font-size: .71rem; font-weight: 700; background: rgba(217, 139, 43, .16); border-radius: 99px; white-space: nowrap; }
 .event-row > div { display: grid; flex: 1; gap: 5px; }
+.registrations-link { color: var(--accent-dark); font-size: .78rem; font-weight: 700; white-space: nowrap; }
 .empty-state { margin: 0; padding: 22px 0; color: var(--text-secondary); font-size: .85rem; }
 .notice { margin: 0 0 14px; padding: 11px 14px; border-radius: 4px; }
 .notice.success { color: #245b35; background: rgba(76, 140, 87, .14); }

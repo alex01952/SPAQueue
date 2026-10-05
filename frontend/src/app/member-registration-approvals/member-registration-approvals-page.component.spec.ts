@@ -71,7 +71,7 @@ describe('MemberRegistrationApprovalsPageComponent', () => {
     fixture.detectChanges();
 
     const iframe = fixture.nativeElement.querySelector('iframe') as HTMLIFrameElement;
-    expect(iframe.getAttribute('src')).toBe('/member-profile/member-42');
+    expect(iframe.getAttribute('src')).toBe('/member-profile/member-42?embedded=true');
     expect(iframe.getAttribute('title')).toBe('Casey Member member profile');
     http.verify();
   });

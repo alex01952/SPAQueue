@@ -14,7 +14,7 @@ export class MemberProfileFrameComponent {
   readonly closed = output<void>();
   protected readonly profileUrl = computed(() =>
     this.sanitizer.bypassSecurityTrustResourceUrl(
-      `/member-profile/${encodeURIComponent(this.memberId())}`,
+      `/member-profile/${encodeURIComponent(this.memberId())}?embedded=true`,
     ),
   );
 }

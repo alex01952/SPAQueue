@@ -50,6 +50,7 @@ export class TournamentsPageComponent implements OnInit {
   protected readonly activeTournament = signal<Tournament | null>(null);
   protected readonly eligiblePartners = signal<TournamentPartnerSearchResult[]>([]);
   protected readonly selectedPartnerId = signal('');
+  protected readonly selectedTeamMembers = signal<TournamentPartnerSearchResult[]>([]);
   protected readonly partnerSearchTerm = signal('');
   protected readonly isSearchingPartners = signal(false);
   protected readonly respondingInvitationId = signal('');
@@ -99,6 +100,7 @@ export class TournamentsPageComponent implements OnInit {
     this.activeTournament.set(tournament);
     this.eligiblePartners.set([]);
     this.selectedPartnerId.set('');
+    this.selectedTeamMembers.set([]);
     this.partnerSearchTerm.set('');
     this.partnerSearchTerms.next('');
     Object.assign(this.memberExperienceForm, emptyTournamentExperienceForm());
@@ -108,6 +110,7 @@ export class TournamentsPageComponent implements OnInit {
     this.activeTournament.set(null);
     this.eligiblePartners.set([]);
     this.selectedPartnerId.set('');
+    this.selectedTeamMembers.set([]);
     this.partnerSearchTerm.set('');
     this.partnerSearchTerms.next('');
     Object.assign(this.memberExperienceForm, emptyTournamentExperienceForm());
@@ -115,7 +118,7 @@ export class TournamentsPageComponent implements OnInit {
 
   protected searchEligiblePartners(searchTerm: string) {
     this.partnerSearchTerm.set(searchTerm);
-    this.selectedPartnerId.set('');
+    if (!this.isTeamTournament()) this.selectedPartnerId.set('');
     this.errorMessage.set('');
     this.partnerSearchTerms.next(searchTerm.trim().toLocaleLowerCase());
   }
@@ -124,7 +127,7 @@ export class TournamentsPageComponent implements OnInit {
     const tournament = this.activeTournament();
     if (
       !tournament ||
-      !this.selectedPartnerId() ||
+      (this.isTeamTournament() ? !this.isTeamRosterComplete() : !this.selectedPartnerId()) ||
       !this.isExperienceFormComplete(this.memberExperienceForm) ||
       this.isWorking()
     ) return;
@@ -134,14 +137,21 @@ export class TournamentsPageComponent implements OnInit {
       .post<TournamentRegistration>(
         `${this.apiUrl}/tournaments/${encodeURIComponent(tournament.tournamentId)}/registrations`,
         {
-          partnerId: this.selectedPartnerId(),
+          partnerId: this.isTeamTournament()
+            ? this.selectedTeamMembers()[0]?.memberId
+            : this.selectedPartnerId(),
+          ...(this.isTeamTournament()
+            ? { teamMemberIds: this.selectedTeamMembers().map((member) => member.memberId) }
+            : {}),
           memberExperience: this.toExperienceDetails(this.memberExperienceForm),
         },
         { withCredentials: true },
       )
       .subscribe({
         next: () => {
-          this.feedbackMessage.set('Invitation sent. Your registration will be reviewed after your partner accepts.');
+          this.feedbackMessage.set(this.isTeamTournament()
+            ? 'Invitations sent. The team will be reviewed after all three players accept.'
+            : 'Invitation sent. Your registration will be reviewed after your partner accepts.');
           this.closeRegistration();
           this.isWorking.set(false);
           this.loadPage();
@@ -172,8 +182,12 @@ export class TournamentsPageComponent implements OnInit {
         { withCredentials: true },
       )
       .subscribe({
-        next: () => {
-          this.feedbackMessage.set(decision === 'Accepted' ? 'Invitation accepted. The team is now pending admin approval.' : 'Invitation declined.');
+        next: (updatedRegistration) => {
+          this.feedbackMessage.set(decision === 'Declined'
+            ? 'Invitation declined.'
+            : updatedRegistration.status === 'Pending Approval'
+              ? 'All teammates accepted. The team is now pending admin approval.'
+              : 'You accepted the invitation. The team is waiting for its other teammates.');
           this.respondingInvitationId.set('');
           this.isWorking.set(false);
           this.loadPage();
@@ -188,6 +202,69 @@ export class TournamentsPageComponent implements OnInit {
   protected beginAccepting(registration: TournamentRegistration) {
     this.partnerExperienceForm = emptyTournamentExperienceForm();
     this.respondingInvitationId.set(registration.registrationId);
+  }
+
+  protected isTeamTournament(): boolean {
+    return this.activeTournament()?.category === 'Team Tournament';
+  }
+
+  protected isTeamMemberSelected(memberId: string): boolean {
+    return this.selectedTeamMembers().some((member) => member.memberId === memberId);
+  }
+
+  protected canToggleTeamMember(candidate: TournamentPartnerSearchResult): boolean {
+    if (this.isTeamMemberSelected(candidate.memberId)) return true;
+    if (!candidate.eligible || this.selectedTeamMembers().length >= 3) return false;
+    const group = this.genderGroup(candidate.gender);
+    if (!group) return false;
+    return this.teamRosterGenderCounts()[group] < 2;
+  }
+
+  protected teamMemberUnavailableReason(candidate: TournamentPartnerSearchResult): string | undefined {
+    if (!candidate.eligible) return candidate.unavailableReason;
+    if (this.isTeamMemberSelected(candidate.memberId)) return undefined;
+    if (!this.genderGroup(candidate.gender)) return 'Team Tournament players must be men or women.';
+    if (this.selectedTeamMembers().length >= 3) return 'Three teammates are already selected.';
+    if (!this.canToggleTeamMember(candidate)) return 'The roster can include only two men and two women.';
+    return undefined;
+  }
+
+  protected toggleTeamMember(candidate: TournamentPartnerSearchResult) {
+    if (this.isTeamMemberSelected(candidate.memberId)) {
+      this.selectedTeamMembers.update((members) => members.filter((member) => member.memberId !== candidate.memberId));
+      return;
+    }
+    if (this.canToggleTeamMember(candidate)) {
+      this.selectedTeamMembers.update((members) => [...members, candidate]);
+    }
+  }
+
+  protected isTeamRosterComplete(): boolean {
+    const counts = this.teamRosterGenderCounts();
+    return this.selectedTeamMembers().length === 3 && counts.male === 2 && counts.female === 2;
+  }
+
+  protected teamRosterSummary(): string {
+    if (!this.genderGroup(this.auth.member()?.gender ?? '')) {
+      return 'Your profile gender must be Male or Female to form a two-men, two-women team.';
+    }
+    const counts = this.teamRosterGenderCounts();
+    return `Selected ${this.selectedTeamMembers().length} of 3 teammates · ${counts.male}/2 men · ${counts.female}/2 women, including you.`;
+  }
+
+  protected teamMemberNames(registration: TournamentRegistration): string {
+    return registration.teamMembers?.length
+      ? registration.teamMembers.map((member) => member.name).join(' + ')
+      : `${registration.memberName} + ${registration.partnerName}`;
+  }
+
+  protected memberRegistrationStatus(registration: TournamentRegistration): string {
+    if (registration.status !== 'Invitation Pending') return registration.status;
+    const currentMemberId = this.auth.member()?.memberId;
+    const currentTeamMember = registration.teamMembers?.find((member) => member.memberId === currentMemberId);
+    return registration.teamMembers?.length && currentTeamMember?.accepted
+      ? 'Waiting for teammates'
+      : registration.status;
   }
 
   protected isExperienceFormComplete(form: TournamentExperienceForm): boolean {
@@ -246,9 +323,16 @@ export class TournamentsPageComponent implements OnInit {
   }
 
   protected isIncomingInvitation(registration: TournamentRegistration): boolean {
-    return registration.status === 'Invitation Pending' && (
+    if (registration.status !== 'Invitation Pending') return false;
+    const currentMemberId = this.auth.member()?.memberId;
+    if (registration.teamMembers?.length) {
+      return registration.teamMembers.some((member) =>
+        member.memberId === currentMemberId && !member.accepted,
+      );
+    }
+    return (
       registration.isIncomingInvitation === true ||
-      registration.partnerId === this.auth.member()?.memberId
+      registration.partnerId === currentMemberId
     );
   }
 
@@ -290,5 +374,21 @@ export class TournamentsPageComponent implements OnInit {
 
   private showError(error: HttpErrorResponse, fallback: string) {
     this.errorMessage.set(error.error?.message ?? fallback);
+  }
+
+  private teamRosterGenderCounts(): { male: number; female: number } {
+    const genders = [this.auth.member()?.gender ?? '', ...this.selectedTeamMembers().map((member) => member.gender)];
+    return genders.reduce((counts, gender) => {
+      const group = this.genderGroup(gender);
+      if (group) counts[group] += 1;
+      return counts;
+    }, { male: 0, female: 0 });
+  }
+
+  private genderGroup(gender: string): 'male' | 'female' | null {
+    const normalized = gender.trim().toLowerCase();
+    if (normalized === 'male' || normalized === 'man') return 'male';
+    if (normalized === 'female' || normalized === 'woman') return 'female';
+    return null;
   }
 }

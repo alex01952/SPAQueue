@@ -316,11 +316,20 @@ export interface TournamentRegistration {
   partnerName: string;
   memberExperience?: TournamentExperienceDetails;
   partnerExperience?: TournamentExperienceDetails;
+  teamMembers?: TournamentTeamMember[];
   isIncomingInvitation?: boolean;
   status: TournamentRegistrationStatus;
   registeredAt: string;
   approvedAt?: string;
   paymentProofUrl?: string;
+}
+
+export interface TournamentTeamMember {
+  memberId: string;
+  name: string;
+  gender: string;
+  accepted: boolean;
+  experience?: TournamentExperienceDetails;
 }
 
 export interface TournamentExperienceDetails {
@@ -1436,10 +1445,7 @@ export class AppService {
     const activeRegistrations = (await this.getTournamentRegistrationEntities(tournamentId))
       .filter((entity) => String(entity.Status ?? '') !== 'Invitation Declined');
     const committedMemberIds = new Set(
-      activeRegistrations.flatMap((entity) => [
-        String(entity.MemberId ?? ''),
-        String(entity.PartnerId ?? ''),
-      ]),
+      activeRegistrations.flatMap((entity) => this.tournamentRegistrationMemberIds(entity)),
     );
     const entries = this.getMembersTableClient().listEntities({
       queryOptions: {
@@ -1487,7 +1493,8 @@ export class AppService {
       for await (const entity of this.getTournamentRegistrationsTableClient().listEntities()) {
         if (
           String(entity.MemberId ?? '') !== session.member.memberId &&
-          String(entity.PartnerId ?? '') !== session.member.memberId
+          String(entity.PartnerId ?? '') !== session.member.memberId &&
+          !this.readTournamentTeamMembers(entity).some((member) => member.memberId === session.member.memberId)
         ) {
           continue;
         }
@@ -1497,7 +1504,9 @@ export class AppService {
             ...registration,
             isIncomingInvitation:
               registration.status === 'Invitation Pending' &&
-              registration.partnerId === session.member.memberId,
+              (registration.teamMembers?.some((member) =>
+                member.memberId === session.member.memberId && !member.accepted,
+              ) ?? registration.partnerId === session.member.memberId),
           });
         }
       }
@@ -1512,37 +1521,68 @@ export class AppService {
     tournamentId: string,
     partnerIdInput: string,
     memberExperienceInput: unknown,
+    teamMemberIdsInput?: unknown,
   ): Promise<TournamentRegistration> {
     const session = await this.getMemberSession(sessionToken);
     const tournament = await this.getTournament(tournamentId);
     const memberExperience = this.validateTournamentExperience(memberExperienceInput);
-    const partnerId = String(partnerIdInput ?? '').trim();
-    if (!partnerId || partnerId === session.member.memberId) {
-      throw new BadRequestException('Select another member as your partner.');
+    const isTeamTournament = tournament.category === 'Team Tournament';
+    const selectedMemberIds = isTeamTournament
+      ? this.validateTeamTournamentMemberIds(teamMemberIdsInput)
+      : [String(partnerIdInput ?? '').trim()];
+    if (
+      selectedMemberIds.some((memberId) => !memberId || memberId === session.member.memberId) ||
+      new Set(selectedMemberIds).size !== selectedMemberIds.length
+    ) {
+      throw new BadRequestException(isTeamTournament
+        ? 'Select three different members other than yourself.'
+        : 'Select another member as your partner.');
     }
 
-    const partner = await this.getTournamentMember(partnerId);
-    if (!this.isTournamentGenderEligible(tournament.category, session.member.gender, partner.gender)) {
+    const selectedMembers = await Promise.all(selectedMemberIds.map((memberId) => this.getTournamentMember(memberId)));
+    const partnerId = selectedMemberIds[0];
+    const partner = selectedMembers[0];
+    if (!isTeamTournament && !this.isTournamentGenderEligible(tournament.category, session.member.gender, partner.gender)) {
       throw new BadRequestException('Your selected partner does not meet this tournament category\'s gender requirements.');
     }
-    if (this.isTournamentCategoryGenderRestricted(tournament.category) && !this.isTournamentGenderEligible(tournament.category, session.member.gender, session.member.gender)) {
+    if (!isTeamTournament && this.isTournamentCategoryGenderRestricted(tournament.category) && !this.isTournamentGenderEligible(tournament.category, session.member.gender, session.member.gender)) {
       throw new BadRequestException('Your gender does not meet this tournament category\'s requirements.');
+    }
+
+    let teamMembers: TournamentTeamMember[] | undefined;
+    if (isTeamTournament) {
+      teamMembers = [
+        {
+          memberId: session.member.memberId,
+          name: session.member.name,
+          gender: session.member.gender,
+          accepted: true,
+          experience: memberExperience,
+        },
+        ...selectedMembers.map((member, index) => ({
+          memberId: selectedMemberIds[index],
+          name: member.name,
+          gender: member.gender,
+          accepted: false,
+        })),
+      ];
+      const maleCount = teamMembers.filter((member) => this.tournamentGenderGroup(member.gender) === 'male').length;
+      const femaleCount = teamMembers.filter((member) => this.tournamentGenderGroup(member.gender) === 'female').length;
+      if (maleCount !== 2 || femaleCount !== 2) {
+        throw new BadRequestException('A Team Tournament roster must contain exactly two men and two women, including you.');
+      }
     }
 
     const registrations = await this.getTournamentRegistrationEntities(tournamentId);
     const existing = registrations.find((entity) => String(entity.MemberId ?? '') === session.member.memberId);
     const activeRegistrations = registrations.filter((entity) => String(entity.Status ?? '') !== 'Invitation Declined');
-    if (activeRegistrations.some((entity) =>
-      [String(entity.MemberId ?? ''), String(entity.PartnerId ?? '')].includes(session.member.memberId),
-    )) {
-      throw new ConflictException('You already have an active team registration for this tournament.');
-    }
-    if (
-      activeRegistrations.some((entity) =>
-        [String(entity.MemberId ?? ''), String(entity.PartnerId ?? '')].includes(partnerId),
-      )
-    ) {
-      throw new ConflictException('That member already has an active registration or invitation for this tournament.');
+    const requestedMemberIds = [session.member.memberId, ...selectedMemberIds];
+    for (const memberId of requestedMemberIds) {
+      if (activeRegistrations.some((entity) => this.tournamentRegistrationMemberIds(entity).includes(memberId))) {
+        throw new ConflictException(memberId === session.member.memberId
+          ? 'You already have an active team registration for this tournament.'
+          : 'A selected member already has an active registration or invitation for this tournament.');
+      }
     }
     const activeCount = registrations.filter((entity) => String(entity.Status ?? '') !== 'Invitation Declined').length;
     if (activeCount >= tournament.maxSlots) {
@@ -1560,6 +1600,7 @@ export class AppService {
       partnerId,
       partnerName: partner.name,
       memberExperience,
+      ...(teamMembers ? { teamMembers } : {}),
       status: 'Invitation Pending',
       registeredAt: new Date().toISOString(),
     };
@@ -1601,7 +1642,12 @@ export class AppService {
       if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament invitation was not found.');
       throw this.createMemberAuthenticationStorageException(error);
     }
-    if (String(entity.PartnerId ?? '') !== session.member.memberId || String(entity.Status ?? '') !== 'Invitation Pending') {
+    const teamMembers = this.readTournamentTeamMembers(entity);
+    const teamInvitee = teamMembers.find((member) => member.memberId === session.member.memberId);
+    const canRespond = teamMembers.length
+      ? teamInvitee && !teamInvitee.accepted && teamInvitee.memberId !== String(entity.MemberId ?? '')
+      : String(entity.PartnerId ?? '') === session.member.memberId;
+    if (!canRespond || String(entity.Status ?? '') !== 'Invitation Pending') {
       throw new ForbiddenException('This invitation is not available to your account.');
     }
     if (decision === 'Accepted') {
@@ -1609,7 +1655,7 @@ export class AppService {
       const otherActiveRegistration = (await this.getTournamentRegistrationEntities(tournamentId)).some((candidate) =>
         String(candidate.rowKey ?? '') !== registrationId &&
         String(candidate.Status ?? '') !== 'Invitation Declined' &&
-        [String(candidate.MemberId ?? ''), String(candidate.PartnerId ?? '')].includes(session.member.memberId),
+        this.tournamentRegistrationMemberIds(candidate).includes(session.member.memberId),
       );
       if (otherActiveRegistration) {
         throw new ConflictException('You already have an active team registration for this tournament.');
@@ -1617,6 +1663,27 @@ export class AppService {
       const primary = await this.getTournamentMember(String(entity.MemberId ?? ''));
       if (!this.isTournamentGenderEligible(tournament.category, primary.gender, session.member.gender)) {
         throw new ConflictException('Your gender no longer meets this tournament category\'s requirements.');
+      }
+      if (teamMembers.length) {
+        const updatedTeamMembers = teamMembers.map((member) => member.memberId === session.member.memberId
+          ? { ...member, accepted: true, experience: partnerExperience }
+          : member);
+        const allAccepted = updatedTeamMembers.every((member) => member.accepted);
+        const status = allAccepted ? 'Pending Approval' : 'Invitation Pending';
+        const teamMembersJson = JSON.stringify(updatedTeamMembers);
+        await table.updateEntity({
+          partitionKey: tournamentId,
+          rowKey: registrationId,
+          TeamMembers: teamMembersJson,
+          PartnerAccepted: allAccepted,
+          Status: status,
+        }, 'Merge');
+        return this.toTournamentRegistration({
+          ...entity,
+          TeamMembers: teamMembersJson,
+          PartnerAccepted: allAccepted,
+          Status: status,
+        })!;
       }
       await table.updateEntity({
         partitionKey: tournamentId,
@@ -1671,7 +1738,11 @@ export class AppService {
       if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament registration was not found.');
       throw this.createMemberAuthenticationStorageException(error);
     }
-    if (String(entity.Status ?? '') !== 'Pending Approval' || entity.PartnerAccepted !== true) {
+    const teamMembers = this.readTournamentTeamMembers(entity);
+    const complete = teamMembers.length
+      ? teamMembers.length === 4 && teamMembers.every((member) => member.accepted)
+      : entity.PartnerAccepted === true;
+    if (String(entity.Status ?? '') !== 'Pending Approval' || !complete) {
       throw new ConflictException('Only complete teams can be approved.');
     }
     const approvedAt = new Date().toISOString();
@@ -3200,6 +3271,9 @@ export class AppService {
       ...(this.readTournamentExperience(entity, 'Partner')
         ? { partnerExperience: this.readTournamentExperience(entity, 'Partner') }
         : {}),
+      ...(this.readTournamentTeamMembers(entity).length
+        ? { teamMembers: this.readTournamentTeamMembers(entity) }
+        : {}),
       status,
       registeredAt: String(entity.RegisteredAt ?? ''),
       ...(entity.ApprovedAt ? { approvedAt: String(entity.ApprovedAt) } : {}),
@@ -3223,6 +3297,9 @@ export class AppService {
         : {}),
       ...(registration.partnerExperience
         ? this.toTournamentExperienceEntity('Partner', registration.partnerExperience)
+        : {}),
+      ...(registration.teamMembers
+        ? { TeamMembers: JSON.stringify(registration.teamMembers) }
         : {}),
       Status: registration.status,
       RegisteredAt: registration.registeredAt,
@@ -3318,6 +3395,46 @@ export class AppService {
         : {}),
       ...(typeof winsOrPodiums === 'number' ? { winsOrPodiums } : {}),
     };
+  }
+
+  private validateTeamTournamentMemberIds(input: unknown): string[] {
+    if (!Array.isArray(input) || input.length !== 3 || input.some((memberId) => typeof memberId !== 'string')) {
+      throw new BadRequestException('Select exactly three other members for a Team Tournament.');
+    }
+    return input.map((memberId: string) => memberId.trim());
+  }
+
+  private tournamentGenderGroup(gender: string): 'male' | 'female' | null {
+    const normalized = gender.trim().toLowerCase();
+    if (normalized === 'male' || normalized === 'man') return 'male';
+    if (normalized === 'female' || normalized === 'woman') return 'female';
+    return null;
+  }
+
+  private readTournamentTeamMembers(entity: Record<string, unknown>): TournamentTeamMember[] {
+    const value = entity.TeamMembers;
+    if (typeof value !== 'string') return [];
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((member): member is TournamentTeamMember =>
+        !!member &&
+        typeof member === 'object' &&
+        typeof (member as TournamentTeamMember).memberId === 'string' &&
+        typeof (member as TournamentTeamMember).name === 'string' &&
+        typeof (member as TournamentTeamMember).gender === 'string' &&
+        typeof (member as TournamentTeamMember).accepted === 'boolean',
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  private tournamentRegistrationMemberIds(entity: Record<string, unknown>): string[] {
+    const teamMembers = this.readTournamentTeamMembers(entity);
+    return teamMembers.length
+      ? teamMembers.map((member) => member.memberId)
+      : [String(entity.MemberId ?? ''), String(entity.PartnerId ?? '')];
   }
 
   private isTournamentCategoryGenderRestricted(category: TournamentCategory): boolean {
@@ -3558,6 +3675,10 @@ export class AppService {
           legacyAge < 1))
     ) {
       throw new BadRequestException('Complete all required member details.');
+    }
+
+    if (!['Male', 'Female'].includes(input.gender.trim())) {
+      throw new BadRequestException('Choose Male or Female as your biological gender.');
     }
 
     if (input.birthday && !this.isValidBirthday(input.birthday)) {

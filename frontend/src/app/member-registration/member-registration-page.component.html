@@ -27,7 +27,7 @@
         } @else if (member.locationType === 'Other') {
           <label [class.field-invalid]="registrationForm.submitted && !member.location"><span>Location <b aria-hidden="true">*</b></span><input name="location" [(ngModel)]="member.location" placeholder="Example: Albay, Naga, Cam Sur" required /><small>Enter your city or province.</small></label>
         }
-        <label [class.field-invalid]="registrationForm.submitted && gender.invalid"><span>Gender <b aria-hidden="true">*</b></span><select #gender="ngModel" name="gender" [(ngModel)]="member.gender" required><option value="" disabled>Select</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select><small>Select a gender.</small></label>
+        <label [class.field-invalid]="registrationForm.submitted && gender.invalid"><span>Biological gender <b aria-hidden="true">*</b></span><select #gender="ngModel" name="gender" [(ngModel)]="member.gender" required><option value="" disabled>Select</option><option>Female</option><option>Male</option></select><small>Select Male or Female.</small></label>
         <label [class.field-invalid]="registrationForm.submitted && duprId.invalid"><span>DUPR ID <b aria-hidden="true">*</b></span><input #duprId="ngModel" name="duprId" [(ngModel)]="member.duprId" required /><small>DUPR ID is required.</small></label>
         <label [class.field-invalid]="registrationForm.submitted && reClubId.invalid"><span>Reclub ID <b aria-hidden="true">*</b></span><input #reClubId="ngModel" name="reClubId" [(ngModel)]="member.reClubId" required /><small>Reclub ID is required.</small></label>
         <div class="image-upload full-width">

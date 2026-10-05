@@ -25,6 +25,7 @@ export class AppShellComponent {
   private readonly auth = inject(MemberAuthService);
 
   protected readonly currentPageTitle = signal('');
+  protected readonly isEmbeddedProfile = signal(false);
   protected readonly logoUrl =
     'https://seeturtlesphsa.blob.core.windows.net/spa/Assets/SPCLogo.png';
   protected readonly isNavigating = signal(false);
@@ -36,6 +37,7 @@ export class AppShellComponent {
   private readonly currentRoutePath = signal('');
   protected readonly showBreadcrumbs = computed(
     () =>
+      !this.isEmbeddedProfile() &&
       this.currentRoutePath() !== '/' &&
       this.currentRoutePath() !== '/home' &&
       !!this.currentPageTitle(),
@@ -53,7 +55,12 @@ export class AppShellComponent {
         }
 
         if (event instanceof NavigationEnd) {
-          this.currentRoutePath.set(event.urlAfterRedirects.split('?')[0]);
+          const urlTree = this.router.parseUrl(event.urlAfterRedirects);
+          const routePath = event.urlAfterRedirects.split('?')[0];
+          this.currentRoutePath.set(routePath);
+          this.isEmbeddedProfile.set(
+            routePath.startsWith('/member-profile/') && urlTree.queryParams['embedded'] === 'true',
+          );
           this.updateCurrentPageTitle();
           this.isNavigating.set(false);
           return;

@@ -1,10 +1,12 @@
 <div class="app-shell">
-  <header class="global-brand">
-    <a routerLink="/" aria-label="Sorsogon Pickleball Club home">
-      <img [src]="logoUrl" alt="Sorsogon Pickleball Club logo" />
-    </a>
-  </header>
-  @if (isNavigating()) {
+  @if (!isEmbeddedProfile()) {
+    <header class="global-brand">
+      <a routerLink="/" aria-label="Sorsogon Pickleball Club home">
+        <img [src]="logoUrl" alt="Sorsogon Pickleball Club logo" />
+      </a>
+    </header>
+  }
+  @if (isNavigating() && !isEmbeddedProfile()) {
     <div class="navigation-loading" role="status" aria-live="polite" aria-label="Loading page">
       <span class="loading-spinner" aria-hidden="true"></span>
       <span>Loading page...</span>
@@ -24,7 +26,7 @@
     </nav>
   }
   <router-outlet />
-  @if (member()) {
+  @if (member() && !isEmbeddedProfile()) {
     <app-club-chat-widget />
   }
 </div>

@@ -41,9 +41,12 @@
           </article>
           @if (activeTournament()?.tournamentId === tournament.tournamentId) {
             <form #registrationForm="ngForm" class="registration-panel" (ngSubmit)="register()">
-              <div><h3>Choose your partner</h3><p>{{ tournament.category }} eligibility is applied to this list.</p></div>
+              <div>
+                <h3>{{ tournament.category === 'Team Tournament' ? 'Build your four-player team' : 'Choose your partner' }}</h3>
+                <p>{{ tournament.category === 'Team Tournament' ? 'Select three teammates. Each player must accept before the team can be reviewed.' : tournament.category + ' eligibility is applied to this list.' }}</p>
+              </div>
               <label>
-                <span>Search eligible members</span>
+                <span>{{ tournament.category === 'Team Tournament' ? 'Search for teammates' : 'Search eligible members' }}</span>
                 <input type="search" name="partnerSearch" [ngModel]="partnerSearchTerm()" (ngModelChange)="searchEligiblePartners($event)" placeholder="Enter at least 2 characters" autocomplete="off" />
               </label>
               <div class="partner-results" role="listbox" aria-label="Matching eligible members">
@@ -55,14 +58,25 @@
                   <p class="inline-note">No approved members match this search.</p>
                 } @else {
                   @for (partner of eligiblePartners(); track partner.memberId) {
-                    <button type="button" class="partner-result" role="option" [disabled]="!partner.eligible" [attr.aria-selected]="selectedPartnerId() === partner.memberId" [class.is-selected]="selectedPartnerId() === partner.memberId" (click)="selectedPartnerId.set(partner.memberId)">
+                    <button type="button" class="partner-result" role="option" [disabled]="isTeamTournament() ? !canToggleTeamMember(partner) : !partner.eligible" [attr.aria-selected]="isTeamTournament() ? isTeamMemberSelected(partner.memberId) : selectedPartnerId() === partner.memberId" [class.is-selected]="isTeamTournament() ? isTeamMemberSelected(partner.memberId) : selectedPartnerId() === partner.memberId" (click)="isTeamTournament() ? toggleTeamMember(partner) : selectedPartnerId.set(partner.memberId)">
                       <span>{{ partner.name }}</span>
-                      @if (partner.unavailableReason) { <small>{{ partner.unavailableReason }}</small> }
+                      @if (isTeamTournament() ? teamMemberUnavailableReason(partner) : partner.unavailableReason; as reason) { <small>{{ reason }}</small> }
                     </button>
                   }
                 }
               </div>
-              @if (selectedPartnerId()) { <p class="selected-partner">Partner selected</p> }
+              @if (isTeamTournament()) {
+                <div class="team-roster-selection">
+                  <p [class.roster-valid]="isTeamRosterComplete()" [class.roster-invalid]="selectedTeamMembers().length === 3 && !isTeamRosterComplete()">{{ teamRosterSummary() }}</p>
+                  @if (selectedTeamMembers().length) {
+                    <ul>
+                      @for (teammate of selectedTeamMembers(); track teammate.memberId) {
+                        <li>{{ teammate.name }} <button type="button" class="quiet-button" [attr.aria-label]="'Remove ' + teammate.name" (click)="toggleTeamMember(teammate)">Remove</button></li>
+                      }
+                    </ul>
+                  }
+                </div>
+              } @else if (selectedPartnerId()) { <p class="selected-partner">Partner selected</p> }
               <fieldset class="experience-questions">
                 <legend>Your tournament history</legend>
                 <div class="experience-fields">
@@ -112,7 +126,7 @@
               </fieldset>
               <div class="panel-actions">
                 <button type="button" class="quiet-button" (click)="closeRegistration()">Cancel</button>
-                <button type="submit" class="action-button" [disabled]="registrationForm.invalid || !selectedPartnerId() || !isExperienceFormComplete(memberExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : 'Send invitation' }}</button>
+                <button type="submit" class="action-button" [disabled]="registrationForm.invalid || (isTeamTournament() ? !isTeamRosterComplete() : !selectedPartnerId()) || !isExperienceFormComplete(memberExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : (isTeamTournament() ? 'Invite teammates' : 'Send invitation') }}</button>
               </div>
             </form>
           }
@@ -133,9 +147,9 @@
           <article class="registration-row">
             <div class="registration-copy">
               <strong>{{ registration.tournamentName }}</strong>
-              <span>{{ registration.memberName }} + {{ registration.partnerName }} · {{ registration.category }}</span>
+              <span>{{ teamMemberNames(registration) }} · {{ registration.category }}</span>
             </div>
-            <span class="status-pill" [attr.data-status]="registration.status">{{ registration.status }}</span>
+            <span class="status-pill" [attr.data-status]="registration.status">{{ memberRegistrationStatus(registration) }}</span>
             @if (isIncomingInvitation(registration)) {
               @if (respondingInvitationId() !== registration.registrationId) {
                 <div class="row-actions">

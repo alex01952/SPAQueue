@@ -23,6 +23,7 @@ import { TeamMatchingPageComponent } from './team-matching/team-matching-page.co
 import { VerifyEmailPageComponent } from './verify-email/verify-email-page.component';
 import { TournamentsPageComponent } from './tournaments/tournaments-page.component';
 import { TournamentManagementPageComponent } from './tournaments/tournament-management-page.component';
+import { TournamentRegistrationsPageComponent } from './tournaments/tournament-registrations-page.component';
 
 export const routes: Routes = [
   {
@@ -176,6 +177,13 @@ export const routes: Routes = [
     canActivate: [memberAuthGuard, memberRoleGuard],
     data: { allowedRoles: ['admin'] },
     title: 'Tournament Management',
+  },
+  {
+    path: 'tournament-registrations',
+    component: TournamentRegistrationsPageComponent,
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'] },
+    title: 'Tournament Registrations',
   },
   {
     path: '**',

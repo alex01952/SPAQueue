@@ -373,6 +373,19 @@ describe('AppController', () => {
         'Grant the API managed identity the Storage Table Data Contributor role',
       );
     });
+
+    it('should reject registration gender values other than Male or Female', async () => {
+      await expect(appService.registerMember({
+        name: 'Alex Member',
+        email: 'alex@example.com',
+        contactNo: '09123456789',
+        emergencyContact: 'Emergency Contact',
+        age: 30,
+        gender: 'Non-binary',
+        password: 'strong-password',
+        skills: {},
+      })).rejects.toThrow('Choose Male or Female as your biological gender.');
+    });
   });
 
   describe('member authentication', () => {

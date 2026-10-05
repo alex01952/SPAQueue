@@ -1,0 +1,38 @@
+:host { display: block; color: var(--text-primary); }
+.registrations-shell { width: min(1050px, calc(100% - 40px)); margin: 0 auto; padding: 42px 0 70px; }
+.page-heading { padding: 12px 0 30px; }
+.back-link { display: inline-block; margin-bottom: 26px; color: var(--accent-dark); font-size: .82rem; font-weight: 700; text-decoration: none; }
+.back-link:hover { text-decoration: underline; }
+.eyebrow { margin: 0 0 9px; color: var(--accent-dark); font-size: .7rem; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+h1, h2, p { margin-top: 0; }
+.page-heading h1 { margin-bottom: 12px; font-size: clamp(2.4rem, 6vw, 4.6rem); line-height: .98; }
+.page-heading > p:last-child { color: var(--text-secondary); }
+.registration-browser { margin-top: 18px; }
+.browser-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding-bottom: 14px; border-bottom: 1px solid rgba(103, 70, 41, .2); }
+.browser-heading h2 { margin: 0; font-size: 1.5rem; }
+.tournament-picker { display: grid; min-width: min(360px, 100%); gap: 6px; color: var(--text-secondary); font-size: .76rem; font-weight: 700; }
+.tournament-picker select { min-height: 42px; padding: 8px 11px; color: var(--text-primary); font: inherit; background: rgba(255, 249, 240, .9); border: 1px solid rgba(103, 70, 41, .24); border-radius: 4px; }
+.event-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; padding: 18px 0; border-bottom: 1px solid rgba(103, 70, 41, .14); }
+.event-summary div { display: grid; gap: 5px; }
+.event-summary span { color: var(--text-secondary); font-size: .72rem; }
+.event-summary strong { font-size: .88rem; }
+.status-filters { display: flex; gap: 6px; overflow-x: auto; padding: 14px 0; border-bottom: 1px solid rgba(103, 70, 41, .14); }
+.status-filters button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; min-height: 36px; padding: 7px 10px; color: var(--text-secondary); font: inherit; font-size: .76rem; font-weight: 700; background: transparent; border: 1px solid transparent; border-radius: 4px; cursor: pointer; }
+.status-filters button.is-active { color: #245b35; background: rgba(76, 140, 87, .12); border-color: rgba(45, 104, 65, .28); }
+.status-filters button span { color: var(--text-primary); font-size: .72rem; }
+.registration-list { display: grid; }
+.registration-row { display: flex; align-items: center; gap: 18px; min-height: 76px; padding: 14px 4px; border-bottom: 1px solid rgba(103, 70, 41, .16); }
+.registration-copy { display: grid; flex: 1; min-width: 0; gap: 5px; }
+.registration-copy strong { overflow-wrap: anywhere; }
+.member-profile-link { color: var(--accent-dark); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.member-profile-link:hover { color: #245b35; }
+.member-profile-link:focus-visible { outline: 2px solid #2d6841; outline-offset: 3px; }
+.registration-copy span, .registration-copy small { color: var(--text-secondary); font-size: .78rem; }
+.status-pill { padding: 6px 9px; color: #624b24; font-size: .71rem; font-weight: 700; background: rgba(217, 139, 43, .16); border-radius: 99px; white-space: nowrap; }
+.status-pill[data-status='approved'], .status-pill[data-status='payment-submitted'] { color: #245b35; background: rgba(76, 140, 87, .16); }
+.status-pill[data-status='invitation-declined'] { color: #842f22; background: rgba(184, 67, 49, .12); }
+.proof-link { color: var(--accent-dark); font-size: .78rem; font-weight: 700; }
+.empty-state { margin: 0; padding: 22px 0; color: var(--text-secondary); font-size: .85rem; }
+.notice { margin: 0 0 14px; padding: 11px 14px; border-radius: 4px; }
+.notice.error { color: #842f22; background: rgba(184, 67, 49, .12); }
+@media (max-width: 680px) { .registrations-shell { width: calc(100% - 24px); padding: 28px 0 48px; } .browser-heading { align-items: stretch; flex-direction: column; } .tournament-picker { min-width: 0; } .event-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .registration-row { align-items: flex-start; flex-wrap: wrap; } .registration-copy { flex-basis: 100%; } }

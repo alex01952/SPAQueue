@@ -2,6 +2,7 @@ import { DatePipe } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { getApiBaseUrl } from '../api-base-url';
 import {
   tournamentCategories,
@@ -13,7 +14,7 @@ import {
 
 @Component({
   selector: 'app-tournament-management-page',
-  imports: [DatePipe, FormsModule],
+  imports: [DatePipe, FormsModule, RouterLink],
   templateUrl: './tournament-management-page.component.html',
   styleUrl: './tournament-management-page.component.scss',
 })
@@ -85,6 +86,12 @@ export class TournamentManagementPageComponent implements OnInit {
 
   protected pendingApprovals() {
     return this.registrations().filter((item) => item.status === 'Pending Approval');
+  }
+
+  protected teamMemberNames(registration: TournamentRegistration): string {
+    return registration.teamMembers?.length
+      ? registration.teamMembers.map((member) => member.name).join(' + ')
+      : `${registration.memberName} + ${registration.partnerName}`;
   }
 
   protected experienceSummary(name: string, details?: TournamentExperienceDetails): string {
