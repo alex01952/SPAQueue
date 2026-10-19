@@ -19,7 +19,7 @@ type RegistrationStatusFilter = 'All' | TournamentRegistration['status'];
 export class TournamentRegistrationsPageComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly route = inject(ActivatedRoute);
-  private readonly apiUrl = getApiBaseUrl();
+  protected readonly apiUrl = getApiBaseUrl();
 
   protected readonly tournaments = signal<Tournament[]>([]);
   protected readonly registrations = signal<TournamentRegistration[]>([]);
@@ -28,6 +28,8 @@ export class TournamentRegistrationsPageComponent implements OnInit {
   protected readonly statusFilter = signal<RegistrationStatusFilter>('All');
   protected readonly isLoading = signal(true);
   protected readonly errorMessage = signal('');
+  protected readonly feedbackMessage = signal('');
+  protected readonly isWorking = signal(false);
   protected readonly statusFilters: { label: string; value: RegistrationStatusFilter }[] = [
     { label: 'All', value: 'All' },
     { label: 'Awaiting partner', value: 'Invitation Pending' },
@@ -35,12 +37,19 @@ export class TournamentRegistrationsPageComponent implements OnInit {
     { label: 'Approved', value: 'Approved' },
     { label: 'Declined', value: 'Invitation Declined' },
     { label: 'Payment submitted', value: 'Payment Submitted' },
+    { label: 'Paid', value: 'Paid' },
   ];
   protected readonly selectedTournament = computed(() =>
     this.tournaments().find((item) => item.tournamentId === this.selectedTournamentId()) ?? null,
   );
   protected readonly tournamentRegistrations = computed(() =>
     this.registrations().filter((item) => item.tournamentId === this.selectedTournamentId()),
+  );
+  protected readonly approvedTeamCount = computed(() =>
+    this.tournamentRegistrations().filter((item) => ['Approved', 'Payment Submitted', 'Paid'].includes(item.status)).length,
+  );
+  protected readonly pendingTeamCount = computed(() =>
+    this.tournamentRegistrations().filter((item) => ['Invitation Pending', 'Pending Approval'].includes(item.status)).length,
   );
   protected readonly filteredRegistrations = computed(() => {
     const status = this.statusFilter();
@@ -92,6 +101,58 @@ export class TournamentRegistrationsPageComponent implements OnInit {
 
   protected statusClass(status: TournamentRegistration['status']): string {
     return status.toLowerCase().replaceAll(' ', '-');
+  }
+
+  protected canMarkPaid(registration: TournamentRegistration): boolean {
+    return registration.status === 'Approved' || registration.status === 'Payment Submitted';
+  }
+
+  protected markPaid(registration: TournamentRegistration) {
+    if (this.isWorking() || !this.canMarkPaid(registration)) return;
+    if (!window.confirm('Confirm that payment has been received for this team? Marking it paid locks all player changes, even if no proof has been uploaded.')) return;
+    this.isWorking.set(true);
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.http.patch<TournamentRegistration>(
+      `${this.apiUrl}/admin/tournaments/${encodeURIComponent(registration.tournamentId)}/registrations/${encodeURIComponent(registration.registrationId)}/paid`,
+      {}, { withCredentials: true },
+    ).subscribe({
+      next: (updated) => {
+        this.registrations.update((items) => items.map((item) =>
+          item.tournamentId === updated.tournamentId && item.registrationId === updated.registrationId ? updated : item,
+        ));
+        this.feedbackMessage.set('Registration marked as paid. Player changes are now locked.');
+        this.isWorking.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.errorMessage.set(error.error?.message ?? 'Unable to mark this registration as paid.');
+        this.isWorking.set(false);
+      },
+    });
+  }
+
+  protected removeRegistration(registration: TournamentRegistration) {
+    if (this.isWorking()) return;
+    if (!window.confirm(`Remove this ${registration.status === 'Paid' ? 'PAID ' : ''}registration for all team members? This releases the slot but does not issue a refund.`)) return;
+    this.isWorking.set(true);
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.http.delete<{ deleted: true }>(
+      `${this.apiUrl}/admin/tournaments/${encodeURIComponent(registration.tournamentId)}/registrations/${encodeURIComponent(registration.registrationId)}`,
+      { withCredentials: true },
+    ).subscribe({
+      next: () => {
+        this.registrations.update((items) => items.filter((item) =>
+          item.tournamentId !== registration.tournamentId || item.registrationId !== registration.registrationId,
+        ));
+        this.feedbackMessage.set('Registration removed for all team members.');
+        this.isWorking.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.errorMessage.set(error.error?.message ?? 'Unable to remove this registration.');
+        this.isWorking.set(false);
+      },
+    });
   }
 
   private loadData() {

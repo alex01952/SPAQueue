@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { DefaultAzureCredential } from '@azure/identity';
 import { TableClient } from '@azure/data-tables';
+import type { TableEntityResult } from '@azure/data-tables';
 import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
 import {
   createHash,
@@ -281,7 +282,8 @@ export type TournamentRegistrationStatus =
   | "Invitation Declined"
   | "Pending Approval"
   | "Approved"
-  | "Payment Submitted";
+  | "Payment Submitted"
+  | "Paid";
 
 export interface Tournament {
   tournamentId: string;
@@ -292,7 +294,82 @@ export interface Tournament {
   date: string;
   location: string;
   registrationCount: number;
+  pendingRegistrationCount: number;
+  termsUrl?: string;
+  termsFileName?: string;
+  registrationClosed: boolean;
+  registrationClosedAt?: string;
   createdAt: string;
+}
+
+export interface TournamentRosterPlayer {
+  memberId: string;
+  name: string;
+  gender: string;
+}
+
+export interface TournamentRosterTeam {
+  registrationId: string;
+  status: TournamentRegistrationStatus;
+  players: TournamentRosterPlayer[];
+  isOwnTeam: boolean;
+}
+
+export interface TournamentRoster {
+  tournamentId: string;
+  tournamentName: string;
+  category: TournamentCategory;
+  level: TournamentLevel;
+  teams: TournamentRosterTeam[];
+}
+
+export const TOURNAMENT_PROTEST_CATEGORIES = [
+  'Gender requirement',
+  'Skill level eligibility',
+  'Tournament experience declaration',
+  'Terms and conditions',
+  'Other',
+] as const;
+
+export type TournamentProtestCategory = (typeof TOURNAMENT_PROTEST_CATEGORIES)[number];
+export type TournamentProtestStatus = 'Open' | 'Upheld' | 'Dismissed';
+
+export interface TournamentProtestEvidence {
+  fileName: string;
+  contentType: string;
+  size: number;
+  uploadedAt: string;
+  url: string;
+}
+
+interface StoredTournamentProtestEvidence extends Omit<TournamentProtestEvidence, 'url'> {
+  blobName: string;
+}
+
+export interface TournamentProtest {
+  tournamentId: string;
+  protestId: string;
+  tournamentName: string;
+  protesterId: string;
+  protesterName: string;
+  protesterRegistrationId: string;
+  protestedMemberId: string;
+  protestedMemberName: string;
+  protestedRegistrationId: string;
+  eligibilityCategory: TournamentProtestCategory;
+  reason: string;
+  evidence: TournamentProtestEvidence[];
+  status: TournamentProtestStatus;
+  createdAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  reviewNote?: string;
+}
+
+export interface TournamentProtestInput {
+  protestedMemberId?: string;
+  eligibilityCategory?: string;
+  reason?: string;
 }
 
 export interface TournamentCreateInput {
@@ -316,12 +393,31 @@ export interface TournamentRegistration {
   partnerName: string;
   memberExperience?: TournamentExperienceDetails;
   partnerExperience?: TournamentExperienceDetails;
+  termsUrl?: string;
+  memberTermsAcceptedAt?: string;
+  partnerTermsAcceptedAt?: string;
   teamMembers?: TournamentTeamMember[];
   isIncomingInvitation?: boolean;
   status: TournamentRegistrationStatus;
   registeredAt: string;
   approvedAt?: string;
   paymentProofUrl?: string;
+  paymentProofs?: TournamentPaymentProof[];
+  paidAt?: string;
+  paidBy?: string;
+}
+
+export interface TournamentPaymentProof {
+  memberId: string;
+  memberName: string;
+  fileName: string;
+  uploadedAt: string;
+  url: string;
+}
+
+interface StoredTournamentPaymentProof extends Omit<TournamentPaymentProof, 'url'> {
+  blobName: string;
+  contentType: string;
 }
 
 export interface TournamentTeamMember {
@@ -330,6 +426,7 @@ export interface TournamentTeamMember {
   gender: string;
   accepted: boolean;
   experience?: TournamentExperienceDetails;
+  termsAcceptedAt?: string;
 }
 
 export interface TournamentExperienceDetails {
@@ -340,12 +437,14 @@ export interface TournamentExperienceDetails {
   winsOrPodiums?: number;
 }
 
-export interface TournamentPaymentProofUploadInput {
+export interface TournamentDocumentUploadInput {
   originalname: string;
   buffer: Buffer;
   mimetype?: string;
   size: number;
 }
+
+export type TournamentPaymentProofUploadInput = TournamentDocumentUploadInput;
 
 export interface TournamentPartnerSearchResult {
   memberId: string;
@@ -446,6 +545,8 @@ export class AppService {
     process.env.TOURNAMENTS_AZURE_TABLE ?? 'Tournaments';
   private readonly tournamentRegistrationsAzureTable =
     process.env.TOURNAMENT_REGISTRATIONS_AZURE_TABLE ?? 'TournamentRegistrations';
+  private readonly tournamentProtestsAzureTable =
+    process.env.TOURNAMENT_PROTESTS_AZURE_TABLE ?? 'TournamentProtests';
   private readonly messagesAzureTable =
     process.env.MESSAGES_AZURE_TABLE ?? 'Messages';
   private readonly chatRetentionDays = Math.max(
@@ -1346,13 +1447,17 @@ export class AppService {
     await this.getMemberSession(sessionToken);
     const tournaments: Tournament[] = [];
     const registrationCounts = new Map<string, number>();
+    const pendingRegistrationCounts = new Map<string, number>();
 
     try {
       for await (const entity of this.getTournamentRegistrationsTableClient().listEntities()) {
         const status = String(entity.Status ?? '');
-        if (status === 'Invitation Declined') continue;
         const tournamentId = String(entity.TournamentId ?? entity.partitionKey ?? '');
-        registrationCounts.set(tournamentId, (registrationCounts.get(tournamentId) ?? 0) + 1);
+        if (this.isApprovedTournamentRegistration(status)) {
+          registrationCounts.set(tournamentId, (registrationCounts.get(tournamentId) ?? 0) + 1);
+        } else if (status === 'Invitation Pending' || status === 'Pending Approval') {
+          pendingRegistrationCounts.set(tournamentId, (pendingRegistrationCounts.get(tournamentId) ?? 0) + 1);
+        }
       }
 
       for await (const entity of this.getTournamentsTableClient().listEntities({
@@ -1363,6 +1468,7 @@ export class AppService {
           tournaments.push({
             ...tournament,
             registrationCount: registrationCounts.get(tournament.tournamentId) ?? 0,
+            pendingRegistrationCount: pendingRegistrationCounts.get(tournament.tournamentId) ?? 0,
           });
         }
       }
@@ -1376,6 +1482,7 @@ export class AppService {
   async createTournament(
     sessionToken: string,
     input: TournamentCreateInput,
+    termsFile?: TournamentDocumentUploadInput,
   ): Promise<Tournament> {
     const session = await this.getMemberSession(sessionToken);
     if (session.member.role !== 'admin') {
@@ -1405,6 +1512,24 @@ export class AppService {
     }
 
     const tournamentId = randomUUID();
+    let termsBlobName: string | undefined;
+    if (termsFile) {
+      if (
+        termsFile.mimetype !== 'application/pdf' ||
+        !termsFile.size || termsFile.size > 10 * 1024 * 1024 ||
+        termsFile.buffer.length !== termsFile.size ||
+        termsFile.buffer.subarray(0, 5).toString('ascii') !== '%PDF-'
+      ) {
+        throw new BadRequestException('Terms and conditions must be a PDF file no larger than 10 MB.');
+      }
+      termsBlobName = `tournament-terms/${tournamentId}/${randomUUID()}.pdf`;
+      const blob = this.getTournamentDocumentBlobClient(termsBlobName);
+      try {
+        await this.uploadParticipationBlob(blob, termsFile.buffer, 'application/pdf');
+      } catch (error) {
+        throw this.createAzureUploadException(error, termsBlobName);
+      }
+    }
     const createdAt = new Date().toISOString();
     const tournament: Tournament = {
       tournamentId,
@@ -1415,7 +1540,13 @@ export class AppService {
       date,
       location,
       registrationCount: 0,
+      pendingRegistrationCount: 0,
+      registrationClosed: false,
       createdAt,
+      ...(termsFile ? {
+        termsUrl: this.tournamentTermsUrl(tournamentId),
+        termsFileName: termsFile.originalname,
+      } : {}),
     };
 
     try {
@@ -1424,12 +1555,35 @@ export class AppService {
         rowKey: tournamentId,
         ...this.toTournamentEntity(tournament),
         CreatedBy: session.member.memberId,
+        ...(termsFile && termsBlobName ? { TermsBlobName: termsBlobName, TermsFileName: termsFile.originalname } : {}),
       });
     } catch (error) {
       throw this.createMemberAuthenticationStorageException(error);
     }
 
     return tournament;
+  }
+
+  async getTournamentTerms(sessionToken: string, tournamentId: string): Promise<Buffer> {
+    await this.getMemberSession(sessionToken);
+    let entity: Record<string, unknown>;
+    try {
+      entity = await this.getTournamentsTableClient().getEntity('tournaments', tournamentId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    const blobName = String(entity.TermsBlobName ?? '');
+    if (!blobName) throw new NotFoundException('This tournament has no terms and conditions document.');
+    if (!blobName.startsWith(`tournament-terms/${tournamentId}/`)) {
+      throw new BadGatewayException('Stored tournament terms location is invalid.');
+    }
+    try {
+      return await this.getTournamentDocumentBlobClient(blobName).downloadToBuffer();
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Terms and conditions document was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
   }
 
   async getEligibleTournamentPartners(
@@ -1522,9 +1676,13 @@ export class AppService {
     partnerIdInput: string,
     memberExperienceInput: unknown,
     teamMemberIdsInput?: unknown,
+    termsAccepted?: unknown,
   ): Promise<TournamentRegistration> {
     const session = await this.getMemberSession(sessionToken);
     const tournament = await this.getTournament(tournamentId);
+    this.requireOpenTournamentRegistration(tournament);
+    this.requireTournamentTermsAgreement(tournament, termsAccepted);
+    const termsAcceptedAt = tournament.termsUrl ? new Date().toISOString() : undefined;
     const memberExperience = this.validateTournamentExperience(memberExperienceInput);
     const isTeamTournament = tournament.category === 'Team Tournament';
     const selectedMemberIds = isTeamTournament
@@ -1545,9 +1703,6 @@ export class AppService {
     if (!isTeamTournament && !this.isTournamentGenderEligible(tournament.category, session.member.gender, partner.gender)) {
       throw new BadRequestException('Your selected partner does not meet this tournament category\'s gender requirements.');
     }
-    if (!isTeamTournament && this.isTournamentCategoryGenderRestricted(tournament.category) && !this.isTournamentGenderEligible(tournament.category, session.member.gender, session.member.gender)) {
-      throw new BadRequestException('Your gender does not meet this tournament category\'s requirements.');
-    }
 
     let teamMembers: TournamentTeamMember[] | undefined;
     if (isTeamTournament) {
@@ -1558,6 +1713,7 @@ export class AppService {
           gender: session.member.gender,
           accepted: true,
           experience: memberExperience,
+          ...(termsAcceptedAt ? { termsAcceptedAt } : {}),
         },
         ...selectedMembers.map((member, index) => ({
           memberId: selectedMemberIds[index],
@@ -1584,8 +1740,8 @@ export class AppService {
           : 'A selected member already has an active registration or invitation for this tournament.');
       }
     }
-    const activeCount = registrations.filter((entity) => String(entity.Status ?? '') !== 'Invitation Declined').length;
-    if (activeCount >= tournament.maxSlots) {
+    const approvedCount = registrations.filter((entity) => this.isApprovedTournamentRegistration(String(entity.Status ?? ''))).length;
+    if (approvedCount >= tournament.maxSlots) {
       throw new ConflictException('This tournament has reached its maximum number of team slots.');
     }
 
@@ -1600,6 +1756,7 @@ export class AppService {
       partnerId,
       partnerName: partner.name,
       memberExperience,
+      ...(termsAcceptedAt ? { termsUrl: tournament.termsUrl, memberTermsAcceptedAt: termsAcceptedAt } : {}),
       ...(teamMembers ? { teamMembers } : {}),
       status: 'Invitation Pending',
       registeredAt: new Date().toISOString(),
@@ -1622,12 +1779,45 @@ export class AppService {
     return registration;
   }
 
+  async cancelTournamentRegistration(
+    sessionToken: string,
+    tournamentId: string,
+    registrationId: string,
+  ): Promise<{ deleted: true }> {
+    const session = await this.getMemberSession(sessionToken);
+    const table = this.getTournamentRegistrationsTableClient();
+    let entity: TableEntityResult<Record<string, unknown>>;
+    try {
+      entity = await table.getEntity(tournamentId, registrationId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament registration was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    if (!this.tournamentRegistrationMemberIds(entity).includes(session.member.memberId)) {
+      throw new ForbiddenException('You are not part of this tournament team.');
+    }
+    if (!['Invitation Pending', 'Pending Approval', 'Approved', 'Payment Submitted'].includes(String(entity.Status ?? ''))) {
+      throw new ConflictException('Only unpaid, active tournament registrations can be cancelled.');
+    }
+    try {
+      await table.deleteEntity(tournamentId, registrationId, { etag: entity.etag });
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament registration was not found.');
+      if (this.isTournamentRegistrationVersionConflict(error)) {
+        throw new ConflictException('The registration changed. Refresh and check its payment status before cancelling.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return { deleted: true };
+  }
+
   async respondToTournamentInvitation(
     sessionToken: string,
     tournamentId: string,
     registrationId: string,
     decision: 'Accepted' | 'Declined',
     partnerExperienceInput?: unknown,
+    termsAccepted?: unknown,
   ): Promise<TournamentRegistration> {
     const session = await this.getMemberSession(sessionToken);
     if (decision !== 'Accepted' && decision !== 'Declined') {
@@ -1651,6 +1841,9 @@ export class AppService {
       throw new ForbiddenException('This invitation is not available to your account.');
     }
     if (decision === 'Accepted') {
+      this.requireOpenTournamentRegistration(tournament);
+      this.requireTournamentTermsAgreement(tournament, termsAccepted);
+      const termsAcceptedAt = tournament.termsUrl ? new Date().toISOString() : undefined;
       const partnerExperience = this.validateTournamentExperience(partnerExperienceInput);
       const otherActiveRegistration = (await this.getTournamentRegistrationEntities(tournamentId)).some((candidate) =>
         String(candidate.rowKey ?? '') !== registrationId &&
@@ -1666,7 +1859,7 @@ export class AppService {
       }
       if (teamMembers.length) {
         const updatedTeamMembers = teamMembers.map((member) => member.memberId === session.member.memberId
-          ? { ...member, accepted: true, experience: partnerExperience }
+          ? { ...member, accepted: true, experience: partnerExperience, ...(termsAcceptedAt ? { termsAcceptedAt } : {}) }
           : member);
         const allAccepted = updatedTeamMembers.every((member) => member.accepted);
         const status = allAccepted ? 'Pending Approval' : 'Invitation Pending';
@@ -1690,11 +1883,13 @@ export class AppService {
         rowKey: registrationId,
         PartnerAccepted: true,
         ...this.toTournamentExperienceEntity('Partner', partnerExperience),
+        ...(termsAcceptedAt ? { PartnerTermsAcceptedAt: termsAcceptedAt } : {}),
         Status: 'Pending Approval',
       }, 'Merge');
       return this.toTournamentRegistration({
         ...entity,
         ...this.toTournamentExperienceEntity('Partner', partnerExperience),
+        ...(termsAcceptedAt ? { PartnerTermsAcceptedAt: termsAcceptedAt } : {}),
         Status: 'Pending Approval',
       })!;
     } else {
@@ -1745,6 +1940,14 @@ export class AppService {
     if (String(entity.Status ?? '') !== 'Pending Approval' || !complete) {
       throw new ConflictException('Only complete teams can be approved.');
     }
+    const tournament = await this.getTournament(tournamentId);
+    const registrations = await this.getTournamentRegistrationEntities(tournamentId);
+    const approvedCount = registrations.filter((registration) =>
+      this.isApprovedTournamentRegistration(String(registration.Status ?? '')),
+    ).length;
+    if (approvedCount >= tournament.maxSlots) {
+      throw new ConflictException('This tournament has reached its maximum number of approved teams.');
+    }
     const approvedAt = new Date().toISOString();
     await table.updateEntity({ partitionKey: tournamentId, rowKey: registrationId, Status: 'Approved', ApprovedAt: approvedAt }, 'Merge');
     return this.toTournamentRegistration({ ...entity, Status: 'Approved', ApprovedAt: approvedAt })!;
@@ -1758,20 +1961,14 @@ export class AppService {
   ): Promise<TournamentRegistration> {
     const session = await this.getMemberSession(sessionToken);
     const table = this.getTournamentRegistrationsTableClient();
-    let entity: Record<string, unknown>;
-    try {
-      entity = await table.getEntity(tournamentId, registrationId);
-    } catch (error) {
-      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament registration was not found.');
-      throw this.createMemberAuthenticationStorageException(error);
-    }
-    if (
-      String(entity.MemberId ?? '') !== session.member.memberId &&
-      String(entity.PartnerId ?? '') !== session.member.memberId
-    ) {
+    let entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
+    if (!this.tournamentRegistrationMemberIds(entity).includes(session.member.memberId)) {
       throw new ForbiddenException('You are not part of this tournament team.');
     }
-    if (String(entity.Status ?? '') !== 'Approved') {
+    if (entity.Status === 'Paid') {
+      throw new ConflictException('This registration is already paid. Only an admin can change it.');
+    }
+    if (!['Approved', 'Payment Submitted'].includes(String(entity.Status ?? ''))) {
       throw new ConflictException('Payment proof is available after the team registration is approved.');
     }
     const extensions: Record<string, string> = {
@@ -1783,28 +1980,365 @@ export class AppService {
     if (!extension || !file.size || file.size > 10 * 1024 * 1024) {
       throw new BadRequestException('Payment proof must be a PDF, JPEG, or PNG file no larger than 10 MB.');
     }
-    if (!this.azureStorageAccount || !this.azureContainerName) {
-      throw new BadRequestException('OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT and OP_PARTICIPATION_AZURE_CONTAINER are required for uploads.');
-    }
     const blobName = `tournament-payment-proofs/${tournamentId}/${registrationId}/${randomUUID()}.${extension}`;
-    const blockBlobClient = new BlobServiceClient(
-      `https://${this.azureStorageAccount}.blob.core.windows.net`,
-      new DefaultAzureCredential(),
-      { retryOptions: { maxTries: 1, tryTimeoutInMs: this.azureUploadTimeoutMs } },
-    ).getContainerClient(this.azureContainerName).getBlockBlobClient(blobName);
+    const blockBlobClient = this.getTournamentPaymentProofBlobClient(blobName);
     try {
       await this.uploadParticipationBlob(blockBlobClient, file.buffer, file.mimetype);
     } catch (error) {
       throw this.createAzureUploadException(error, blobName);
     }
-    await table.updateEntity({
+    const proof: StoredTournamentPaymentProof = {
+      memberId: session.member.memberId,
+      memberName: session.member.name,
+      fileName: file.originalname,
+      uploadedAt: new Date().toISOString(),
+      blobName,
+      contentType: file.mimetype!.toLowerCase(),
+    };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      // Re-read after uploading so concurrent proofs are retained and Paid cannot be overwritten.
+      entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
+      if (!this.tournamentRegistrationMemberIds(entity).includes(session.member.memberId)) {
+        throw new ForbiddenException('You are no longer part of this tournament team.');
+      }
+      if (!['Approved', 'Payment Submitted'].includes(String(entity.Status ?? ''))) {
+        throw new ConflictException('The registration is no longer open for payment-proof uploads. Refresh its status.');
+      }
+      const proofs = this.readTournamentPaymentProofs(entity).filter((item) => item.memberId !== proof.memberId);
+      const update = {
+        partitionKey: tournamentId,
+        rowKey: registrationId,
+        Status: 'Payment Submitted',
+        PaymentProofs: JSON.stringify([...proofs, proof]),
+      };
+      try {
+        await table.updateEntity(update, 'Merge', { etag: entity.etag });
+        return this.toTournamentRegistration({ ...entity, ...update })!;
+      } catch (error) {
+        if (this.isTournamentRegistrationVersionConflict(error)) {
+          if (attempt < 2) continue;
+          throw new ConflictException('The registration changed during upload. Refresh and try again.');
+        }
+        if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament registration was not found.');
+        throw this.createMemberAuthenticationStorageException(error);
+      }
+    }
+    throw new ConflictException('The registration changed during upload. Refresh and try again.');
+  }
+
+  async markTournamentRegistrationPaid(
+    sessionToken: string,
+    tournamentId: string,
+    registrationId: string,
+  ): Promise<TournamentRegistration> {
+    const session = await this.requireAdminSession(sessionToken);
+    const entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
+    if (!['Approved', 'Payment Submitted'].includes(String(entity.Status ?? ''))) {
+      throw new ConflictException('Only approved registrations can be marked as paid.');
+    }
+    const update = {
+      partitionKey: tournamentId, rowKey: registrationId,
+      Status: 'Paid', PaidAt: new Date().toISOString(), PaidBy: session.member.memberId,
+    };
+    try {
+      await this.getTournamentRegistrationsTableClient().updateEntity(update, 'Merge', { etag: entity.etag });
+    } catch (error) {
+      if (this.isTournamentRegistrationVersionConflict(error)) {
+        throw new ConflictException('The registration changed. Refresh before marking it paid.');
+      }
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament registration was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return this.toTournamentRegistration({ ...entity, ...update })!;
+  }
+
+  async removeTournamentRegistration(
+    sessionToken: string,
+    tournamentId: string,
+    registrationId: string,
+  ): Promise<{ deleted: true }> {
+    await this.requireAdminSession(sessionToken);
+    const entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
+    try {
+      await this.getTournamentRegistrationsTableClient().deleteEntity(tournamentId, registrationId, { etag: entity.etag });
+    } catch (error) {
+      if (this.isTournamentRegistrationVersionConflict(error)) {
+        throw new ConflictException('The registration changed. Refresh before removing it.');
+      }
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament registration was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return { deleted: true };
+  }
+
+  async getTournamentPaymentProof(
+    sessionToken: string,
+    tournamentId: string,
+    registrationId: string,
+    memberId: string,
+  ): Promise<{ buffer: Buffer; contentType: string }> {
+    const session = await this.getMemberSession(sessionToken);
+    const entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
+    if (session.member.role !== 'admin' && !this.tournamentRegistrationMemberIds(entity).includes(session.member.memberId)) {
+      throw new ForbiddenException('You are not part of this tournament team.');
+    }
+    const proof = this.readTournamentPaymentProofs(entity).find((item) => item.memberId === memberId);
+    let blobName = proof?.blobName;
+    let contentType = proof?.contentType;
+    if (!proof && memberId === 'legacy' && entity.PaymentProofUrl) {
+      let url: URL;
+      try {
+        url = new URL(String(entity.PaymentProofUrl));
+      } catch {
+        throw new BadGatewayException('Stored payment proof has an invalid storage location.');
+      }
+      const prefix = `/${this.azureContainerName}/`;
+      if (url.hostname !== `${this.azureStorageAccount}.blob.core.windows.net` || !url.pathname.startsWith(prefix)) {
+        throw new BadGatewayException('Stored payment proof has an invalid storage location.');
+      }
+      blobName = decodeURIComponent(url.pathname.slice(prefix.length));
+      contentType = blobName.endsWith('.pdf') ? 'application/pdf' : blobName.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    }
+    if (!blobName) throw new NotFoundException('Payment proof was not found.');
+    if (!blobName.startsWith(`tournament-payment-proofs/${tournamentId}/${registrationId}/`)) {
+      throw new BadGatewayException('Stored payment proof has an invalid storage location.');
+    }
+    try {
+      return { buffer: await this.getTournamentPaymentProofBlobClient(blobName).downloadToBuffer(), contentType: contentType! };
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Payment-proof file was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  async setTournamentRegistrationClosed(
+    sessionToken: string,
+    tournamentId: string,
+    closedInput: unknown,
+  ): Promise<Tournament> {
+    await this.requireAdminSession(sessionToken);
+    if (typeof closedInput !== 'boolean') {
+      throw new BadRequestException('Specify whether registration should be closed.');
+    }
+    const tournament = await this.getTournament(tournamentId);
+    const registrationClosedAt = closedInput ? new Date().toISOString() : '';
+    try {
+      await this.getTournamentsTableClient().updateEntity({
+        partitionKey: 'tournaments',
+        rowKey: tournamentId,
+        RegistrationClosed: closedInput,
+        RegistrationClosedAt: registrationClosedAt,
+      }, 'Merge');
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    const counts = (await this.getTournamentRegistrationEntities(tournamentId)).map((entity) => String(entity.Status ?? ''));
+    const { registrationClosedAt: _previous, ...rest } = tournament;
+    return {
+      ...rest,
+      registrationClosed: closedInput,
+      ...(closedInput ? { registrationClosedAt } : {}),
+      registrationCount: counts.filter((status) => this.isApprovedTournamentRegistration(status)).length,
+      pendingRegistrationCount: counts.filter((status) => status === 'Invitation Pending' || status === 'Pending Approval').length,
+    };
+  }
+
+  async getTournamentRoster(sessionToken: string, tournamentId: string): Promise<TournamentRoster> {
+    const session = await this.getMemberSession(sessionToken);
+    const tournament = await this.getTournament(tournamentId);
+    const { teams, ownRegistration } = await this.loadConfirmedTournamentRoster(
+      tournament,
+      session.member.memberId,
+      session.member.role === 'admin',
+    );
+    return {
+      tournamentId,
+      tournamentName: tournament.name,
+      category: tournament.category,
+      level: tournament.level,
+      teams: teams.map((team) => ({ ...team, isOwnTeam: team.registrationId === ownRegistration?.registrationId })),
+    };
+  }
+
+  async createTournamentProtest(
+    sessionToken: string,
+    tournamentId: string,
+    input: TournamentProtestInput,
+    files: TournamentDocumentUploadInput[] | undefined,
+  ): Promise<TournamentProtest> {
+    const session = await this.getMemberSession(sessionToken);
+    const tournament = await this.getTournament(tournamentId);
+    const protestedMemberId = String(input?.protestedMemberId ?? '').trim();
+    const eligibilityCategory = String(input?.eligibilityCategory ?? '').trim() as TournamentProtestCategory;
+    const reason = String(input?.reason ?? '').trim();
+    if (!protestedMemberId) throw new BadRequestException('Choose the player you are protesting.');
+    if (!TOURNAMENT_PROTEST_CATEGORIES.includes(eligibilityCategory)) {
+      throw new BadRequestException('Choose which eligibility requirement or term was not met.');
+    }
+    if (reason.length < 20 || reason.length > 2000) {
+      throw new BadRequestException('Describe the reason for the protest in 20 to 2000 characters.');
+    }
+    const evidenceFiles = this.validateTournamentProtestEvidence(files);
+
+    const { teams, ownRegistration } = await this.loadConfirmedTournamentRoster(tournament, session.member.memberId, false);
+    if (!ownRegistration) throw new ForbiddenException('Only confirmed participants can file a protest.');
+    if (ownRegistration.players.some((player) => player.memberId === protestedMemberId)) {
+      throw new BadRequestException('You cannot protest yourself or a member of your own team.');
+    }
+    const protestedTeam = teams.find((team) => team.players.some((player) => player.memberId === protestedMemberId));
+    const protestedPlayer = protestedTeam?.players.find((player) => player.memberId === protestedMemberId);
+    if (!protestedTeam || !protestedPlayer) {
+      throw new NotFoundException('The protested player is not on the tournament roster.');
+    }
+    const existing = await this.getTournamentProtestEntities(tournamentId);
+    if (existing.some((entity) =>
+      String(entity.ProtesterId ?? '') === session.member.memberId &&
+      String(entity.ProtestedMemberId ?? '') === protestedMemberId &&
+      String(entity.Status ?? '') === 'Open',
+    )) {
+      throw new ConflictException('You already have an open protest against this player.');
+    }
+
+    const protestId = randomUUID();
+    const uploadedAt = new Date().toISOString();
+    const storedEvidence: StoredTournamentProtestEvidence[] = [];
+    try {
+      for (const file of evidenceFiles) {
+        const blobName = `tournament-protest-evidence/${tournamentId}/${protestId}/${randomUUID()}.${file.extension}`;
+        try {
+          await this.uploadParticipationBlob(this.getTournamentDocumentBlobClient(blobName), file.buffer, file.contentType);
+        } catch (error) {
+          throw this.createAzureUploadException(error, blobName);
+        }
+        storedEvidence.push({
+          blobName,
+          fileName: file.fileName,
+          contentType: file.contentType,
+          size: file.size,
+          uploadedAt,
+        });
+      }
+    } catch (error) {
+      await this.deleteTournamentProtestEvidence(storedEvidence);
+      throw error;
+    }
+
+    const entity = {
       partitionKey: tournamentId,
-      rowKey: registrationId,
-      Status: 'Payment Submitted',
-      PaymentProofUrl: blockBlobClient.url,
-      PaymentSubmittedAt: new Date().toISOString(),
-    }, 'Merge');
-    return this.toTournamentRegistration({ ...entity, Status: 'Payment Submitted', PaymentProofUrl: blockBlobClient.url })!;
+      rowKey: protestId,
+      TournamentId: tournamentId,
+      ProtestId: protestId,
+      TournamentName: tournament.name,
+      ProtesterId: session.member.memberId,
+      ProtesterName: session.member.name,
+      ProtesterRegistrationId: ownRegistration.registrationId,
+      ProtestedMemberId: protestedMemberId,
+      ProtestedMemberName: protestedPlayer.name,
+      ProtestedRegistrationId: protestedTeam.registrationId,
+      EligibilityCategory: eligibilityCategory,
+      Reason: reason,
+      EvidenceFiles: JSON.stringify(storedEvidence),
+      Status: 'Open',
+      CreatedAt: uploadedAt,
+    };
+    try {
+      await this.createTournamentProtestEntity(entity);
+    } catch (error) {
+      await this.deleteTournamentProtestEvidence(storedEvidence);
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return this.toTournamentProtest(entity)!;
+  }
+
+  async getMyTournamentProtests(sessionToken: string, tournamentId: string): Promise<TournamentProtest[]> {
+    const session = await this.getMemberSession(sessionToken);
+    await this.getTournament(tournamentId);
+    return (await this.getTournamentProtestEntities(tournamentId))
+      .filter((entity) => String(entity.ProtesterId ?? '') === session.member.memberId)
+      .map((entity) => this.toTournamentProtest(entity))
+      .filter((protest): protest is TournamentProtest => !!protest)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async getTournamentProtestsForAdmin(sessionToken: string): Promise<TournamentProtest[]> {
+    await this.requireAdminSession(sessionToken);
+    const protests: TournamentProtest[] = [];
+    try {
+      for await (const entity of this.getTournamentProtestsTableClient().listEntities()) {
+        const protest = this.toTournamentProtest(entity);
+        if (protest) protests.push(protest);
+      }
+    } catch (error) {
+      if (!this.isAzureNotFound(error)) throw this.createMemberAuthenticationStorageException(error);
+    }
+    return protests.sort((left, right) =>
+      Number(right.status === 'Open') - Number(left.status === 'Open') || right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async reviewTournamentProtest(
+    sessionToken: string,
+    tournamentId: string,
+    protestId: string,
+    statusInput: unknown,
+    noteInput?: unknown,
+  ): Promise<TournamentProtest> {
+    const session = await this.requireAdminSession(sessionToken);
+    if (statusInput !== 'Upheld' && statusInput !== 'Dismissed') {
+      throw new BadRequestException('Choose whether to uphold or dismiss the protest.');
+    }
+    const note = noteInput === undefined || noteInput === null ? '' : String(noteInput).trim();
+    if (note.length > 1000) throw new BadRequestException('Review notes must be 1000 characters or fewer.');
+    const entity = await this.getTournamentProtestEntity(tournamentId, protestId);
+    if (String(entity.Status ?? '') !== 'Open') {
+      throw new ConflictException('This protest has already been reviewed.');
+    }
+    const update = {
+      partitionKey: tournamentId,
+      rowKey: protestId,
+      Status: statusInput,
+      ReviewedAt: new Date().toISOString(),
+      ReviewedBy: session.member.name || session.member.memberId,
+      ReviewNote: note,
+    };
+    try {
+      await this.getTournamentProtestsTableClient().updateEntity(update, 'Merge', { etag: String(entity.etag ?? '*') });
+    } catch (error) {
+      if (this.isTournamentRegistrationVersionConflict(error)) {
+        throw new ConflictException('The protest changed. Refresh before reviewing it.');
+      }
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament protest was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return this.toTournamentProtest({ ...entity, ...update })!;
+  }
+
+  async getTournamentProtestEvidence(
+    sessionToken: string,
+    tournamentId: string,
+    protestId: string,
+    indexInput: number,
+  ): Promise<{ buffer: Buffer; contentType: string; fileName: string }> {
+    const session = await this.getMemberSession(sessionToken);
+    const entity = await this.getTournamentProtestEntity(tournamentId, protestId);
+    if (session.member.role !== 'admin' && String(entity.ProtesterId ?? '') !== session.member.memberId) {
+      throw new ForbiddenException('Only administrators and the protest author can view this evidence.');
+    }
+    const evidence = this.readTournamentProtestEvidence(entity)[indexInput];
+    if (!Number.isInteger(indexInput) || !evidence) throw new NotFoundException('Protest evidence was not found.');
+    if (!evidence.blobName.startsWith(`tournament-protest-evidence/${tournamentId}/${protestId}/`)) {
+      throw new BadGatewayException('Stored protest evidence has an invalid storage location.');
+    }
+    try {
+      return {
+        buffer: await this.getTournamentDocumentBlobClient(evidence.blobName).downloadToBuffer(),
+        contentType: evidence.contentType,
+        fileName: evidence.fileName,
+      };
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Protest evidence file was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
   }
 
   async createClub(
@@ -3223,7 +3757,16 @@ export class AppService {
       date: String(entity.Date ?? ''),
       location: String(entity.Location ?? ''),
       registrationCount: 0,
+      pendingRegistrationCount: 0,
+      registrationClosed: entity.RegistrationClosed === true,
+      ...(entity.RegistrationClosed === true && entity.RegistrationClosedAt
+        ? { registrationClosedAt: String(entity.RegistrationClosedAt) }
+        : {}),
       createdAt: String(entity.CreatedAt ?? ''),
+      ...(entity.TermsBlobName ? {
+        termsUrl: this.tournamentTermsUrl(tournamentId),
+        termsFileName: String(entity.TermsFileName ?? 'Terms and conditions.pdf'),
+      } : {}),
     };
   }
 
@@ -3236,6 +3779,7 @@ export class AppService {
       MaxSlots: tournament.maxSlots,
       Date: tournament.date,
       Location: tournament.location,
+      RegistrationClosed: tournament.registrationClosed,
       CreatedAt: tournament.createdAt,
     };
   }
@@ -3251,7 +3795,7 @@ export class AppService {
       !tournamentId ||
       !TOURNAMENT_CATEGORIES.includes(category) ||
       !TOURNAMENT_LEVELS.includes(level) ||
-      !['Invitation Pending', 'Invitation Declined', 'Pending Approval', 'Approved', 'Payment Submitted'].includes(status)
+      !['Invitation Pending', 'Invitation Declined', 'Pending Approval', 'Approved', 'Payment Submitted', 'Paid'].includes(status)
     ) {
       return null;
     }
@@ -3265,6 +3809,9 @@ export class AppService {
       memberName: String(entity.MemberName ?? ''),
       partnerId: String(entity.PartnerId ?? ''),
       partnerName: String(entity.PartnerName ?? ''),
+      ...(entity.TermsRequired === true ? { termsUrl: this.tournamentTermsUrl(tournamentId) } : {}),
+      ...(entity.MemberTermsAcceptedAt ? { memberTermsAcceptedAt: String(entity.MemberTermsAcceptedAt) } : {}),
+      ...(entity.PartnerTermsAcceptedAt ? { partnerTermsAcceptedAt: String(entity.PartnerTermsAcceptedAt) } : {}),
       ...(this.readTournamentExperience(entity, 'Member')
         ? { memberExperience: this.readTournamentExperience(entity, 'Member') }
         : {}),
@@ -3277,7 +3824,12 @@ export class AppService {
       status,
       registeredAt: String(entity.RegisteredAt ?? ''),
       ...(entity.ApprovedAt ? { approvedAt: String(entity.ApprovedAt) } : {}),
-      ...(entity.PaymentProofUrl ? { paymentProofUrl: String(entity.PaymentProofUrl) } : {}),
+      ...(entity.PaymentProofUrl ? { paymentProofUrl: this.tournamentPaymentProofUrl(tournamentId, registrationId, 'legacy') } : {}),
+      paymentProofs: this.readTournamentPaymentProofs(entity).map(({ blobName, contentType, ...proof }) => ({
+        ...proof, url: this.tournamentPaymentProofUrl(tournamentId, registrationId, proof.memberId),
+      })),
+      ...(entity.PaidAt ? { paidAt: String(entity.PaidAt) } : {}),
+      ...(entity.PaidBy ? { paidBy: String(entity.PaidBy) } : {}),
     };
   }
 
@@ -3292,6 +3844,8 @@ export class AppService {
       MemberName: registration.memberName,
       PartnerId: registration.partnerId,
       PartnerName: registration.partnerName,
+      TermsRequired: !!registration.termsUrl,
+      ...(registration.memberTermsAcceptedAt ? { MemberTermsAcceptedAt: registration.memberTermsAcceptedAt } : {}),
       ...(registration.memberExperience
         ? this.toTournamentExperienceEntity('Member', registration.memberExperience)
         : {}),
@@ -3305,6 +3859,74 @@ export class AppService {
       RegisteredAt: registration.registeredAt,
       PartnerAccepted: false,
     };
+  }
+
+  private isApprovedTournamentRegistration(status: string): boolean {
+    return status === 'Approved' || status === 'Payment Submitted' || status === 'Paid';
+  }
+
+  private async getTournamentRegistrationEntity(tournamentId: string, registrationId: string) {
+    try {
+      return await this.getTournamentRegistrationsTableClient().getEntity<Record<string, unknown>>(tournamentId, registrationId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament registration was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  private isTournamentRegistrationVersionConflict(error: unknown): boolean {
+    return !!error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 412;
+  }
+
+  private getTournamentPaymentProofBlobClient(blobName: string): BlockBlobClient {
+    return this.getTournamentDocumentBlobClient(blobName);
+  }
+
+  private getTournamentDocumentBlobClient(blobName: string): BlockBlobClient {
+    if (!this.azureStorageAccount || !this.azureContainerName) {
+      throw new BadRequestException('OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT and OP_PARTICIPATION_AZURE_CONTAINER are required for tournament documents.');
+    }
+    return new BlobServiceClient(
+      `https://${this.azureStorageAccount}.blob.core.windows.net`,
+      new DefaultAzureCredential(),
+      { retryOptions: { maxTries: 1, tryTimeoutInMs: this.azureUploadTimeoutMs } },
+    ).getContainerClient(this.azureContainerName).getBlockBlobClient(blobName);
+  }
+
+  private tournamentTermsUrl(tournamentId: string): string {
+    return `/tournaments/${encodeURIComponent(tournamentId)}/terms`;
+  }
+
+  private requireTournamentTermsAgreement(tournament: Tournament, accepted: unknown): void {
+    if (tournament.termsUrl && accepted !== true) {
+      throw new BadRequestException('You must agree to the tournament terms and conditions before continuing.');
+    }
+  }
+
+  private tournamentPaymentProofUrl(tournamentId: string, registrationId: string, memberId: string): string {
+    return `/tournaments/${encodeURIComponent(tournamentId)}/registrations/${encodeURIComponent(registrationId)}/payment-proofs/${encodeURIComponent(memberId)}`;
+  }
+
+  private readTournamentPaymentProofs(entity: Record<string, unknown>): StoredTournamentPaymentProof[] {
+    if (entity.PaymentProofs === undefined) return [];
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(String(entity.PaymentProofs));
+    } catch {
+      throw new BadGatewayException('Stored tournament payment proofs are invalid.');
+    }
+    if (!Array.isArray(parsed) || !parsed.every((proof: unknown): proof is StoredTournamentPaymentProof =>
+      !!proof && typeof proof === 'object' &&
+      'memberId' in proof && typeof proof.memberId === 'string' &&
+      'memberName' in proof && typeof proof.memberName === 'string' &&
+      'fileName' in proof && typeof proof.fileName === 'string' &&
+      'uploadedAt' in proof && typeof proof.uploadedAt === 'string' &&
+      'blobName' in proof && typeof proof.blobName === 'string' &&
+      'contentType' in proof && ['application/pdf', 'image/jpeg', 'image/png'].includes(String(proof.contentType)),
+    )) {
+      throw new BadGatewayException('Stored tournament payment proofs are invalid.');
+    }
+    return parsed;
   }
 
   private validateTournamentExperience(input: unknown): TournamentExperienceDetails {
@@ -3437,8 +4059,210 @@ export class AppService {
       : [String(entity.MemberId ?? ''), String(entity.PartnerId ?? '')];
   }
 
-  private isTournamentCategoryGenderRestricted(category: TournamentCategory): boolean {
-    return category !== 'Team Tournament';
+  private requireOpenTournamentRegistration(tournament: Tournament): void {
+    if (tournament.registrationClosed) {
+      throw new ConflictException('Registration for this tournament is closed.');
+    }
+  }
+
+  private async loadConfirmedTournamentRoster(
+    tournament: Tournament,
+    memberId: string,
+    isAdmin: boolean,
+  ): Promise<{ teams: Omit<TournamentRosterTeam, 'isOwnTeam'>[]; ownRegistration?: Omit<TournamentRosterTeam, 'isOwnTeam'> }> {
+    if (!tournament.registrationClosed && !isAdmin) {
+      throw new ConflictException('The roster is available after registration closes.');
+    }
+    const confirmed = (await this.getTournamentRegistrationEntities(tournament.tournamentId))
+      .filter((entity) => this.isApprovedTournamentRegistration(String(entity.Status ?? '')));
+    const ownEntity = confirmed.find((entity) => this.tournamentRegistrationMemberIds(entity).includes(memberId));
+    if (!ownEntity && !isAdmin) {
+      throw new ForbiddenException('Only confirmed participants can view the tournament roster.');
+    }
+    const genderCache = new Map<string, Promise<string>>();
+    const lookupGender = (playerId: string) => {
+      if (!genderCache.has(playerId)) {
+        genderCache.set(playerId, this.getMembersTableClient().getEntity('members', playerId)
+          .then((member) => String(member.Gender ?? ''))
+          .catch(() => ''));
+      }
+      return genderCache.get(playerId)!;
+    };
+    const teams = await Promise.all(confirmed.map(async (entity) => {
+      const teamMembers = this.readTournamentTeamMembers(entity);
+      const players: TournamentRosterPlayer[] = teamMembers.length
+        ? teamMembers.map((member) => ({ memberId: member.memberId, name: member.name, gender: member.gender }))
+        : await Promise.all([
+          [String(entity.MemberId ?? ''), String(entity.MemberName ?? '')],
+          [String(entity.PartnerId ?? ''), String(entity.PartnerName ?? '')],
+        ].filter(([playerId]) => !!playerId).map(async ([playerId, name]) => ({
+          memberId: playerId,
+          name,
+          gender: await lookupGender(playerId),
+        })));
+      return {
+        registrationId: String(entity.rowKey ?? ''),
+        status: String(entity.Status ?? '') as TournamentRegistrationStatus,
+        players,
+      };
+    }));
+    teams.sort((left, right) => (left.players[0]?.name ?? '').localeCompare(right.players[0]?.name ?? ''));
+    const ownRegistration = ownEntity ? teams.find((team) => team.registrationId === String(ownEntity.rowKey ?? '')) : undefined;
+    return { teams, ownRegistration };
+  }
+
+  private validateTournamentProtestEvidence(files: TournamentDocumentUploadInput[] | undefined) {
+    if (!files?.length) throw new BadRequestException('Upload at least one evidence file.');
+    if (files.length > 5) throw new BadRequestException('Upload no more than 5 evidence files.');
+    const signatures: Record<string, { extension: string; matches: (buffer: Buffer) => boolean }> = {
+      'application/pdf': { extension: 'pdf', matches: (buffer) => buffer.subarray(0, 5).toString('ascii') === '%PDF-' },
+      'image/jpeg': { extension: 'jpg', matches: (buffer) => buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff },
+      'image/png': {
+        extension: 'png',
+        matches: (buffer) => buffer.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])),
+      },
+      'application/msword': {
+        extension: 'doc',
+        matches: (buffer) => buffer.subarray(0, 4).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0])),
+      },
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': {
+        extension: 'docx',
+        matches: (buffer) => buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04])),
+      },
+    };
+    return files.map((file) => {
+      const contentType = String(file.mimetype ?? '').toLowerCase();
+      const signature = signatures[contentType];
+      if (
+        !signature ||
+        !Buffer.isBuffer(file.buffer) ||
+        !file.size ||
+        file.size > 10 * 1024 * 1024 ||
+        file.buffer.length !== file.size ||
+        !signature.matches(file.buffer)
+      ) {
+        throw new BadRequestException(
+          `Evidence "${file.originalname}" must be a PDF, JPEG, PNG, DOC, or DOCX file no larger than 10 MB.`,
+        );
+      }
+      return {
+        buffer: file.buffer,
+        contentType,
+        extension: signature.extension,
+        size: file.size,
+        fileName: String(file.originalname ?? `evidence.${signature.extension}`).slice(0, 200),
+      };
+    });
+  }
+
+  private async deleteTournamentProtestEvidence(evidence: StoredTournamentProtestEvidence[]): Promise<void> {
+    await Promise.all(evidence.map(async (item) => {
+      try {
+        await this.getTournamentDocumentBlobClient(item.blobName).deleteIfExists();
+      } catch {
+        // Best-effort cleanup; the protest record was never created.
+      }
+    }));
+  }
+
+  private getTournamentProtestsTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount) {
+      throw new BadRequestException('MEMBERS_AZURE_STORAGE_ACCOUNT is required for tournament protests.');
+    }
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.tournamentProtestsAzureTable,
+      new DefaultAzureCredential(),
+    );
+  }
+
+  private async getTournamentProtestEntities(tournamentId: string): Promise<Record<string, unknown>[]> {
+    const protests: Record<string, unknown>[] = [];
+    try {
+      for await (const entity of this.getTournamentProtestsTableClient().listEntities({
+        queryOptions: { filter: `PartitionKey eq '${tournamentId}'` },
+      })) {
+        protests.push(entity);
+      }
+    } catch (error) {
+      // The protests table is created lazily on the first protest.
+      if (this.isAzureNotFound(error)) return [];
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return protests;
+  }
+
+  private async createTournamentProtestEntity(entity: Record<string, unknown> & { partitionKey: string; rowKey: string }) {
+    const client = this.getTournamentProtestsTableClient();
+    try {
+      await client.createEntity(entity);
+    } catch (error) {
+      if (!this.isAzureNotFound(error)) throw error;
+      await client.createTable();
+      await client.createEntity(entity);
+    }
+  }
+
+  private async getTournamentProtestEntity(tournamentId: string, protestId: string): Promise<Record<string, unknown>> {
+    if (!/^[A-Fa-f0-9-]{36}$/.test(tournamentId) || !/^[A-Fa-f0-9-]{36}$/.test(protestId)) {
+      throw new BadRequestException('Invalid tournament protest identifier.');
+    }
+    try {
+      return await this.getTournamentProtestsTableClient().getEntity<Record<string, unknown>>(tournamentId, protestId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament protest was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  private readTournamentProtestEvidence(entity: Record<string, unknown>): StoredTournamentProtestEvidence[] {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(String(entity.EvidenceFiles ?? '[]'));
+    } catch {
+      throw new BadGatewayException('Stored protest evidence is invalid.');
+    }
+    if (!Array.isArray(parsed) || !parsed.every((item: unknown): item is StoredTournamentProtestEvidence =>
+      !!item && typeof item === 'object' &&
+      'blobName' in item && typeof item.blobName === 'string' &&
+      'fileName' in item && typeof item.fileName === 'string' &&
+      'contentType' in item && typeof item.contentType === 'string' &&
+      'size' in item && typeof item.size === 'number' &&
+      'uploadedAt' in item && typeof item.uploadedAt === 'string',
+    )) {
+      throw new BadGatewayException('Stored protest evidence is invalid.');
+    }
+    return parsed;
+  }
+
+  private toTournamentProtest(entity: Record<string, unknown>): TournamentProtest | null {
+    const tournamentId = String(entity.partitionKey ?? '');
+    const protestId = String(entity.rowKey ?? '');
+    const status = String(entity.Status ?? '') as TournamentProtestStatus;
+    if (!tournamentId || !protestId || !['Open', 'Upheld', 'Dismissed'].includes(status)) return null;
+    const base = `/tournaments/${encodeURIComponent(tournamentId)}/protests/${encodeURIComponent(protestId)}/evidence`;
+    return {
+      tournamentId,
+      protestId,
+      tournamentName: String(entity.TournamentName ?? ''),
+      protesterId: String(entity.ProtesterId ?? ''),
+      protesterName: String(entity.ProtesterName ?? ''),
+      protesterRegistrationId: String(entity.ProtesterRegistrationId ?? ''),
+      protestedMemberId: String(entity.ProtestedMemberId ?? ''),
+      protestedMemberName: String(entity.ProtestedMemberName ?? ''),
+      protestedRegistrationId: String(entity.ProtestedRegistrationId ?? ''),
+      eligibilityCategory: String(entity.EligibilityCategory ?? 'Other') as TournamentProtestCategory,
+      reason: String(entity.Reason ?? ''),
+      evidence: this.readTournamentProtestEvidence(entity).map(({ blobName: _blobName, ...item }, index) => ({
+        ...item,
+        url: `${base}/${index}`,
+      })),
+      status,
+      createdAt: String(entity.CreatedAt ?? ''),
+      ...(entity.ReviewedAt ? { reviewedAt: String(entity.ReviewedAt) } : {}),
+      ...(entity.ReviewedBy ? { reviewedBy: String(entity.ReviewedBy) } : {}),
+      ...(entity.ReviewNote ? { reviewNote: String(entity.ReviewNote) } : {}),
+    };
   }
 
   private isTournamentGenderEligible(
@@ -3598,6 +4422,7 @@ export class AppService {
     if (session.member.role !== 'admin') {
       throw new ForbiddenException('Administrator access is required.');
     }
+    return session;
   }
 
   private validateMemberId(memberId: string) {

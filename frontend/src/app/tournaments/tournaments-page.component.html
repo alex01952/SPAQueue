@@ -32,11 +32,12 @@
             </div>
             <div class="event-slots">
               <strong>{{ tournament.registrationCount }} / {{ tournament.maxSlots }}</strong>
-              <span>teams</span>
+              <span>approved teams</span>
+              <span>{{ tournament.pendingRegistrationCount }} pending approval</span>
               <div class="slot-track"><span [style.width.%]="slotPercentage(tournament)"></span></div>
             </div>
-            <button type="button" class="action-button" [disabled]="isFull(tournament) || isWorking()" (click)="openRegistration(tournament)">
-              {{ isFull(tournament) ? 'Full' : 'Register' }}
+            <button type="button" class="action-button" [disabled]="isFull(tournament) || tournament.registrationClosed || isWorking()" (click)="openRegistration(tournament)">
+              {{ tournament.registrationClosed ? 'Registration closed' : (isFull(tournament) ? 'Full' : 'Register') }}
             </button>
           </article>
           @if (activeTournament()?.tournamentId === tournament.tournamentId) {
@@ -119,14 +120,20 @@
                     </label>
                   }
                 </div>
-                @if (memberExperienceForm.hasWonTournaments === true && memberExperienceForm.hasJoinedTournaments !== true) {
-                  <p class="inline-note">A tournament win or podium finish requires a Yes answer for having joined tournaments.</p>
-                }
                 <p class="truthfulness-note">Please answer truthfully. The club may disqualify participants during the tournament, even after approval, without a refund if answers are found to be untruthful.</p>
               </fieldset>
+              @if (tournament.termsUrl) {
+                <div class="terms-agreement">
+                  <a [href]="apiUrl + tournament.termsUrl" target="_blank" rel="noopener">Terms and conditions (opens in a new window)</a>
+                  <label><input type="checkbox" name="memberTermsAccepted" [(ngModel)]="memberTermsAccepted" required /> I Agree</label>
+                </div>
+              }
+              @if (memberExperienceForm.hasWonTournaments === true && memberExperienceForm.hasJoinedTournaments === false) {
+                <p class="notice error" role="alert">Cannot send invitations: you answered No to having joined tournaments but Yes to having won or earned a podium finish. If you have won or placed, change the first answer to Yes and select the highest level joined. Otherwise, change the win/podium answer to No.</p>
+              }
               <div class="panel-actions">
                 <button type="button" class="quiet-button" (click)="closeRegistration()">Cancel</button>
-                <button type="submit" class="action-button" [disabled]="registrationForm.invalid || (isTeamTournament() ? !isTeamRosterComplete() : !selectedPartnerId()) || !isExperienceFormComplete(memberExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : (isTeamTournament() ? 'Invite teammates' : 'Send invitation') }}</button>
+                <button type="submit" class="action-button" [disabled]="registrationForm.invalid || (tournament.termsUrl && !memberTermsAccepted) || (isTeamTournament() ? !isTeamRosterComplete() : !selectedPartnerId()) || !isExperienceFormComplete(memberExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : (isTeamTournament() ? 'Invite teammates' : 'Send invitation') }}</button>
               </div>
             </form>
           }
@@ -150,8 +157,16 @@
               <span>{{ teamMemberNames(registration) }} · {{ registration.category }}</span>
             </div>
             <span class="status-pill" [attr.data-status]="registration.status">{{ memberRegistrationStatus(registration) }}</span>
+            @if (canViewRoster(registration)) {
+              <a class="action-button roster-link" [routerLink]="['/tournaments', registration.tournamentId, 'roster']">View roster &amp; protests</a>
+            }
             @if (isIncomingInvitation(registration)) {
-              @if (respondingInvitationId() !== registration.registrationId) {
+              @if (isRegistrationClosed(registration.tournamentId)) {
+                <div class="row-actions">
+                  <small class="closed-note">Registration is closed; this invitation can no longer be accepted.</small>
+                  <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="respond(registration, 'Declined')">Decline</button>
+                </div>
+              } @else if (respondingInvitationId() !== registration.registrationId) {
                 <div class="row-actions">
                   <button type="button" class="action-button" [disabled]="isWorking()" (click)="beginAccepting(registration)">Accept</button>
                   <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="respond(registration, 'Declined')">Decline</button>
@@ -200,24 +215,44 @@
                         </label>
                       }
                     </div>
-                    @if (partnerExperienceForm.hasWonTournaments === true && partnerExperienceForm.hasJoinedTournaments !== true) {
-                      <p class="inline-note">A tournament win or podium finish requires a Yes answer for having joined tournaments.</p>
-                    }
                     <p class="truthfulness-note">Please answer truthfully. The club may disqualify participants during the tournament, even after approval, without a refund if answers are found to be untruthful.</p>
                   </fieldset>
+                  @if (registration.termsUrl) {
+                    <div class="terms-agreement">
+                      <a [href]="apiUrl + registration.termsUrl" target="_blank" rel="noopener">Terms and conditions (opens in a new window)</a>
+                      <label><input type="checkbox" name="partnerTermsAccepted" [(ngModel)]="partnerTermsAccepted" required /> I Agree</label>
+                    </div>
+                  }
+                  @if (partnerExperienceForm.hasWonTournaments === true && partnerExperienceForm.hasJoinedTournaments === false) {
+                    <p class="notice error" role="alert">Cannot accept invitation: you answered No to having joined tournaments but Yes to having won or earned a podium finish. If you have won or placed, change the first answer to Yes and select the highest level joined. Otherwise, change the win/podium answer to No.</p>
+                  }
                   <div class="row-actions">
                     <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="respondingInvitationId.set('')">Cancel</button>
-                    <button type="submit" class="action-button" [disabled]="!isExperienceFormComplete(partnerExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : 'Accept invitation' }}</button>
+                    <button type="submit" class="action-button" [disabled]="(registration.termsUrl && !partnerTermsAccepted) || !isExperienceFormComplete(partnerExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : 'Accept invitation' }}</button>
                   </div>
                 </form>
               }
-            } @else if (registration.status === 'Approved') {
+            } @else if (canUploadProof(registration)) {
               <div class="proof-action">
-                <label class="file-button">Choose proof<input #proofInput type="file" accept="application/pdf,image/jpeg,image/png" /></label>
-                <button type="button" class="action-button" [disabled]="isWorking() || !proofInput.files?.[0]" (click)="uploadProof(registration, proofInput.files?.[0])">Upload</button>
+                <label class="file-button">Choose proof<input #proofInput type="file" accept="application/pdf,image/jpeg,image/png" [disabled]="isWorking()" (change)="selectProofFile(registration, proofInput.files?.[0])" /></label>
+                @if (selectedProofFile(registration); as file) { <span class="proof-file-name">{{ file.name }}</span> }
+                <button type="button" class="action-button" [disabled]="isWorking() || !selectedProofFile(registration)" (click)="uploadProof(registration)">{{ isWorking() ? 'Uploading...' : 'Upload proof' }}</button>
               </div>
-            } @else if (registration.status === 'Payment Submitted' && registration.paymentProofUrl) {
-              <a class="proof-link" [href]="registration.paymentProofUrl" target="_blank" rel="noopener">View payment proof</a>
+            } @else if (registration.status === 'Paid') {
+              <p class="payment-note">Payment confirmed. Player changes are locked; contact an admin for cancellation.</p>
+            }
+            @if (registration.paymentProofUrl || registration.paymentProofs?.length) {
+              <div class="payment-proofs">
+                @if (registration.paymentProofUrl) {
+                  <a class="proof-link" [href]="apiUrl + registration.paymentProofUrl" target="_blank" rel="noopener">View previously submitted payment proof</a>
+                }
+                @for (proof of registration.paymentProofs ?? []; track proof.memberId) {
+                  <a class="proof-link" [href]="apiUrl + proof.url" target="_blank" rel="noopener">View proof from {{ proof.memberName }} ({{ proof.fileName }})</a>
+                }
+              </div>
+            }
+            @if (canCancelRegistration(registration)) {
+              <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="cancelRegistration(registration)">Leave team / Cancel registration</button>
             }
           </article>
         }

@@ -24,6 +24,8 @@ import { VerifyEmailPageComponent } from './verify-email/verify-email-page.compo
 import { TournamentsPageComponent } from './tournaments/tournaments-page.component';
 import { TournamentManagementPageComponent } from './tournaments/tournament-management-page.component';
 import { TournamentRegistrationsPageComponent } from './tournaments/tournament-registrations-page.component';
+import { TournamentRosterPageComponent } from './tournaments/tournament-roster-page.component';
+import { TournamentProtestsPageComponent } from './tournaments/tournament-protests-page.component';
 
 export const routes: Routes = [
   {
@@ -184,6 +186,19 @@ export const routes: Routes = [
     canActivate: [memberAuthGuard, memberRoleGuard],
     data: { allowedRoles: ['admin'] },
     title: 'Tournament Registrations',
+  },
+  {
+    path: 'tournaments/:tournamentId/roster',
+    component: TournamentRosterPageComponent,
+    canActivate: [memberAuthGuard],
+    title: 'Tournament Roster',
+  },
+  {
+    path: 'tournament-protests',
+    component: TournamentProtestsPageComponent,
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'] },
+    title: 'Tournament Protests',
   },
   {
     path: '**',

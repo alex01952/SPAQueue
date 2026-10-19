@@ -28,3 +28,5 @@ h1, h2, p { margin-top: 0; }
 .notice.success { color: #245b35; background: rgba(76, 140, 87, .14); }
 .notice.error { color: #842f22; background: rgba(184, 67, 49, .12); }
 @media (max-width: 680px) { .management-shell { width: calc(100% - 24px); padding: 28px 0 48px; } .create-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .create-form .wide { grid-column: 1 / -1; } .registration-row, .event-row { align-items: flex-start; flex-wrap: wrap; } .registration-copy, .event-row > div { flex-basis: 100%; } }
+.event-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; max-width: 340px; }
+

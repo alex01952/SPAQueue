@@ -1,4 +1,20 @@
+import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
+
 const localDevelopmentOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+export const corsOptions: CorsOptions = {
+  origin: (origin, callback) => {
+    if (isAllowedCorsOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`Origin ${origin} is not allowed by CORS.`), false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-dashboard-password'],
+};
 
 export function getAllowedCorsOrigins() {
   return new Set(

@@ -1,0 +1,106 @@
+<main class="roster-shell">
+  <header class="page-heading">
+    <p class="eyebrow">Tournament roster</p>
+    <h1>{{ roster()?.tournamentName ?? 'Tournament roster' }}</h1>
+    @if (roster(); as current) {
+      <p>{{ current.category }} · {{ current.level }} · {{ current.teams.length }} confirmed {{ current.teams.length === 1 ? 'team' : 'teams' }}</p>
+    }
+    <a class="back-link" routerLink="/tournaments">Back to tournaments</a>
+  </header>
+
+  @if (feedbackMessage()) { <p class="notice success" role="status">{{ feedbackMessage() }}</p> }
+  @if (errorMessage()) { <p class="notice error" role="alert">{{ errorMessage() }}</p> }
+
+  @if (isLoading()) {
+    <p class="empty-state">Loading roster...</p>
+  } @else if (roster(); as current) {
+    <section class="roster-section" aria-labelledby="roster-title">
+      <h2 id="roster-title">Confirmed teams</h2>
+      <div class="team-list">
+        @for (team of current.teams; track team.registrationId; let index = $index) {
+          <article class="team-card" [class.own-team]="team.isOwnTeam">
+            <header>
+              <strong>Team {{ index + 1 }}</strong>
+              @if (team.isOwnTeam) { <span class="pill">Your team</span> }
+            </header>
+            <ul>
+              @for (player of team.players; track player.memberId) {
+                <li>
+                  <span class="player-copy"><span>{{ player.name }}</span>@if (player.gender) { <small>{{ player.gender }}</small> }</span>
+                  @if (canProtest(team)) {
+                    @if (hasOpenProtest(player.memberId)) {
+                      <span class="pill">Protest open</span>
+                    } @else {
+                      <button type="button" class="quiet-button" [disabled]="isSubmitting()" (click)="beginProtest(player)">Protest</button>
+                    }
+                  }
+                </li>
+              }
+            </ul>
+          </article>
+        } @empty {
+          <p class="empty-state">No confirmed teams are on this roster yet.</p>
+        }
+      </div>
+    </section>
+
+    @if (protestTarget(); as target) {
+      <section class="protest-section" aria-labelledby="protest-title">
+        <h2 id="protest-title">Protest {{ target.name }}</h2>
+        <p class="hint">Explain in detail which eligibility requirement or tournament term was not met. Evidence is required and is visible only to tournament administrators.</p>
+        <form class="protest-form" (ngSubmit)="submitProtest(evidenceInput)">
+          <label>
+            <span>Requirement or term not met</span>
+            <select name="eligibilityCategory" [(ngModel)]="protestForm.eligibilityCategory" required>
+              <option value="">Choose a requirement</option>
+              @for (category of categories; track category) { <option [value]="category">{{ category }}</option> }
+            </select>
+          </label>
+          <label>
+            <span>Detailed reason ({{ minReasonLength }}–{{ maxReasonLength }} characters)</span>
+            <textarea name="reason" rows="6" [(ngModel)]="protestForm.reason" [attr.maxlength]="maxReasonLength" required></textarea>
+            <small [class.invalid]="reasonLength() > 0 && reasonLength() < minReasonLength">{{ reasonLength() }} / {{ maxReasonLength }}</small>
+          </label>
+          <label>
+            <span>Evidence (required: 1–5 images or documents — PDF, JPEG, PNG, DOC, DOCX; up to 10 MB each)</span>
+            <input #evidenceInput type="file" multiple [accept]="evidenceAccept" [disabled]="isSubmitting()" (change)="selectEvidence(evidenceInput)" />
+          </label>
+          @if (evidenceError()) { <p class="notice error" role="alert">{{ evidenceError() }}</p> }
+          @if (evidenceFiles().length) {
+            <ul class="file-list">
+              @for (file of evidenceFiles(); track file.name) { <li>{{ file.name }} ({{ formatSize(file.size) }})</li> }
+            </ul>
+          }
+          <div class="form-actions">
+            <button type="submit" class="action-button" [disabled]="!canSubmitProtest()">{{ isSubmitting() ? 'Submitting...' : 'Submit protest' }}</button>
+            <button type="button" class="quiet-button" [disabled]="isSubmitting()" (click)="cancelProtest()">Cancel</button>
+          </div>
+        </form>
+      </section>
+    }
+
+    @if (protests().length) {
+      <section class="my-protests" aria-labelledby="my-protests-title">
+        <h2 id="my-protests-title">My protests</h2>
+        @for (protest of protests(); track protest.protestId) {
+          <article class="protest-card">
+            <header>
+              <strong>{{ protest.protestedMemberName }}</strong>
+              <span class="pill" [attr.data-status]="protest.status">{{ protest.status }}</span>
+            </header>
+            <small>{{ protest.eligibilityCategory }} · submitted {{ protest.createdAt | date: 'medium' }}</small>
+            <p>{{ protest.reason }}</p>
+            <div class="evidence-links">
+              @for (evidence of protest.evidence; track evidence.url) {
+                <a [href]="apiUrl + evidence.url" target="_blank" rel="noopener">{{ evidence.fileName }}</a>
+              }
+            </div>
+            @if (protest.reviewedAt) {
+              <small>Reviewed {{ protest.reviewedAt | date: 'medium' }}@if (protest.reviewNote) {: {{ protest.reviewNote }}}</small>
+            }
+          </article>
+        }
+      </section>
+    }
+  }
+</main>

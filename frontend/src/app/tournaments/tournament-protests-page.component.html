@@ -1,0 +1,67 @@
+<main class="protests-shell">
+  <header class="page-heading">
+    <p class="eyebrow">Tournament administration</p>
+    <h1>Player protests</h1>
+    <p>Review protests filed against rostered players, inspect the evidence, and uphold or dismiss each one.</p>
+    <a class="back-link" routerLink="/tournament-management">Back to tournament management</a>
+  </header>
+
+  @if (feedbackMessage()) { <p class="notice success" role="status">{{ feedbackMessage() }}</p> }
+  @if (errorMessage()) { <p class="notice error" role="alert">{{ errorMessage() }}</p> }
+
+  <div class="filters">
+    <label>
+      <span>Tournament</span>
+      <select [ngModel]="selectedTournamentId()" (ngModelChange)="setTournament($event)">
+        <option value="">All tournaments</option>
+        @for (option of tournamentOptions(); track option.tournamentId) { <option [value]="option.tournamentId">{{ option.name }}</option> }
+      </select>
+    </label>
+    <div class="status-filters" role="group" aria-label="Protest status">
+      @for (status of statusFilters; track status) {
+        <button type="button" class="quiet-button" [class.active]="statusFilter() === status" (click)="setStatusFilter(status)">{{ status }}</button>
+      }
+    </div>
+  </div>
+
+  @if (isLoading()) {
+    <p class="empty-state">Loading protests...</p>
+  } @else {
+    <section class="protest-list">
+      @for (protest of filteredProtests(); track protest.protestId) {
+        <article class="protest-card">
+          <header>
+            <div>
+              <strong>{{ protest.protesterName }} protested {{ protest.protestedMemberName }}</strong>
+              <small>{{ protest.tournamentName }} · {{ protest.eligibilityCategory }} · {{ protest.createdAt | date: 'medium' }}</small>
+            </div>
+            <span class="pill" [attr.data-status]="protest.status">{{ protest.status }}</span>
+          </header>
+          <p class="reason">{{ protest.reason }}</p>
+          <div class="evidence-links">
+            <span>Evidence:</span>
+            @for (evidence of protest.evidence; track evidence.url) {
+              <a [href]="apiUrl + evidence.url" target="_blank" rel="noopener">{{ evidence.fileName }}</a>
+            }
+          </div>
+          @if (protest.status === 'Open') {
+            <div class="review-form">
+              <label>
+                <span>Review note (optional)</span>
+                <textarea rows="2" maxlength="1000" [(ngModel)]="reviewNotes[protest.protestId]" [name]="'note-' + protest.protestId"></textarea>
+              </label>
+              <div class="review-actions">
+                <button type="button" class="action-button uphold" [disabled]="!!workingProtestId()" (click)="review(protest, 'Upheld')">Uphold</button>
+                <button type="button" class="quiet-button" [disabled]="!!workingProtestId()" (click)="review(protest, 'Dismissed')">Dismiss</button>
+              </div>
+            </div>
+          } @else {
+            <small>Reviewed {{ protest.reviewedAt | date: 'medium' }}@if (protest.reviewNote) {: {{ protest.reviewNote }}}</small>
+          }
+        </article>
+      } @empty {
+        <p class="empty-state">No protests match the current filters.</p>
+      }
+    </section>
+  }
+</main>

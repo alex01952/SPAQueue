@@ -1,0 +1,40 @@
+.roster-shell { width: min(960px, calc(100% - 40px)); margin: 0 auto; padding: 40px 0 64px; }
+.page-heading { margin-bottom: 22px; }
+.page-heading h1 { margin: 4px 0 6px; }
+.page-heading p { margin: 0; color: var(--text-secondary); }
+.eyebrow { margin: 0; color: var(--accent-dark); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.back-link { display: inline-block; margin-top: 10px; color: var(--accent-dark); font-size: .82rem; font-weight: 700; }
+h2 { margin: 0 0 12px; font-size: 1.1rem; }
+section { margin-bottom: 28px; }
+.team-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.team-card, .protest-card { padding: 14px; border: 1px solid rgba(103, 70, 41, .16); border-radius: 6px; }
+.team-card.own-team { border-color: var(--accent-dark); }
+.team-card header, .protest-card header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.team-card ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.team-card li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.player-copy { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.player-copy small, .protest-card small, .hint { color: var(--text-secondary); font-size: .76rem; }
+.pill { padding: 4px 8px; color: #664d24; font-size: .7rem; font-weight: 700; background: rgba(217, 139, 43, .16); border-radius: 99px; white-space: nowrap; }
+.pill[data-status='Upheld'] { color: #842f22; background: rgba(184, 67, 49, .12); }
+.pill[data-status='Dismissed'] { color: #245b35; background: rgba(76, 140, 87, .14); }
+.protest-form { display: grid; gap: 14px; }
+.protest-form label { display: grid; gap: 6px; }
+.protest-form label > span { font-size: .8rem; font-weight: 700; }
+.protest-form select, .protest-form textarea, .protest-form input { width: 100%; box-sizing: border-box; font: inherit; }
+.protest-form small.invalid { color: #842f22; }
+.file-list { margin: 0; padding-left: 18px; font-size: .8rem; }
+.form-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.my-protests { display: grid; gap: 12px; }
+.protest-card p { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.evidence-links { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 6px; }
+.evidence-links a { color: var(--accent-dark); font-size: .8rem; font-weight: 700; overflow-wrap: anywhere; }
+.empty-state { color: var(--text-secondary); font-size: .85rem; }
+.notice { margin: 0 0 14px; padding: 11px 14px; border-radius: 4px; }
+.notice.success { color: #245b35; background: rgba(76, 140, 87, .14); }
+.notice.error { color: #842f22; background: rgba(184, 67, 49, .12); }
+@media (max-width: 680px) { .roster-shell { width: calc(100% - 24px); padding: 28px 0 48px; } }
+.action-button, .quiet-button { min-height: 36px; padding: 8px 14px; font: inherit; font-size: .78rem; font-weight: 700; border: 0; border-radius: 4px; cursor: pointer; }
+.action-button { color: #fff9f1; background: #2d6841; }
+.quiet-button { color: var(--text-primary); background: rgba(103, 70, 41, .1); }
+.action-button:disabled, .quiet-button:disabled { cursor: not-allowed; opacity: .5; }
+.protest-form select, .protest-form textarea { padding: 9px 10px; border: 1px solid rgba(103, 70, 41, .24); border-radius: 4px; }

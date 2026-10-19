@@ -3,10 +3,11 @@
     <a class="back-link" routerLink="/tournament-management">Tournament management</a>
     <p class="eyebrow">Administrator</p>
     <h1>Tournament registrations</h1>
-    <p>Review partner invitations, accepted teams, and approved entries by tournament.</p>
+    <p>Review entries and payment proofs, confirm payment, or remove registrations by tournament.</p>
   </header>
 
   @if (errorMessage()) { <p class="notice error" role="alert">{{ errorMessage() }}</p> }
+  @if (feedbackMessage()) { <p class="notice success" role="status">{{ feedbackMessage() }}</p> }
 
   <section class="registration-browser" aria-labelledby="registrations-title">
     <div class="browser-heading">
@@ -35,7 +36,7 @@
       <div class="event-summary">
         <div><span>Category</span><strong>{{ selectedTournament()?.category }}</strong></div>
         <div><span>Level</span><strong>{{ selectedTournament()?.level }}</strong></div>
-        <div><span>Teams</span><strong>{{ tournamentRegistrations().length }} / {{ selectedTournament()?.maxSlots }}</strong></div>
+        <div><span>Approved teams</span><strong>{{ approvedTeamCount() }} / {{ selectedTournament()?.maxSlots }}</strong><span>{{ pendingTeamCount() }} pending approval</span></div>
         <div><span>Event date</span><strong>{{ selectedTournament()?.date ? (selectedTournament()?.date | date: 'mediumDate') : 'Not set' }}</strong></div>
       </div>
 
@@ -67,9 +68,23 @@
               <small>Registered {{ registration.registeredAt | date: 'medium' }}</small>
             </div>
             <span class="status-pill" [attr.data-status]="statusClass(registration.status)">{{ statusLabel(registration.status) }}</span>
-            @if (registration.paymentProofUrl) {
-              <a class="proof-link" [href]="registration.paymentProofUrl" target="_blank" rel="noopener">View payment proof</a>
+            <div class="payment-actions">
+              @if (canMarkPaid(registration)) {
+                <button type="button" class="action-button" [disabled]="isWorking()" (click)="markPaid(registration)">Mark as paid</button>
+              }
+              <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="removeRegistration(registration)">Remove registration</button>
+            </div>
+            @if (registration.paymentProofUrl || registration.paymentProofs?.length) {
+              <div class="payment-proofs">
+                @if (registration.paymentProofUrl) {
+                  <a class="proof-link" [href]="apiUrl + registration.paymentProofUrl" target="_blank" rel="noopener">View previously submitted payment proof</a>
+                }
+                @for (proof of registration.paymentProofs ?? []; track proof.memberId) {
+                  <a class="proof-link" [href]="apiUrl + proof.url" target="_blank" rel="noopener">View proof from {{ proof.memberName }}: {{ proof.fileName }} ({{ proof.uploadedAt | date: 'medium' }})</a>
+                }
+              </div>
             }
+            @if (registration.paidAt) { <small class="paid-note">Payment confirmed {{ registration.paidAt | date: 'medium' }}</small> }
           </article>
         } @empty {
           <p class="empty-state">No registrations match this status for the selected tournament.</p>

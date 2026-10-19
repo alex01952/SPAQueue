@@ -2,6 +2,7 @@ import { DatePipe } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, distinctUntilChanged, finalize, of, Subject, switchMap, timer } from 'rxjs';
 import { getApiBaseUrl } from '../api-base-url';
@@ -33,14 +34,14 @@ const emptyTournamentExperienceForm = (): TournamentExperienceForm => ({
 
 @Component({
   selector: 'app-tournaments-page',
-  imports: [DatePipe, FormsModule],
+  imports: [DatePipe, FormsModule, RouterLink],
   templateUrl: './tournaments-page.component.html',
   styleUrl: './tournaments-page.component.scss',
 })
 export class TournamentsPageComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly auth = inject(MemberAuthService);
-  private readonly apiUrl = getApiBaseUrl();
+  protected readonly apiUrl = getApiBaseUrl();
   private readonly destroyRef = inject(DestroyRef);
   private readonly partnerSearchTerms = new Subject<string>();
 
@@ -61,6 +62,9 @@ export class TournamentsPageComponent implements OnInit {
   protected readonly isWorking = signal(false);
   protected readonly errorMessage = signal('');
   protected readonly feedbackMessage = signal('');
+  protected readonly paymentProofFiles = signal<Record<string, File>>({});
+  protected memberTermsAccepted = false;
+  protected partnerTermsAccepted = false;
 
   constructor() {
     this.partnerSearchTerms
@@ -98,6 +102,7 @@ export class TournamentsPageComponent implements OnInit {
     this.errorMessage.set('');
     this.feedbackMessage.set('');
     this.activeTournament.set(tournament);
+    this.memberTermsAccepted = false;
     this.eligiblePartners.set([]);
     this.selectedPartnerId.set('');
     this.selectedTeamMembers.set([]);
@@ -108,6 +113,7 @@ export class TournamentsPageComponent implements OnInit {
 
   protected closeRegistration() {
     this.activeTournament.set(null);
+    this.memberTermsAccepted = false;
     this.eligiblePartners.set([]);
     this.selectedPartnerId.set('');
     this.selectedTeamMembers.set([]);
@@ -131,6 +137,10 @@ export class TournamentsPageComponent implements OnInit {
       !this.isExperienceFormComplete(this.memberExperienceForm) ||
       this.isWorking()
     ) return;
+    if (tournament.termsUrl && !this.memberTermsAccepted) {
+      this.errorMessage.set('You must agree to the tournament terms and conditions before continuing.');
+      return;
+    }
     this.isWorking.set(true);
     this.errorMessage.set('');
     this.http
@@ -144,6 +154,7 @@ export class TournamentsPageComponent implements OnInit {
             ? { teamMemberIds: this.selectedTeamMembers().map((member) => member.memberId) }
             : {}),
           memberExperience: this.toExperienceDetails(this.memberExperienceForm),
+          termsAccepted: this.memberTermsAccepted,
         },
         { withCredentials: true },
       )
@@ -168,6 +179,10 @@ export class TournamentsPageComponent implements OnInit {
       this.isWorking() ||
       (decision === 'Accepted' && !this.isExperienceFormComplete(this.partnerExperienceForm))
     ) return;
+    if (decision === 'Accepted' && registration.termsUrl && !this.partnerTermsAccepted) {
+      this.errorMessage.set('You must agree to the tournament terms and conditions before continuing.');
+      return;
+    }
     this.isWorking.set(true);
     this.errorMessage.set('');
     this.http
@@ -176,7 +191,7 @@ export class TournamentsPageComponent implements OnInit {
         {
           decision,
           ...(decision === 'Accepted'
-            ? { partnerExperience: this.toExperienceDetails(this.partnerExperienceForm) }
+            ? { partnerExperience: this.toExperienceDetails(this.partnerExperienceForm), termsAccepted: this.partnerTermsAccepted }
             : {}),
         },
         { withCredentials: true },
@@ -199,7 +214,37 @@ export class TournamentsPageComponent implements OnInit {
       });
   }
 
+  protected canCancelRegistration(registration: TournamentRegistration): boolean {
+    return ['Invitation Pending', 'Pending Approval', 'Approved', 'Payment Submitted'].includes(registration.status);
+  }
+
+  protected cancelRegistration(registration: TournamentRegistration) {
+    if (this.isWorking() || !this.canCancelRegistration(registration)) return;
+    if (!window.confirm('Leaving this team will cancel the tournament registration for ALL members of the team. Everyone will need to register again to participate. Continue?')) return;
+    this.isWorking.set(true);
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.http.delete<{ deleted: true }>(
+      `${this.apiUrl}/tournaments/${encodeURIComponent(registration.tournamentId)}/registrations/${encodeURIComponent(registration.registrationId)}`,
+      { withCredentials: true },
+    ).subscribe({
+      next: () => {
+        this.respondingInvitationId.set('');
+        this.isWorking.set(false);
+        this.loadPage();
+        this.feedbackMessage.set('Tournament registration cancelled for all team members. Everyone can register again.');
+      },
+      error: (error: HttpErrorResponse) => {
+        this.showError(error, error.status === 0
+          ? 'Unable to reach the API to cancel this registration. Check your connection; if it persists, the server may be blocking the request (CORS). Refresh to check whether the registration was cancelled before retrying.'
+          : 'Unable to cancel this tournament registration.');
+        this.isWorking.set(false);
+      },
+    });
+  }
+
   protected beginAccepting(registration: TournamentRegistration) {
+    this.partnerTermsAccepted = false;
     this.partnerExperienceForm = emptyTournamentExperienceForm();
     this.respondingInvitationId.set(registration.registrationId);
   }
@@ -297,12 +342,41 @@ export class TournamentsPageComponent implements OnInit {
     return details;
   }
 
-  protected uploadProof(registration: TournamentRegistration, file?: File) {
-    if (!file || this.isWorking()) return;
+  protected canUploadProof(registration: TournamentRegistration): boolean {
+    return registration.status === 'Approved' || registration.status === 'Payment Submitted';
+  }
+
+  protected selectedProofFile(registration: TournamentRegistration): File | undefined {
+    return this.paymentProofFiles()[`${registration.tournamentId}:${registration.registrationId}`];
+  }
+
+  protected selectProofFile(registration: TournamentRegistration, file?: File) {
+    const files = { ...this.paymentProofFiles() };
+    const key = `${registration.tournamentId}:${registration.registrationId}`;
+    delete files[key];
+    this.errorMessage.set('');
+    if (file) {
+      if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type) || !file.size || file.size > 10 * 1024 * 1024) {
+        this.errorMessage.set('Payment proof must be a PDF, JPEG, or PNG file no larger than 10 MB.');
+      } else {
+        files[key] = file;
+      }
+    }
+    this.paymentProofFiles.set(files);
+  }
+
+  protected uploadProof(registration: TournamentRegistration) {
+    if (this.isWorking() || !this.canUploadProof(registration)) return;
+    const file = this.selectedProofFile(registration);
+    if (!file) {
+      this.errorMessage.set('Select a payment-proof file to upload.');
+      return;
+    }
     const formData = new FormData();
     formData.append('file', file);
     this.isWorking.set(true);
     this.errorMessage.set('');
+    this.feedbackMessage.set('');
     this.http
       .post<TournamentRegistration>(
         `${this.apiUrl}/tournaments/${encodeURIComponent(registration.tournamentId)}/registrations/${encodeURIComponent(registration.registrationId)}/payment-proof`,
@@ -311,7 +385,8 @@ export class TournamentsPageComponent implements OnInit {
       )
       .subscribe({
         next: () => {
-          this.feedbackMessage.set('Payment proof uploaded.');
+          this.selectProofFile(registration);
+          this.feedbackMessage.set('Payment proof uploaded. An admin must confirm payment before the registration is marked paid.');
           this.isWorking.set(false);
           this.loadPage();
         },
@@ -338,6 +413,15 @@ export class TournamentsPageComponent implements OnInit {
 
   protected isFull(tournament: Tournament): boolean {
     return tournament.registrationCount >= tournament.maxSlots;
+  }
+
+  protected isRegistrationClosed(tournamentId: string): boolean {
+    return this.tournaments().some((tournament) => tournament.tournamentId === tournamentId && tournament.registrationClosed === true);
+  }
+
+  protected canViewRoster(registration: TournamentRegistration): boolean {
+    return this.isRegistrationClosed(registration.tournamentId) &&
+      ['Approved', 'Payment Submitted', 'Paid'].includes(registration.status);
   }
 
   protected slotPercentage(tournament: Tournament): number {

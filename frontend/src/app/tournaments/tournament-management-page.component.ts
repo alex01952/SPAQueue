@@ -29,6 +29,7 @@ export class TournamentManagementPageComponent implements OnInit {
   protected readonly isSaving = signal(false);
   protected readonly errorMessage = signal('');
   protected readonly feedbackMessage = signal('');
+  protected readonly termsFile = signal<File | null>(null);
   protected readonly form = {
     name: '',
     category: tournamentCategories[0],
@@ -42,16 +43,35 @@ export class TournamentManagementPageComponent implements OnInit {
     this.loadData();
   }
 
-  protected createTournament() {
+  protected selectTermsFile(input: HTMLInputElement) {
+    const file = input.files?.[0];
+    this.termsFile.set(null);
+    this.errorMessage.set('');
+    if (!file) return;
+    if (file.type !== 'application/pdf' || !file.size || file.size > 10 * 1024 * 1024) {
+      input.value = '';
+      this.errorMessage.set('Terms and conditions must be a PDF file no larger than 10 MB.');
+      return;
+    }
+    this.termsFile.set(file);
+  }
+
+  protected createTournament(termsInput: HTMLInputElement) {
     if (this.isSaving()) return;
     this.errorMessage.set('');
     this.feedbackMessage.set('');
     this.isSaving.set(true);
-    this.http.post<Tournament>(`${this.apiUrl}/admin/tournaments`, this.form, { withCredentials: true }).subscribe({
+    const file = this.termsFile();
+    const body = new FormData();
+    Object.entries(this.form).forEach(([key, value]) => body.append(key, String(value)));
+    if (file) body.append('termsFile', file);
+    this.http.post<Tournament>(`${this.apiUrl}/admin/tournaments`, body, { withCredentials: true }).subscribe({
       next: () => {
         this.form.name = '';
         this.form.date = '';
         this.form.location = '';
+        this.termsFile.set(null);
+        termsInput.value = '';
         this.feedbackMessage.set('Tournament created.');
         this.isSaving.set(false);
         this.loadData();
@@ -79,6 +99,33 @@ export class TournamentManagementPageComponent implements OnInit {
       },
       error: (error: HttpErrorResponse) => {
         this.errorMessage.set(error.error?.message ?? 'Unable to approve registration.');
+        this.isSaving.set(false);
+      },
+    });
+  }
+
+  protected toggleRegistration(tournament: Tournament) {
+    if (this.isSaving()) return;
+    const closed = !tournament.registrationClosed;
+    const prompt = closed
+      ? `Close registration for ${tournament.name}? Players will no longer be able to register or accept invitations, and confirmed participants will be able to view the roster and file protests.`
+      : `Reopen registration for ${tournament.name}? Players will be able to register and accept invitations again, and new protests will be paused.`;
+    if (!window.confirm(prompt)) return;
+    this.isSaving.set(true);
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.http.patch<Tournament>(
+      `${this.apiUrl}/admin/tournaments/${encodeURIComponent(tournament.tournamentId)}/registration-status`,
+      { closed },
+      { withCredentials: true },
+    ).subscribe({
+      next: (updated) => {
+        this.tournaments.update((items) => items.map((item) => item.tournamentId === updated.tournamentId ? updated : item));
+        this.feedbackMessage.set(closed ? 'Registration closed.' : 'Registration reopened.');
+        this.isSaving.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.errorMessage.set(error.error?.message ?? 'Unable to update the registration status.');
         this.isSaving.set(false);
       },
     });

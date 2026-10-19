@@ -31,6 +31,7 @@ export interface TournamentTeamMember {
   gender: string;
   accepted: boolean;
   experience?: TournamentExperienceDetails;
+  termsAcceptedAt?: string;
 }
 
 export interface Tournament {
@@ -42,7 +43,72 @@ export interface Tournament {
   date: string;
   location: string;
   registrationCount: number;
+  pendingRegistrationCount: number;
+  termsUrl?: string;
+  termsFileName?: string;
+  registrationClosed?: boolean;
+  registrationClosedAt?: string;
   createdAt: string;
+}
+
+export const tournamentProtestCategories = [
+  'Gender requirement',
+  'Skill level eligibility',
+  'Tournament experience declaration',
+  'Terms and conditions',
+  'Other',
+] as const;
+
+export type TournamentProtestCategory = (typeof tournamentProtestCategories)[number];
+export type TournamentProtestStatus = 'Open' | 'Upheld' | 'Dismissed';
+
+export interface TournamentRosterPlayer {
+  memberId: string;
+  name: string;
+  gender: string;
+}
+
+export interface TournamentRosterTeam {
+  registrationId: string;
+  status: string;
+  players: TournamentRosterPlayer[];
+  isOwnTeam: boolean;
+}
+
+export interface TournamentRoster {
+  tournamentId: string;
+  tournamentName: string;
+  category: TournamentCategory;
+  level: TournamentLevel;
+  teams: TournamentRosterTeam[];
+}
+
+export interface TournamentProtestEvidence {
+  fileName: string;
+  contentType: string;
+  size: number;
+  uploadedAt: string;
+  url: string;
+}
+
+export interface TournamentProtest {
+  tournamentId: string;
+  protestId: string;
+  tournamentName: string;
+  protesterId: string;
+  protesterName: string;
+  protesterRegistrationId: string;
+  protestedMemberId: string;
+  protestedMemberName: string;
+  protestedRegistrationId: string;
+  eligibilityCategory: TournamentProtestCategory;
+  reason: string;
+  evidence: TournamentProtestEvidence[];
+  status: TournamentProtestStatus;
+  createdAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  reviewNote?: string;
 }
 
 export interface TournamentRegistration {
@@ -57,6 +123,9 @@ export interface TournamentRegistration {
   partnerName: string;
   memberExperience?: TournamentExperienceDetails;
   partnerExperience?: TournamentExperienceDetails;
+  termsUrl?: string;
+  memberTermsAcceptedAt?: string;
+  partnerTermsAcceptedAt?: string;
   teamMembers?: TournamentTeamMember[];
   isIncomingInvitation?: boolean;
   status:
@@ -64,10 +133,22 @@ export interface TournamentRegistration {
     | 'Invitation Declined'
     | 'Pending Approval'
     | 'Approved'
-    | 'Payment Submitted';
+    | 'Payment Submitted'
+    | 'Paid';
   registeredAt: string;
   approvedAt?: string;
   paymentProofUrl?: string;
+  paymentProofs?: TournamentPaymentProof[];
+  paidAt?: string;
+  paidBy?: string;
+}
+
+export interface TournamentPaymentProof {
+  memberId: string;
+  memberName: string;
+  fileName: string;
+  uploadedAt: string;
+  url: string;
 }
 
 export interface TournamentPartnerSearchResult {
