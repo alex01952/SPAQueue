@@ -42,6 +42,7 @@ import type {
   ClubCreateResult,
   ClubMemberAssignment,
   ClubJoinRequest,
+  ClubMemberProfileValidation,
   ClubChatMessage,
   EmailVerificationRequestResult,
   EmailVerificationResult,
@@ -58,6 +59,7 @@ import type {
   TournamentRoster,
   TournamentProtest,
   TournamentProtestInput,
+  PlayerProfileValidation,
 } from './app.service';
 import { GameScore } from './queue.types';
 import type { QueueSelectionMode, TeamMatchingMode } from './queue.types';
@@ -498,6 +500,39 @@ export class AppController {
     );
   }
 
+  @Get('clubs/me/officer-memberships')
+  getOfficerClubs(
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<ClubSummary[]> {
+    return this.appService.getOfficerClubs(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Get('clubs/:clubId/members/profile-validations')
+  getClubMembersForProfileValidation(
+    @Param('clubId') clubId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<ClubMemberProfileValidation[]> {
+    return this.appService.getClubMembersForProfileValidation(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      clubId,
+    );
+  }
+
+  @Post('clubs/:clubId/members/:memberId/profile-validations')
+  validateClubMemberProfile(
+    @Param('clubId') clubId: string,
+    @Param('memberId') memberId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<PlayerProfileValidation> {
+    return this.appService.validateClubMemberProfile(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      clubId,
+      memberId,
+    );
+  }
+
   @Get('admin/club-members')
   getClubAssignments(
     @Headers('cookie') cookieHeader = '',
@@ -717,11 +752,29 @@ export class AppController {
     return this.appService.requestEmailVerification(session.member.memberId);
   }
 
+  @Post('members/email-verification/resend')
+  resendEmailVerification(
+    @Body('email') email = '',
+  ): Promise<EmailVerificationRequestResult> {
+    return this.appService.resendEmailVerification(email);
+  }
+
   @Post('members/email-verification/confirm')
   confirmEmailVerification(
     @Body('token') token = '',
   ): Promise<EmailVerificationResult> {
     return this.appService.confirmEmailVerification(token);
+  }
+
+  @Get('members/:memberId/profile-validations')
+  getMemberProfileValidations(
+    @Param('memberId') memberId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<PlayerProfileValidation[]> {
+    return this.appService.getMemberProfileValidations(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      memberId,
+    );
   }
 
   @Get('members/:memberId')

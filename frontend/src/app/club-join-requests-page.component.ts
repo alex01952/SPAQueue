@@ -24,6 +24,7 @@ export class ClubJoinRequestsPageComponent implements OnInit {
   protected readonly selectedClubId = signal('');
   protected readonly requests = signal<ClubJoinRequest[]>([]);
   protected readonly isLoading = signal(false);
+  protected readonly reviewingMemberId = signal('');
   protected readonly errorMessage = signal('');
   protected readonly feedbackMessage = signal('');
 
@@ -40,8 +41,11 @@ export class ClubJoinRequestsPageComponent implements OnInit {
   }
 
   protected review(request: ClubJoinRequest, decision: 'Approved' | 'Rejected') {
+    if (this.reviewingMemberId()) return;
+
     this.errorMessage.set('');
     this.feedbackMessage.set('');
+    this.reviewingMemberId.set(request.memberId);
     this.http.patch<ClubJoinRequest>(
       `${getApiBaseUrl()}/clubs/${encodeURIComponent(request.clubId)}/join-requests/${encodeURIComponent(request.memberId)}`,
       { decision },
@@ -50,8 +54,12 @@ export class ClubJoinRequestsPageComponent implements OnInit {
       next: () => {
         this.requests.update((items) => items.filter((item) => item.memberId !== request.memberId));
         this.feedbackMessage.set(decision === 'Approved' ? 'Member approved and added to the club.' : 'Join request rejected.');
+        this.reviewingMemberId.set('');
       },
-      error: (error: HttpErrorResponse) => this.errorMessage.set(error.error?.message ?? 'Unable to review join request.'),
+      error: (error: HttpErrorResponse) => {
+        this.errorMessage.set(error.error?.message ?? 'Unable to review join request.');
+        this.reviewingMemberId.set('');
+      },
     });
   }
 

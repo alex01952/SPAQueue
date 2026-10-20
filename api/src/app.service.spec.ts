@@ -245,4 +245,212 @@ describe('AppService club join requests', () => {
       role: 'Officer',
     });
   });
+
+  describe('AppService player profile validations', () => {
+    let service: AppService;
+
+    beforeEach(() => {
+      service = new AppService();
+      jest.spyOn(service as any, 'getMemberSession').mockResolvedValue({
+        authenticated: true,
+        member: {
+          memberId: 'officer-1',
+          name: 'Officer Alex',
+          role: 'member',
+        },
+      });
+      jest
+        .spyOn(service as any, 'assertCanManageClub')
+        .mockResolvedValue(undefined);
+    });
+
+    it('records an officer validation for a player in the same club', async () => {
+      const upsertEntity = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(service as any, 'getClubMembersTableClient').mockReturnValue({
+        getEntity: jest.fn().mockResolvedValue({ Role: 'Member' }),
+      });
+      jest.spyOn(service as any, 'getClubsTableClient').mockReturnValue({
+        listEntities: jest.fn().mockReturnValue({
+          async *[Symbol.asyncIterator]() {
+            yield {
+              rowKey: 'sorsogon-pickleball',
+              Name: 'Sorsogon Pickleball',
+            };
+          },
+        }),
+      });
+      jest.spyOn(service as any, 'getPlayerReviewsTableClient').mockReturnValue({
+        upsertEntity,
+      });
+
+      const result = await service.validateClubMemberProfile(
+        'session-token',
+        'sorsogon-pickleball',
+        'player-1',
+      );
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          officerName: 'Officer Alex',
+          clubName: 'Sorsogon Pickleball',
+        }),
+      );
+      expect(upsertEntity).toHaveBeenCalledWith(
+        expect.objectContaining({
+          partitionKey: 'sorsogon-pickleball',
+          rowKey: 'player-1:officer-1',
+          PlayerId: 'player-1',
+          OfficerName: 'Officer Alex',
+          ClubName: 'Sorsogon Pickleball',
+        }),
+        'Replace',
+      );
+    });
+
+    it('does not allow an officer to validate their own profile', async () => {
+      await expect(
+        service.validateClubMemberProfile(
+          'session-token',
+          'sorsogon-pickleball',
+          'officer-1',
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('returns validations in newest-first order for a member profile', async () => {
+      jest.spyOn(service as any, 'getPlayerReviewsTableClient').mockReturnValue({
+        listEntities: jest.fn().mockReturnValue({
+          async *[Symbol.asyncIterator]() {
+            yield {
+              OfficerName: 'Officer Earlier',
+              ClubName: 'First Club',
+              ValidatedAt: '2026-10-01T10:00:00.000Z',
+            };
+            yield {
+              OfficerName: 'Officer Latest',
+              ClubName: 'Second Club',
+              ValidatedAt: '2026-10-02T10:00:00.000Z',
+            };
+          },
+        }),
+      });
+
+      await expect(
+        service.getMemberProfileValidations('session-token', 'player-1'),
+      ).resolves.toEqual([
+        {
+          officerName: 'Officer Latest',
+          clubName: 'Second Club',
+          validatedAt: '2026-10-02T10:00:00.000Z',
+        },
+        {
+          officerName: 'Officer Earlier',
+          clubName: 'First Club',
+          validatedAt: '2026-10-01T10:00:00.000Z',
+        },
+      ]);
+    });
+
+    it('shows a club officer only that club member validation list', async () => {
+      jest.spyOn(service, 'getMemberDirectory').mockResolvedValue([
+        {
+          memberId: 'player-1',
+          name: 'Player One',
+          role: 'member',
+          clubName: 'Sorsogon Pickleball',
+          profileImageUrl: '',
+        },
+      ]);
+      jest.spyOn(service as any, 'getPlayerReviewsTableClient').mockReturnValue({
+        listEntities: jest.fn().mockReturnValue({
+          async *[Symbol.asyncIterator]() {
+            yield {
+              PlayerId: 'player-1',
+              OfficerName: 'Officer Alex',
+              ClubName: 'Sorsogon Pickleball',
+              ValidatedAt: '2026-10-02T10:00:00.000Z',
+            };
+          },
+        }),
+      });
+
+      await expect(
+        service.getClubMembersForProfileValidation(
+          'session-token',
+          'sorsogon-pickleball',
+        ),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          memberId: 'player-1',
+          validations: [
+            {
+              officerName: 'Officer Alex',
+              clubName: 'Sorsogon Pickleball',
+              validatedAt: '2026-10-02T10:00:00.000Z',
+            },
+          ],
+        }),
+      ]);
+    });
+  });
+
+  describe('AppService email verification resend', () => {
+    let service: AppService;
+
+    beforeEach(() => {
+      service = new AppService();
+    });
+
+    it('invalidates prior verification tokens before sending a replacement link', async () => {
+      const memberId = Buffer.from('pending@example.com').toString('base64url');
+      const createEntity = jest.fn().mockResolvedValue(undefined);
+      const deleteEntity = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn().mockResolvedValue({
+          Name: 'Pending Member',
+          Email: 'pending@example.com',
+          EmailValidated: false,
+          Status: 'Pending',
+        }),
+        listEntities: jest.fn().mockReturnValue({
+          async *[Symbol.asyncIterator]() {
+            yield { rowKey: 'old-token-hash' };
+          },
+        }),
+        createEntity,
+        deleteEntity,
+      });
+      jest
+        .spyOn(service as any, 'sendVerificationEmail')
+        .mockResolvedValue(undefined);
+
+      await expect(
+        service.resendEmailVerification(' pending@example.com '),
+      ).resolves.toEqual({ sent: true, email: 'pe*****@example.com' });
+
+      expect(deleteEntity).toHaveBeenCalledWith(
+        'email-verifications',
+        'old-token-hash',
+      );
+      expect(createEntity).toHaveBeenCalledWith(
+        expect.objectContaining({
+          partitionKey: 'email-verifications',
+          MemberId: memberId,
+        }),
+      );
+    });
+
+    it('does not resend a verification link after the email has been verified', async () => {
+      jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn().mockResolvedValue({
+          EmailValidated: true,
+          Status: 'Pending',
+        }),
+      });
+
+      await expect(
+        service.resendEmailVerification('verified@example.com'),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
 });

@@ -46,6 +46,14 @@ Once registration is closed, confirmed participants (registrations that are Appr
 
 Cross-origin cancellation requires `DELETE` in the API's allowed CORS methods. An `OPTIONS` preflight returning `204 No Content` is normal; its allowed-methods header must include `DELETE` for the browser to send the cancellation request.
 
+## Player profile validations
+
+Club officers can open **Player Validations** to review members of clubs they manage, visit each member profile, and validate a member's listed profile and statistics. A validation is permitted only when both the officer and player currently belong to the same club; officers cannot validate themselves. Each officer has one validation record per player and club, so validating again refreshes the validation date. The profile shows every validation with the officer name, club, and validation date. Configure `PLAYER_REVIEWS_AZURE_TABLE` when a different Azure Table name is required; it defaults to `PlayerReviews`, which must exist alongside the other member tables.
+
+## Email verification
+
+New registrations receive a single-use verification link that expires after `EMAIL_VERIFICATION_TTL_MINUTES` (60 minutes by default; minimum 5 minutes). A pending, unverified registrant can enter their email on the login page to request a replacement link. Resending invalidates their older verification links before sending the new one. Administrators cannot approve a registration until its email has been verified.
+
 ## Run locally
 
 Start the API:

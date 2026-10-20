@@ -31,6 +31,7 @@ export class ClubAdminPageComponent implements OnInit {
   protected readonly assignments = signal<ClubAssignment[]>([]);
   protected readonly newClubName = signal('');
   protected readonly selectedClubId = signal('');
+  protected readonly selectedOfficerClubId = signal('');
   protected readonly selectedMemberId = signal('');
   protected readonly isCreating = signal(false);
   protected readonly isAssigning = signal(false);
@@ -56,6 +57,7 @@ export class ClubAdminPageComponent implements OnInit {
           );
           this.newClubName.set('');
           this.selectedClubId.set(club.clubId);
+          this.selectedOfficerClubId.set(club.clubId);
           this.feedbackMessage.set(`${club.name} was created.`);
           this.isCreating.set(false);
         },
@@ -123,12 +125,21 @@ export class ClubAdminPageComponent implements OnInit {
   }
 
   protected officerAssignments() {
-    return this.assignments().filter((assignment) => assignment.role === 'Officer');
+    const clubId = this.selectedOfficerClubId();
+    return this.assignments().filter(
+      (assignment) =>
+        assignment.role === 'Officer' && assignment.clubId === clubId,
+    );
   }
 
   private load() {
     this.http.get<Club[]>(`${getApiBaseUrl()}/clubs/options`, { withCredentials: true }).subscribe({
-      next: (clubs) => this.clubs.set(clubs),
+      next: (clubs) => {
+        this.clubs.set(clubs);
+        if (!this.selectedOfficerClubId() && clubs.length) {
+          this.selectedOfficerClubId.set(clubs[0].clubId);
+        }
+      },
       error: () => this.errorMessage.set('Unable to load clubs.'),
     });
     this.http.get<Member[]>(`${getApiBaseUrl()}/members`, { withCredentials: true }).subscribe({

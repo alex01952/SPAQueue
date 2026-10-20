@@ -56,6 +56,12 @@ export class HomePageComponent {
       route: '/tournaments',
       index: '05',
     },
+    {
+      label: 'Player validations',
+      description: 'Validate the profiles and stats of members in your officer clubs.',
+      route: '/club-player-validations',
+      index: '06',
+    },
   ] as const;
 
   constructor() {

@@ -56,8 +56,9 @@
             <strong>{{ memberSince() }}</strong>
           </div>
           <div>
-            <span>Average skill</span>
+            <span>Average skill (DUPR)</span>
             <strong>{{ averageSkill() }}</strong>
+            <small class="rating-note">0–10 skill average mapped to 2.0–5.0 DUPR.</small>
           </div>
           <div>
             <span>DUPR ID</span>
@@ -101,6 +102,30 @@
             </div>
           } @else {
             <p class="empty-state">No skill ratings have been added.</p>
+          }
+        </section>
+
+        <section class="profile-validations-panel" aria-labelledby="profile-validations-title">
+          <div class="section-heading">
+            <p class="eyebrow">Club validations</p>
+            <h2 id="profile-validations-title">Profile &amp; stats</h2>
+          </div>
+          @if (profileValidationsError()) {
+            <p class="validation-error" role="alert">{{ profileValidationsError() }}</p>
+          } @else if (profileValidations().length) {
+            <ul>
+              @for (validation of profileValidations(); track validation.officerName + validation.clubName + validation.validatedAt) {
+                <li>
+                  <strong>{{ validation.officerName }}</strong>
+                  <span>validated this profile for {{ validation.clubName }}</span>
+                  <time [attr.datetime]="validation.validatedAt">
+                    {{ validation.validatedAt | date: 'mediumDate' }}
+                  </time>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="empty-state">No club officer validations yet.</p>
           }
         </section>
       </section>

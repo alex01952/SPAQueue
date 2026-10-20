@@ -1,0 +1,93 @@
+<main class="validations-shell">
+  <header class="validations-heading">
+    <p class="eyebrow">Club officers</p>
+    <h1>Player validations</h1>
+    <p>Review the profiles of your club members and validate their listed player statistics.</p>
+  </header>
+
+  @if (feedbackMessage()) {
+    <p class="feedback success" role="status">{{ feedbackMessage() }}</p>
+  }
+  @if (errorMessage()) {
+    <p class="feedback error" role="alert">{{ errorMessage() }}</p>
+  }
+
+  @if (isLoading()) {
+    <p class="empty-state">Loading club members...</p>
+  } @else if (!clubs().length) {
+    <section class="empty-panel">
+      <h2>No officer clubs yet</h2>
+      <p>Ask an administrator to appoint you as an officer for a club before validating player profiles.</p>
+    </section>
+  } @else {
+    <section class="validations-panel" aria-labelledby="club-members-title">
+      <label class="club-select">
+        <span>Club</span>
+        <select
+          [value]="selectedClubId()"
+          (change)="selectClub($any($event.target).value)"
+        >
+          @for (club of clubs(); track club.clubId) {
+            <option [value]="club.clubId">{{ club.name }}</option>
+          }
+        </select>
+      </label>
+
+      <div class="member-list">
+        @for (member of members(); track member.memberId) {
+          <article class="member-row">
+            @if (member.profileImageUrl) {
+              <img [src]="member.profileImageUrl" [alt]="member.name + ' profile photo'" />
+            } @else {
+              <span class="avatar" aria-hidden="true">{{ member.name.charAt(0) }}</span>
+            }
+            <div class="member-details">
+              <button type="button" class="profile-link" (click)="showProfile(member)">
+                {{ member.name }}
+              </button>
+              @if (member.location) {
+                <span>{{ member.location }}</span>
+              }
+              @if (member.validations.length) {
+                <ul class="validation-list" aria-label="Profile validations">
+                  @for (validation of member.validations; track validation.officerName + validation.validatedAt) {
+                    <li>
+                      Validated by <strong>{{ validation.officerName }}</strong>
+                      for {{ validation.clubName }} on
+                      {{ validation.validatedAt | date: 'mediumDate' }}
+                    </li>
+                  }
+                </ul>
+              } @else {
+                <span class="no-validations">No officer validations yet.</span>
+              }
+            </div>
+            <button
+              type="button"
+              [disabled]="!canValidate(member) || validatingMemberId() === member.memberId"
+              (click)="validate(member)"
+            >
+              {{
+                !canValidate(member)
+                  ? 'Your profile'
+                  : validatingMemberId() === member.memberId
+                  ? 'Validating...'
+                  : 'Validate profile & stats'
+              }}
+            </button>
+          </article>
+        } @empty {
+          <p class="empty-state">This club has no approved members to validate.</p>
+        }
+      </div>
+    </section>
+  }
+
+  @if (profileMember(); as member) {
+    <app-member-profile-frame
+      [memberId]="member.memberId"
+      [memberName]="member.name"
+      (closed)="closeProfile()"
+    />
+  }
+</main>

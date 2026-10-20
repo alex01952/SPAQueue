@@ -134,6 +134,11 @@ button:disabled {
   padding-left: 56px;
 }
 
+.officer-filter {
+  width: min(100%, 440px);
+  margin: 0 0 18px 56px;
+}
+
 .officer-list article {
   display: flex;
   align-items: center;
@@ -174,5 +179,9 @@ button:disabled {
 
   .officer-list {
     padding-left: 0;
+  }
+
+  .officer-filter {
+    margin-left: 0;
   }
 }

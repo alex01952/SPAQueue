@@ -59,4 +59,48 @@ describe('ClubAdminPageComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Sorsogon City Pickleball');
     http.verify();
   });
+
+  it('shows only officers from the club selected in the current officer filter', async () => {
+    await TestBed.configureTestingModule({
+      imports: [ClubAdminPageComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ClubAdminPageComponent);
+    const component = fixture.componentInstance as any;
+    const http = TestBed.inject(HttpTestingController);
+
+    fixture.detectChanges();
+    http
+      .expectOne(({ url }) => url.endsWith('/clubs/options'))
+      .flush([
+        { clubId: 'club-1', name: 'First Club' },
+        { clubId: 'club-2', name: 'Second Club' },
+      ]);
+    http
+      .expectOne(({ url }) => url.endsWith('/members'))
+      .flush([
+        { memberId: 'member-1', name: 'First Officer' },
+        { memberId: 'member-2', name: 'Second Officer' },
+      ]);
+    http
+      .expectOne(({ url }) => url.endsWith('/admin/club-members'))
+      .flush([
+        { clubId: 'club-1', memberId: 'member-1', role: 'Officer' },
+        { clubId: 'club-2', memberId: 'member-2', role: 'Officer' },
+      ]);
+    fixture.detectChanges();
+
+      const officerList = fixture.nativeElement.querySelector(
+        '.officer-list',
+      ) as HTMLElement;
+      expect(officerList.textContent).toContain('First Officer');
+      expect(officerList.textContent).not.toContain('Second Officer');
+
+      component.selectedOfficerClubId.set('club-2');
+      fixture.detectChanges();
+
+      expect(officerList.textContent).not.toContain('First Officer');
+      expect(officerList.textContent).toContain('Second Officer');
+    http.verify();
+  });
 });

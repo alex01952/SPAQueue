@@ -4,6 +4,7 @@ import { ClubsPageComponent } from './clubs/clubs-page.component';
 import { ClubAdminPageComponent } from './club-admin/club-admin-page.component';
 import { ClubMembershipAdminPageComponent } from './club-membership-admin-page.component';
 import { ClubJoinRequestsPageComponent } from './club-join-requests-page.component';
+import { ClubPlayerValidationsPageComponent } from './club-player-validations-page.component';
 import { dashboardAuthGuard } from './dashboard-auth.guard';
 import { EditProfilePageComponent } from './edit-profile/edit-profile-page.component';
 import { HomePageComponent } from './home/home-page.component';
@@ -154,6 +155,12 @@ export const routes: Routes = [
     component: ClubJoinRequestsPageComponent,
     canActivate: [memberAuthGuard],
     title: 'Club Join Requests',
+  },
+  {
+    path: 'club-player-validations',
+    component: ClubPlayerValidationsPageComponent,
+    canActivate: [memberAuthGuard],
+    title: 'Player Validations',
   },
   {
     path: 'club-join-requests',

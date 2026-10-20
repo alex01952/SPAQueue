@@ -8,7 +8,11 @@
   <section class="requests-panel">
     <label class="club-select">
       <span>Club</span>
-      <select [value]="selectedClubId()" (change)="selectClub($any($event.target).value)">
+      <select
+        [value]="selectedClubId()"
+        [disabled]="!!reviewingMemberId()"
+        (change)="selectClub($any($event.target).value)"
+      >
         <option value="">Select a club</option>
         @for (club of clubs(); track club.clubId) {<option [value]="club.clubId">{{ club.name }}</option>}
       </select>
@@ -20,14 +24,37 @@
     @else if (selectedClubId() && !errorMessage()) {
       <div class="request-list">
         @for (request of requests(); track request.memberId) {
-          <article class="request-row">
+          <article
+            class="request-row"
+            [class.is-processing]="reviewingMemberId() === request.memberId"
+          >
             <div class="request-person">
               <strong>{{ request.memberName }}</strong>
               <span>Requested {{ request.requestedAt | date: 'mediumDate' }}</span>
             </div>
             <div class="request-actions">
-              <button type="button" class="approve" (click)="review(request, 'Approved')">Approve</button>
-              <button type="button" class="reject" (click)="review(request, 'Rejected')">Reject</button>
+              @if (reviewingMemberId() === request.memberId) {
+                <span class="processing" role="status">
+                  <span class="spinner" aria-hidden="true"></span>
+                  Processing...
+                </span>
+              }
+              <button
+                type="button"
+                class="approve"
+                [disabled]="!!reviewingMemberId()"
+                (click)="review(request, 'Approved')"
+              >
+                Approve
+              </button>
+              <button
+                type="button"
+                class="reject"
+                [disabled]="!!reviewingMemberId()"
+                (click)="review(request, 'Rejected')"
+              >
+                Reject
+              </button>
             </div>
           </article>
         } @empty {

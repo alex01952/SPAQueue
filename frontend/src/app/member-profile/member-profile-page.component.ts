@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -11,9 +12,15 @@ interface MemberSkill {
   rating: number;
 }
 
+interface PlayerProfileValidation {
+  officerName: string;
+  clubName: string;
+  validatedAt: string;
+}
+
 @Component({
   selector: 'app-member-profile-page',
-  imports: [RouterLink],
+  imports: [DatePipe, RouterLink],
   templateUrl: './member-profile-page.component.html',
   styleUrl: './member-profile-page.component.scss',
 })
@@ -26,6 +33,8 @@ export class MemberProfilePageComponent implements OnInit {
   protected readonly member = signal<AuthenticatedMember | null>(null);
   protected readonly isLoading = signal(true);
   protected readonly errorMessage = signal('');
+  protected readonly profileValidations = signal<PlayerProfileValidation[]>([]);
+  protected readonly profileValidationsError = signal('');
   private readonly selectedMemberId = signal<string | null>(null);
   protected readonly isOwnProfile = computed(() => !this.selectedMemberId());
   protected readonly skills = computed<MemberSkill[]>(() =>
@@ -57,14 +66,12 @@ export class MemberProfilePageComponent implements OnInit {
 
   protected readonly averageSkill = computed(() => {
     const skills = this.skills();
+    const rawAverage = skills.length
+      ? skills.reduce((sum, skill) => sum + skill.rating, 0) / skills.length
+      : 0;
+    const normalizedAverage = Math.min(Math.max(rawAverage, 0), 10);
 
-    if (!skills.length) {
-      return '0.0';
-    }
-
-    const total = skills.reduce((sum, skill) => sum + skill.rating, 0);
-
-    return (total / skills.length).toFixed(1);
+    return (2 + normalizedAverage * 0.3).toFixed(1);
   });
   protected readonly rpgStats = computed(() =>
     calculatePlayerRpgStats(this.member()?.skills),
@@ -93,6 +100,7 @@ export class MemberProfilePageComponent implements OnInit {
         }
 
         this.member.set(this.auth.member());
+        this.loadProfileValidations(this.auth.member()?.memberId ?? '');
         this.errorMessage.set('');
         this.isLoading.set(false);
       });
@@ -118,6 +126,7 @@ export class MemberProfilePageComponent implements OnInit {
       .subscribe({
         next: (member) => {
           this.member.set(member);
+          this.loadProfileValidations(member.memberId);
           this.isLoading.set(false);
         },
         error: (error: HttpErrorResponse) => {
@@ -126,6 +135,27 @@ export class MemberProfilePageComponent implements OnInit {
             error.status === 404
               ? 'This member profile could not be found.'
               : 'Unable to load this member profile. Please try again.',
+          );
+        },
+      });
+  }
+
+  private loadProfileValidations(memberId: string) {
+    this.profileValidations.set([]);
+    this.profileValidationsError.set('');
+    if (!memberId) return;
+
+    this.http
+      .get<PlayerProfileValidation[]>(
+        `${getApiBaseUrl()}/members/${encodeURIComponent(memberId)}/profile-validations`,
+        { withCredentials: true },
+      )
+      .subscribe({
+        next: (validations) => this.profileValidations.set(validations),
+        error: () => {
+          this.profileValidations.set([]);
+          this.profileValidationsError.set(
+            'Club validations are temporarily unavailable. Please try again.',
           );
         },
       });

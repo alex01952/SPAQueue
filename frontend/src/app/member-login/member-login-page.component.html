@@ -49,6 +49,25 @@
         </button>
       </form>
 
+      <section class="verification-resend" aria-labelledby="resend-verification-title">
+        <h2 id="resend-verification-title">Still waiting for verification?</h2>
+        <p>Enter your registration email above and we will send a new verification link.</p>
+        @if (resendVerificationMessage()) {
+          <p class="resend-message success" role="status">{{ resendVerificationMessage() }}</p>
+        }
+        @if (resendVerificationError()) {
+          <p class="resend-message error" role="alert">{{ resendVerificationError() }}</p>
+        }
+        <button
+          type="button"
+          class="resend-button"
+          [disabled]="isResendingVerification()"
+          (click)="resendVerificationEmail()"
+        >
+          {{ isResendingVerification() ? 'Sending verification link...' : 'Resend verification link' }}
+        </button>
+      </section>
+
       <p class="registration-link">New to the club? <a routerLink="/register">Create an account</a></p>
     </section>
   </section>

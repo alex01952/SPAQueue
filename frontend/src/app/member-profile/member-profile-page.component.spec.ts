@@ -57,6 +57,9 @@ describe('MemberProfilePageComponent', () => {
     expect(text).toContain('Current Member');
     expect(text).toContain('CURRENT-DUPR');
     http.expectNone(({ url }) => /\/members\/[^/]+$/.test(url));
+    http
+      .expectOne('/members/current-member/profile-validations')
+      .flush([]);
     http.verify();
   });
 
@@ -79,6 +82,9 @@ describe('MemberProfilePageComponent', () => {
       skills: { courtAwareness: 7 },
       createdAt: '2026-02-18T09:30:00.000Z',
     });
+    http
+      .expectOne('/members/selected-member-row-key/profile-validations')
+      .flush([]);
     fixture.detectChanges();
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
 
@@ -93,6 +99,9 @@ describe('MemberProfilePageComponent', () => {
   it('classifies the 250 skill points in five 50-point bands next to the job', async () => {
     const { fixture, http } = await configure();
     fixture.detectChanges();
+    http
+      .expectOne('/members/current-member/profile-validations')
+      .flush([]);
 
     for (const [total, category] of [
       [0, 'Beginner'], [1, 'Beginner'], [50, 'Beginner'],
@@ -117,6 +126,62 @@ describe('MemberProfilePageComponent', () => {
       }
     }
 
+    http.verify();
+  });
+
+  it('maps the average 0–10 skill rating to the 2.0–5.0 DUPR range', async () => {
+    const { fixture, http } = await configure();
+    fixture.detectChanges();
+    http
+      .expectOne('/members/current-member/profile-validations')
+      .flush([]);
+
+    fixture.componentInstance['member'].set({
+      ...currentMember,
+      emailValidated: true,
+      skills: {},
+    });
+    expect(fixture.componentInstance['averageSkill']()).toBe('2.0');
+
+    fixture.componentInstance['member'].set({
+      ...currentMember,
+      emailValidated: true,
+      skills: { serve: 10, return: 10 },
+    });
+    expect(fixture.componentInstance['averageSkill']()).toBe('5.0');
+
+    fixture.componentInstance['member'].set({
+      ...currentMember,
+      emailValidated: true,
+      skills: { serve: 5, return: 5 },
+    });
+    fixture.detectChanges();
+    expect(fixture.componentInstance['averageSkill']()).toBe('3.5');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      '0–10 skill average mapped to 2.0–5.0 DUPR.',
+    );
+    http.verify();
+  });
+
+  it('shows officer validations on a member profile', async () => {
+    const { fixture, http } = await configure();
+    fixture.detectChanges();
+
+    http.expectOne('/members/current-member/profile-validations').flush([
+      {
+        officerName: 'Officer Alex',
+        clubName: 'Sorsogon Pickleball',
+        validatedAt: '2026-10-20T03:00:00.000Z',
+      },
+    ]);
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'Officer Alex',
+    );
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'Sorsogon Pickleball',
+    );
     http.verify();
   });
 });

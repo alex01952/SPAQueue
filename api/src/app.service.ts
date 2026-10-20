@@ -247,6 +247,16 @@ export interface ClubMemberAssignment {
   role?: 'Member' | 'Officer';
 }
 
+export interface PlayerProfileValidation {
+  officerName: string;
+  clubName: string;
+  validatedAt: string;
+}
+
+export interface ClubMemberProfileValidation extends MemberDirectoryEntry {
+  validations: PlayerProfileValidation[];
+}
+
 export type ClubJoinRequestStatus = 'Pending' | 'Approved' | 'Rejected';
 
 export interface ClubJoinRequest {
@@ -541,6 +551,8 @@ export class AppService {
     process.env.CLUB_MEMBERS_AZURE_TABLE ?? 'ClubMembers';
   private readonly clubJoinRequestsAzureTable =
     process.env.CLUB_JOIN_REQUESTS_AZURE_TABLE ?? 'ClubJoinRequests';
+  private readonly playerReviewsAzureTable =
+    process.env.PLAYER_REVIEWS_AZURE_TABLE ?? 'PlayerReviews';
   private readonly tournamentsAzureTable =
     process.env.TOURNAMENTS_AZURE_TABLE ?? 'Tournaments';
   private readonly tournamentRegistrationsAzureTable =
@@ -2686,6 +2698,128 @@ export class AppService {
     return { deleted: true };
   }
 
+  async getOfficerClubs(sessionToken: string): Promise<ClubSummary[]> {
+    const session = await this.getMemberSession(sessionToken);
+    if (session.member.role === 'admin') {
+      return this.getClubs(sessionToken);
+    }
+
+    const clubIds: string[] = [];
+    try {
+      const memberships = this.getClubMembersTableClient().listEntities({
+        queryOptions: {
+          filter: `RowKey eq '${session.member.memberId}'`,
+        },
+      });
+      for await (const membership of memberships) {
+        const role = String(membership.Role ?? '').trim().toLowerCase();
+        if (
+          role === 'officer' ||
+          role === 'owner' ||
+          role === 'club-owner'
+        ) {
+          const clubId = String(
+            membership.ClubId ?? membership.partitionKey ?? '',
+          ).trim();
+          if (clubId) clubIds.push(clubId);
+        }
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    if (!clubIds.length) return [];
+    const clubs = await this.getClubs(sessionToken);
+    const officerClubIds = new Set(clubIds);
+    return clubs.filter((club) => officerClubIds.has(club.clubId));
+  }
+
+  async getClubMembersForProfileValidation(
+    sessionToken: string,
+    clubId: string,
+  ): Promise<ClubMemberProfileValidation[]> {
+    const session = await this.getMemberSession(sessionToken);
+    await this.assertCanManageClub(session.member, clubId);
+    const [members, validations] = await Promise.all([
+      this.getMemberDirectory(sessionToken, '', clubId),
+      this.getPlayerProfileValidationsForClub(clubId),
+    ]);
+    const validationsByMember = new Map<string, PlayerProfileValidation[]>();
+    for (const validation of validations) {
+      const memberValidations =
+        validationsByMember.get(validation.memberId) ?? [];
+      const { memberId: _memberId, ...profileValidation } = validation;
+      memberValidations.push(profileValidation);
+      validationsByMember.set(validation.memberId, memberValidations);
+    }
+
+    return members.map((member) => ({
+      ...member,
+      validations: validationsByMember.get(member.memberId) ?? [],
+    }));
+  }
+
+  async validateClubMemberProfile(
+    sessionToken: string,
+    clubId: string,
+    memberId: string,
+  ): Promise<PlayerProfileValidation> {
+    const session = await this.getMemberSession(sessionToken);
+    await this.assertCanManageClub(session.member, clubId);
+    this.validateMemberId(memberId);
+    if (memberId === session.member.memberId) {
+      throw new ForbiddenException(
+        'You cannot validate your own player profile.',
+      );
+    }
+
+    try {
+      await this.getClubMembersTableClient().getEntity(clubId, memberId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException('Player is not a member of this club.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    const clubName = await this.getClubName(clubId);
+    const validatedAt = new Date().toISOString();
+    try {
+      await this.getPlayerReviewsTableClient().upsertEntity(
+        {
+          partitionKey: clubId,
+          rowKey: `${memberId}:${session.member.memberId}`,
+          PlayerId: memberId,
+          OfficerId: session.member.memberId,
+          OfficerName: session.member.name,
+          ClubId: clubId,
+          ClubName: clubName,
+          ValidatedAt: validatedAt,
+        },
+        'Replace',
+      );
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return {
+      officerName: session.member.name,
+      clubName,
+      validatedAt,
+    };
+  }
+
+  async getMemberProfileValidations(
+    sessionToken: string,
+    memberId: string,
+  ): Promise<PlayerProfileValidation[]> {
+    await this.getMemberSession(sessionToken);
+    this.validateMemberId(memberId);
+    return (await this.getPlayerProfileValidations(memberId)).map(
+      ({ memberId: _memberId, ...validation }) => validation,
+    );
+  }
+
   async getMemberProfile(memberId: string): Promise<AuthenticatedMember> {
     if (!/^[A-Za-z0-9_-]{1,200}$/.test(memberId)) {
       throw new BadRequestException('Invalid member identifier.');
@@ -3082,6 +3216,61 @@ export class AppService {
     }
 
     return { sent: true, email: this.maskEmail(email) };
+  }
+
+  async resendEmailVerification(
+    emailInput: string,
+  ): Promise<EmailVerificationRequestResult> {
+    const email = emailInput.trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      throw new BadRequestException('Enter a valid email address.');
+    }
+
+    const memberId = Buffer.from(email).toString('base64url');
+    const tableClient = this.getMembersTableClient();
+    let member: Record<string, unknown>;
+    try {
+      member = await tableClient.getEntity('members', memberId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException(
+          'No pending registration was found for this email address.',
+        );
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    if (member.Status !== 'Pending') {
+      throw new ConflictException(
+        'This registration is no longer awaiting email verification.',
+      );
+    }
+    if (member.EmailValidated === true) {
+      throw new ConflictException(
+        'This email address has already been verified and is awaiting approval.',
+      );
+    }
+
+    try {
+      const existingTokens = tableClient.listEntities({
+        queryOptions: {
+          filter: `PartitionKey eq 'email-verifications' and MemberId eq '${memberId}'`,
+          select: ['RowKey'],
+        },
+      });
+      for await (const token of existingTokens) {
+        if (token.rowKey) {
+          await tableClient.deleteEntity(
+            'email-verifications',
+            String(token.rowKey),
+          );
+        }
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return this.requestEmailVerification(memberId);
   }
 
   async confirmEmailVerification(
@@ -3665,6 +3854,19 @@ export class AppService {
     return new TableClient(
       `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
       this.clubJoinRequestsAzureTable,
+      new DefaultAzureCredential(),
+    );
+  }
+
+  private getPlayerReviewsTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount) {
+      throw new BadRequestException(
+        'MEMBERS_AZURE_STORAGE_ACCOUNT is required for player reviews.',
+      );
+    }
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.playerReviewsAzureTable,
       new DefaultAzureCredential(),
     );
   }
@@ -4298,6 +4500,23 @@ export class AppService {
     }
   }
 
+  private async getClubName(clubId: string): Promise<string> {
+    try {
+      const clubs = this.getClubsTableClient().listEntities({
+        queryOptions: { select: ['RowKey', 'ClubId', 'Name'] },
+      });
+      for await (const club of clubs) {
+        if (String(club.ClubId ?? club.rowKey ?? '') === clubId) {
+          return String(club.Name ?? clubId).trim() || clubId;
+        }
+      }
+      throw new NotFoundException('Club was not found.');
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
   private async assertCanManageClub(
     actor: AuthenticatedMember,
     clubId: string,
@@ -4415,6 +4634,67 @@ export class AppService {
       if (memberId) ids.add(memberId);
     }
     return ids;
+  }
+
+  private async getPlayerProfileValidations(
+    memberId: string,
+  ): Promise<Array<PlayerProfileValidation & { memberId: string }>> {
+    const validations: Array<PlayerProfileValidation & { memberId: string }> =
+      [];
+    try {
+      const entities = this.getPlayerReviewsTableClient().listEntities({
+        queryOptions: { filter: `PlayerId eq '${memberId}'` },
+      });
+      for await (const entity of entities) {
+        const officerName = String(entity.OfficerName ?? '').trim();
+        const clubName = String(entity.ClubName ?? '').trim();
+        const validatedAt = String(entity.ValidatedAt ?? '').trim();
+        if (officerName && clubName && validatedAt) {
+          validations.push({
+            memberId,
+            officerName,
+            clubName,
+            validatedAt,
+          });
+        }
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return validations.sort((left, right) =>
+      right.validatedAt.localeCompare(left.validatedAt),
+    );
+  }
+
+  private async getPlayerProfileValidationsForClub(
+    clubId: string,
+  ): Promise<Array<PlayerProfileValidation & { memberId: string }>> {
+    const validations: Array<PlayerProfileValidation & { memberId: string }> =
+      [];
+    try {
+      const entities = this.getPlayerReviewsTableClient().listEntities({
+        queryOptions: { filter: `PartitionKey eq '${clubId}'` },
+      });
+      for await (const entity of entities) {
+        const memberId = String(entity.PlayerId ?? '').trim();
+        const officerName = String(entity.OfficerName ?? '').trim();
+        const clubName = String(entity.ClubName ?? '').trim();
+        const validatedAt = String(entity.ValidatedAt ?? '').trim();
+        if (memberId && officerName && clubName && validatedAt) {
+          validations.push({
+            memberId,
+            officerName,
+            clubName,
+            validatedAt,
+          });
+        }
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return validations.sort((left, right) =>
+      right.validatedAt.localeCompare(left.validatedAt),
+    );
   }
 
   private async requireAdminSession(sessionToken: string) {

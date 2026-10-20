@@ -89,6 +89,17 @@
         <p>Officer access is scoped to the assigned club.</p>
       </div>
     </div>
+    <label class="officer-filter">
+      <span>Club</span>
+      <select
+        [value]="selectedOfficerClubId()"
+        (change)="selectedOfficerClubId.set($any($event.target).value)"
+      >
+        @for (club of clubs(); track club.clubId) {
+          <option [value]="club.clubId">{{ club.name }}</option>
+        }
+      </select>
+    </label>
     <div class="officer-list">
       @for (
         assignment of officerAssignments();
@@ -104,7 +115,7 @@
           </button>
         </article>
       } @empty {
-        <p>No club officers have been assigned.</p>
+        <p>No officers have been assigned to this club.</p>
       }
     </div>
   </section>
