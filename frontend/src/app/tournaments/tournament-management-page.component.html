@@ -3,10 +3,12 @@
     <p class="eyebrow">Administrator</p>
     <h1>Tournament management</h1>
     <p>Create events and approve complete teams. Use View registrations &amp; payments to review proofs and mark teams as paid.</p>
+    <a class="registrations-link" routerLink="/tournament-archive">View archived tournaments</a>
   </header>
 
   @if (feedbackMessage()) { <p class="notice success" role="status">{{ feedbackMessage() }}</p> }
   @if (errorMessage()) { <p class="notice error" role="alert">{{ errorMessage() }}</p> }
+  @if (isSaving()) { <p class="notice" role="status" aria-live="polite">Processing tournament changes. Please wait...</p> }
 
   <section class="create-section" aria-labelledby="create-title">
     <div class="section-heading"><div><p class="eyebrow">New event</p><h2 id="create-title">Create tournament</h2></div></div>
@@ -55,11 +57,14 @@
       @for (tournament of tournaments(); track tournament.tournamentId) {
         <article class="event-row"><div><strong>{{ tournament.name }}</strong><span>{{ tournament.category }} · {{ tournament.level }}</span></div><span>{{ tournament.date ? (tournament.date | date: 'mediumDate') : 'Date not set' }}</span><div><strong>{{ tournament.registrationCount }} / {{ tournament.maxSlots }} approved teams</strong><span>{{ tournament.pendingRegistrationCount }} pending approval</span></div>
           <div class="event-actions">
-            <span class="status-pill">{{ tournament.registrationClosed ? 'Registration closed' : 'Registration open' }}</span>
-            <button type="button" class="action-button" [disabled]="isSaving()" (click)="toggleRegistration(tournament)">{{ tournament.registrationClosed ? 'Reopen registration' : 'Close registration' }}</button>
+            <span class="status-pill">{{ tournament.lifecycleState ? tournament.lifecycleState + ' - retry action to finish' : tournament.registrationClosed ? 'Registration closed' : 'Registration open' }}</span>
+            <button type="button" class="action-button" [disabled]="isSaving() || !!tournament.lifecycleState" (click)="toggleRegistration(tournament)">{{ tournament.registrationClosed ? 'Reopen registration' : 'Close registration' }}</button>
             <a class="registrations-link" [routerLink]="['/tournament-registrations']" [queryParams]="{ tournamentId: tournament.tournamentId }">View registrations &amp; payments</a>
             <a class="registrations-link" [routerLink]="['/tournaments', tournament.tournamentId, 'roster']">View roster</a>
+            <a class="registrations-link" [routerLink]="['/tournaments', tournament.tournamentId, 'planning']">Plan pools &amp; schedule</a>
             <a class="registrations-link" [routerLink]="['/tournament-protests']" [queryParams]="{ tournamentId: tournament.tournamentId }">Review protests</a>
+            <button type="button" class="action-button" [disabled]="isSaving() || tournament.lifecycleState === 'Deleting'" (click)="archiveTournament(tournament)">Archive</button>
+            <button type="button" class="action-button danger" [disabled]="isSaving() || tournament.lifecycleState === 'Archiving'" (click)="deleteTournament(tournament)">Delete permanently</button>
           </div>
         </article>
       } @empty { <p class="empty-state">No tournaments have been created.</p> }

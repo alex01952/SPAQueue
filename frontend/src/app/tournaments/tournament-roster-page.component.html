@@ -6,6 +6,9 @@
       <p>{{ current.category }} · {{ current.level }} · {{ current.teams.length }} confirmed {{ current.teams.length === 1 ? 'team' : 'teams' }}</p>
     }
     <a class="back-link" routerLink="/tournaments">Back to tournaments</a>
+    @if (roster()?.canManageRoster) {
+      <a class="back-link" [routerLink]="['/tournaments', roster()?.tournamentId, 'planning']">Plan pools &amp; schedule</a>
+    }
   </header>
 
   @if (feedbackMessage()) { <p class="notice success" role="status">{{ feedbackMessage() }}</p> }
@@ -23,6 +26,11 @@
               <strong>Team {{ index + 1 }}</strong>
               @if (team.isOwnTeam) { <span class="pill">Your team</span> }
             </header>
+            @if (current.canManageRoster) {
+              <div class="roster-admin-actions">
+                <button type="button" class="remove-button" [disabled]="isManaging()" (click)="removeTeam(team)">Remove team</button>
+              </div>
+            }
             <ul>
               @for (player of team.players; track player.memberId) {
                 <li>
@@ -34,6 +42,9 @@
                       <button type="button" class="quiet-button" [disabled]="isSubmitting()" (click)="beginProtest(player)">Protest</button>
                     }
                   }
+                  @if (current.canManageRoster) {
+                    <button type="button" class="quiet-button" [disabled]="isManaging()" (click)="beginReplacement(team, player)">Replace</button>
+                  }
                 </li>
               }
             </ul>
@@ -43,6 +54,36 @@
         }
       </div>
     </section>
+
+    @if (replacementTarget(); as target) {
+      <section class="replacement-section" aria-labelledby="replacement-title">
+        <h2 id="replacement-title">Replace {{ target.player.name }}</h2>
+        <p class="hint">Search approved members who are not registered or invited for this tournament. Only players who preserve the tournament’s gender requirements are shown.</p>
+        <div class="replacement-search">
+          <label>
+            <span>Find a replacement player</span>
+            <input name="replacementSearch" [(ngModel)]="replacementSearch" [disabled]="isManaging()" (keyup.enter)="searchReplacementCandidates()" />
+          </label>
+          <button type="button" class="action-button" [disabled]="isManaging()" (click)="searchReplacementCandidates()">{{ isManaging() ? 'Searching...' : 'Search' }}</button>
+        </div>
+        @if (replacementError()) { <p class="notice error" role="alert">{{ replacementError() }}</p> }
+        @if (replacementCandidates().length) {
+          <ul class="replacement-candidates">
+            @for (candidate of replacementCandidates(); track candidate.memberId) {
+              <li>
+                <span><strong>{{ candidate.name }}</strong>@if (candidate.gender) { <small>{{ candidate.gender }}</small> }</span>
+                <button type="button" class="action-button" [disabled]="isManaging()" (click)="replacePlayer(candidate)">Replace with this player</button>
+              </li>
+            }
+          </ul>
+        } @else if (!replacementError() && replacementSearch.trim().length >= 2 && !isManaging()) {
+          <p class="empty-state">No eligible replacement players match that search.</p>
+        }
+        <div class="form-actions">
+          <button type="button" class="quiet-button" [disabled]="isManaging()" (click)="cancelReplacement()">Cancel</button>
+        </div>
+      </section>
+    }
 
     @if (protestTarget(); as target) {
       <section class="protest-section" aria-labelledby="protest-title">

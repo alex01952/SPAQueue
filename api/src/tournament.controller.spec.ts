@@ -18,11 +18,19 @@ describe('Tournament payment HTTP endpoints', () => {
     respondToTournamentInvitation: jest.fn(),
     setTournamentRegistrationClosed: jest.fn(),
     getTournamentRoster: jest.fn(),
+    getTournamentRosterReplacementCandidates: jest.fn(),
+    replaceTournamentRosterPlayer: jest.fn(),
+    getTournamentPlanning: jest.fn(),
+    updateTournamentPlanning: jest.fn(),
     createTournamentProtest: jest.fn(),
     getMyTournamentProtests: jest.fn(),
     getTournamentProtestsForAdmin: jest.fn(),
     reviewTournamentProtest: jest.fn(),
     getTournamentProtestEvidence: jest.fn(),
+    archiveTournament: jest.fn(),
+    deleteTournament: jest.fn(),
+    getArchivedTournaments: jest.fn(),
+    getTournamentArchiveDetails: jest.fn(),
   };
   const path = '/tournaments/event-1/registrations/captain';
   const cookie = 'spaqueue_member_session=member-session';
@@ -38,6 +46,39 @@ describe('Tournament payment HTTP endpoints', () => {
   });
 
   afterEach(async () => { await app.close(); });
+
+  it('routes archive, active/archived deletion and read-only archive requests with the admin session', async () => {
+    service.archiveTournament.mockResolvedValue({ archived: true });
+    service.deleteTournament.mockResolvedValue({ deleted: true });
+    service.getArchivedTournaments.mockResolvedValue([]);
+    service.getTournamentArchiveDetails.mockResolvedValue({ tournament: { name: 'Archived' } });
+    await request(app.getHttpServer()).post('/admin/tournaments/event-1/archive').set('Cookie', cookie)
+      .expect(201, { archived: true });
+    expect(service.archiveTournament).toHaveBeenCalledWith('member-session', 'event-1');
+    await request(app.getHttpServer()).delete('/admin/tournaments/event-1').set('Cookie', cookie)
+      .expect(200, { deleted: true });
+    expect(service.deleteTournament).toHaveBeenCalledWith('member-session', 'event-1');
+    await request(app.getHttpServer()).get('/admin/tournament-archive').set('Cookie', cookie).expect(200, []);
+    expect(service.getArchivedTournaments).toHaveBeenCalledWith('member-session');
+    await request(app.getHttpServer()).get('/admin/tournament-archive/event-1').set('Cookie', cookie).expect(200);
+    expect(service.getTournamentArchiveDetails).toHaveBeenCalledWith('member-session', 'event-1');
+    await request(app.getHttpServer()).delete('/admin/tournament-archive/event-1').set('Cookie', cookie).expect(200);
+    expect(service.deleteTournament).toHaveBeenCalledWith('member-session', 'event-1', true);
+  });
+
+  it('serves archived documents through private endpoints with archive mode enabled', async () => {
+    const buffer = Buffer.from('%PDF-1.7');
+    service.getTournamentTerms.mockResolvedValue(buffer);
+    service.getTournamentPaymentProof.mockResolvedValue({ buffer, contentType: 'application/pdf' });
+    service.getTournamentProtestEvidence.mockResolvedValue({ buffer, contentType: 'application/pdf' });
+    for (const suffix of ['terms', 'registrations/team-1/payment-proofs/player-1', 'protests/protest-1/evidence/0']) {
+      await request(app.getHttpServer()).get(`/admin/tournament-archive/event-1/${suffix}`).set('Cookie', cookie)
+        .expect(200).expect('Cache-Control', 'private, no-store').expect('X-Content-Type-Options', 'nosniff');
+    }
+    expect(service.getTournamentTerms).toHaveBeenCalledWith('member-session', 'event-1', true);
+    expect(service.getTournamentPaymentProof).toHaveBeenCalledWith('member-session', 'event-1', 'team-1', 'player-1', true);
+    expect(service.getTournamentProtestEvidence).toHaveBeenCalledWith('member-session', 'event-1', 'protest-1', 0, true);
+  });
 
   it('accepts tournament creation with an optional multipart terms PDF', async () => {
     service.createTournament.mockResolvedValue({ termsUrl: '/tournaments/event-1/terms' });
@@ -154,6 +195,54 @@ describe('Tournament payment HTTP endpoints', () => {
     expect(service.setTournamentRegistrationClosed).toHaveBeenCalledWith('member-session', 'event-1', true);
     await request(app.getHttpServer()).get('/tournaments/event-1/roster').set('Cookie', cookie).expect(200).expect({ teams: [] });
     expect(service.getTournamentRoster).toHaveBeenCalledWith('member-session', 'event-1');
+  });
+
+  it('routes admin roster replacement search and player updates', async () => {
+    service.getTournamentRosterReplacementCandidates.mockResolvedValue([
+      { memberId: 'replacement-1', name: 'Replacement', gender: 'Male', eligible: true },
+    ]);
+    service.replaceTournamentRosterPlayer.mockResolvedValue({
+      memberId: 'replacement-1', name: 'Replacement', gender: 'Male',
+    });
+
+    const adminPath = '/admin/tournaments/event-1/roster/captain/players/player-1';
+
+    await request(app.getHttpServer())
+      .get(`${adminPath}/replacement-candidates?search=rep`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect([
+        { memberId: 'replacement-1', name: 'Replacement', gender: 'Male', eligible: true },
+      ]);
+    expect(service.getTournamentRosterReplacementCandidates).toHaveBeenCalledWith(
+      'member-session', 'event-1', 'captain', 'player-1', 'rep',
+    );
+
+    await request(app.getHttpServer())
+      .patch(adminPath)
+      .set('Cookie', cookie)
+      .send({ replacementMemberId: 'replacement-1' })
+      .expect(200)
+      .expect({ memberId: 'replacement-1', name: 'Replacement', gender: 'Male' });
+    expect(service.replaceTournamentRosterPlayer).toHaveBeenCalledWith(
+      'member-session', 'event-1', 'captain', 'player-1', 'replacement-1',
+    );
+  });
+
+  it('routes tournament planning reads and saved pool/schedule generation', async () => {
+    const planning = { roster: { teams: [] }, draw: null, version: null, rosterChanged: false };
+    service.getTournamentPlanning.mockResolvedValue(planning);
+    service.updateTournamentPlanning.mockResolvedValue(planning);
+    const planningPath = '/admin/tournaments/event-1/planning';
+    await request(app.getHttpServer()).get(planningPath).set('Cookie', cookie)
+      .expect(200).expect(planning);
+    expect(service.getTournamentPlanning).toHaveBeenCalledWith('member-session', 'event-1');
+    await request(app.getHttpServer()).post(`${planningPath}/pools`).set('Cookie', cookie)
+      .send({ poolCount: 3, version: null }).expect(201).expect(planning);
+    expect(service.updateTournamentPlanning).toHaveBeenCalledWith('member-session', 'event-1', 'pools', 3, null);
+    await request(app.getHttpServer()).post(`${planningPath}/schedule`).set('Cookie', cookie)
+      .send({ courtCount: 2, version: 'draw-1' }).expect(201);
+    expect(service.updateTournamentPlanning).toHaveBeenCalledWith('member-session', 'event-1', 'schedule', 2, 'draw-1');
   });
 
   it('accepts protests with multipart evidence', async () => {

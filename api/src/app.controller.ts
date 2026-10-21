@@ -57,6 +57,10 @@ import type {
   TournamentDocumentUploadInput,
   TournamentPartnerSearchResult,
   TournamentRoster,
+  TournamentRosterPlayer,
+  TournamentPlanningState,
+  ArchivedTournament,
+  TournamentArchiveDetails,
   TournamentProtest,
   TournamentProtestInput,
   PlayerProfileValidation,
@@ -297,6 +301,86 @@ export class AppController {
     );
   }
 
+  @Post('admin/tournaments/:tournamentId/archive')
+  archiveTournament(
+    @Param('tournamentId') tournamentId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<{ archived: true }> {
+    return this.appService.archiveTournament(this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId);
+  }
+
+  @Delete('admin/tournaments/:tournamentId')
+  deleteTournament(
+    @Param('tournamentId') tournamentId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<{ deleted: true }> {
+    return this.appService.deleteTournament(this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId);
+  }
+
+  @Get('admin/tournament-archive')
+  getArchivedTournaments(@Headers('cookie') cookieHeader = ''): Promise<ArchivedTournament[]> {
+    return this.appService.getArchivedTournaments(this.readCookie(cookieHeader, this.memberSessionCookieName));
+  }
+
+  @Get('admin/tournament-archive/:tournamentId')
+  getTournamentArchiveDetails(
+    @Param('tournamentId') tournamentId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentArchiveDetails> {
+    return this.appService.getTournamentArchiveDetails(this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId);
+  }
+
+  @Delete('admin/tournament-archive/:tournamentId')
+  deleteArchivedTournament(
+    @Param('tournamentId') tournamentId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<{ deleted: true }> {
+    return this.appService.deleteTournament(this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, true);
+  }
+
+  @Get('admin/tournament-archive/:tournamentId/terms')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async getArchivedTournamentTerms(
+    @Param('tournamentId') tournamentId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<StreamableFile> {
+    return new StreamableFile(
+      await this.appService.getTournamentTerms(this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, true),
+      { type: 'application/pdf', disposition: 'inline' },
+    );
+  }
+
+  @Get('admin/tournament-archive/:tournamentId/registrations/:registrationId/payment-proofs/:memberId')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async getArchivedTournamentPaymentProof(
+    @Param('tournamentId') tournamentId: string,
+    @Param('registrationId') registrationId: string,
+    @Param('memberId') memberId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<StreamableFile> {
+    const proof = await this.appService.getTournamentPaymentProof(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, registrationId, memberId, true,
+    );
+    return new StreamableFile(proof.buffer, { type: proof.contentType, disposition: 'inline' });
+  }
+
+  @Get('admin/tournament-archive/:tournamentId/protests/:protestId/evidence/:index')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async getArchivedTournamentProtestEvidence(
+    @Param('tournamentId') tournamentId: string,
+    @Param('protestId') protestId: string,
+    @Param('index', ParseIntPipe) index: number,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<StreamableFile> {
+    const evidence = await this.appService.getTournamentProtestEvidence(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, protestId, index, true,
+    );
+    return new StreamableFile(evidence.buffer, { type: evidence.contentType, disposition: 'inline' });
+  }
+
   @Patch('admin/tournaments/:tournamentId/registrations/:registrationId/approve')
   approveTournamentRegistration(
     @Param('tournamentId') tournamentId: string,
@@ -386,6 +470,76 @@ export class AppController {
   ): Promise<TournamentRoster> {
     return this.appService.getTournamentRoster(
       this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId,
+    );
+  }
+
+  @Get('admin/tournaments/:tournamentId/roster/:registrationId/players/:memberId/replacement-candidates')
+  getTournamentRosterReplacementCandidates(
+    @Param('tournamentId') tournamentId: string,
+    @Param('registrationId') registrationId: string,
+    @Param('memberId') memberId: string,
+    @Query('search') search = '',
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentPartnerSearchResult[]> {
+    return this.appService.getTournamentRosterReplacementCandidates(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      tournamentId,
+      registrationId,
+      memberId,
+      search,
+    );
+  }
+
+  @Get('admin/tournaments/:tournamentId/planning')
+  getTournamentPlanning(
+    @Param('tournamentId') tournamentId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentPlanningState> {
+    return this.appService.getTournamentPlanning(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId,
+    );
+  }
+
+  @Post('admin/tournaments/:tournamentId/planning/pools')
+  randomizeTournamentPools(
+    @Param('tournamentId') tournamentId: string,
+    @Body('poolCount') poolCount: unknown,
+    @Body('version') version: unknown,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentPlanningState> {
+    return this.appService.updateTournamentPlanning(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      tournamentId, 'pools', poolCount, version,
+    );
+  }
+
+  @Post('admin/tournaments/:tournamentId/planning/schedule')
+  generateTournamentSchedule(
+    @Param('tournamentId') tournamentId: string,
+    @Body('courtCount') courtCount: unknown,
+    @Body('version') version: unknown,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentPlanningState> {
+    return this.appService.updateTournamentPlanning(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      tournamentId, 'schedule', courtCount, version,
+    );
+  }
+
+  @Patch('admin/tournaments/:tournamentId/roster/:registrationId/players/:memberId')
+  replaceTournamentRosterPlayer(
+    @Param('tournamentId') tournamentId: string,
+    @Param('registrationId') registrationId: string,
+    @Param('memberId') memberId: string,
+    @Body('replacementMemberId') replacementMemberId: unknown,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentRosterPlayer> {
+    return this.appService.replaceTournamentRosterPlayer(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      tournamentId,
+      registrationId,
+      memberId,
+      replacementMemberId,
     );
   }
 

@@ -9,9 +9,11 @@ describe('TournamentRosterPageComponent', () => {
   let fixture: ComponentFixture<TournamentRosterPageComponent>;
   let roster: TournamentRoster;
   let myProtests: TournamentProtest[];
-  const http = {
+  const http: any = {
     get: vi.fn((url: string) => of(url.endsWith('/protests/mine') ? myProtests : roster)),
     post: vi.fn((_url: string, _body: unknown, _options: unknown) => of({} as TournamentProtest)),
+    patch: vi.fn(),
+    delete: vi.fn(),
   };
   const reason = 'Player is registered as Beginner but won an advanced open last season.';
 
@@ -31,9 +33,12 @@ describe('TournamentRosterPageComponent', () => {
   beforeEach(() => {
     http.get.mockClear();
     http.post.mockReset();
+    http.patch.mockReset();
+    http.delete.mockReset();
     myProtests = [];
     roster = {
       tournamentId: 'event-1', tournamentName: 'Club Open', category: 'Mens Doubles', level: 'Beginner',
+      canManageRoster: false,
       teams: [
         { registrationId: 'own', status: 'Paid', isOwnTeam: true, players: [
           { memberId: 'me', name: 'Me', gender: 'Male' }, { memberId: 'mate', name: 'Mate', gender: 'Male' },
@@ -80,6 +85,52 @@ describe('TournamentRosterPageComponent', () => {
     await render();
     expect(element().querySelectorAll('.team-card button')).toHaveLength(0);
     expect(http.get).not.toHaveBeenCalledWith(expect.stringContaining('/protests/mine'), expect.anything());
+  });
+
+  it('shows roster administration controls and replaces a player', async () => {
+    roster.canManageRoster = true;
+    await render();
+    expect(element().querySelectorAll('.remove-button')).toHaveLength(2);
+    expect(element().querySelectorAll('.team-card .quiet-button')).toHaveLength(6);
+
+    const component = fixture.componentInstance as any;
+    component.beginReplacement(roster.teams[1], roster.teams[1].players[0]);
+    component.replacementSearch = 'rep';
+    http.get.mockReturnValueOnce(of([
+      { memberId: 'replacement-1', name: 'Replacement', gender: 'Male', eligible: true },
+    ]));
+    component.searchReplacementCandidates();
+    expect(http.get).toHaveBeenLastCalledWith(
+      expect.stringContaining('/replacement-candidates?search=rep'),
+      { withCredentials: true },
+    );
+
+    const replacement = { memberId: 'replacement-1', name: 'Replacement', gender: 'Male' };
+    http.patch.mockReturnValueOnce(of(replacement));
+    component.replacePlayer(component.replacementCandidates()[0]);
+
+    expect(http.patch).toHaveBeenCalledWith(
+      expect.stringContaining('/admin/tournaments/event-1/roster/other/players/rival'),
+      { replacementMemberId: 'replacement-1' },
+      { withCredentials: true },
+    );
+    expect(component.roster().teams[1].players[0]).toEqual(replacement);
+    expect(component.feedbackMessage()).toContain('was replaced');
+  });
+
+  it('removes a roster team through the admin registration endpoint', async () => {
+    roster.canManageRoster = true;
+    await render();
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
+    http.delete.mockReturnValueOnce(of({ deleted: true }));
+
+    (fixture.componentInstance as any).removeTeam(roster.teams[1]);
+
+    expect(http.delete).toHaveBeenCalledWith(
+      expect.stringContaining('/admin/tournaments/event-1/registrations/other'),
+      { withCredentials: true },
+    );
+    expect((fixture.componentInstance as any).roster().teams).toHaveLength(1);
   });
 
   it('marks players that already have an open protest', async () => {

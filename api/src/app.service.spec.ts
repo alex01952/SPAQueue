@@ -453,4 +453,111 @@ describe('AppService club join requests', () => {
       ).rejects.toBeInstanceOf(ConflictException);
     });
   });
+
+  describe('AppService player-stat updates', () => {
+    let service: AppService;
+
+    beforeEach(() => {
+      service = new AppService();
+    });
+
+    it('clears officer validations after successfully updating a player skill', async () => {
+      const updateEntity = jest.fn().mockResolvedValue(undefined);
+      const membersClient = {
+        getEntity: jest
+          .fn()
+          .mockResolvedValueOnce({
+            DUPRId: 'DUPR-1',
+            Skills: JSON.stringify({ serve: 7 }),
+          })
+          .mockResolvedValueOnce({
+            Name: 'Player One',
+            Email: 'player@example.com',
+            ContactNo: '+639123456789',
+            EmergencyContact: '+639987654321',
+            Birthday: '1990-01-01',
+            ShowAge: false,
+            Gender: 'Female',
+            DUPRId: 'DUPR-1',
+            ReclubId: '',
+            ProfileImageUrl: '',
+            Skills: JSON.stringify({ serve: 8 }),
+            CreatedAt: '2026-01-01T00:00:00.000Z',
+          }),
+        updateEntity,
+      };
+      const deleteEntity = jest.fn().mockResolvedValue(undefined);
+      jest
+        .spyOn(service as any, 'getMembersTableClient')
+        .mockReturnValue(membersClient);
+      jest
+        .spyOn(service as any, 'getPlayerReviewsTableClient')
+        .mockReturnValue({
+          listEntities: jest.fn().mockReturnValue({
+            async *[Symbol.asyncIterator]() {
+              yield {
+                partitionKey: 'club-1',
+                rowKey: 'player-1:officer-1',
+              };
+              yield {
+                partitionKey: 'club-2',
+                rowKey: 'player-1:officer-2',
+              };
+            },
+          }),
+          deleteEntity,
+        });
+
+      await service.updateMemberAccount('player-1', {
+        name: 'Player One',
+        contactNo: '+639123456789',
+        emergencyContact: '+639987654321',
+        birthday: '1990-01-01',
+        showAge: false,
+        locationType: 'Other',
+        location: 'Sorsogon',
+        gender: 'Female',
+        duprId: 'DUPR-1',
+        reClubId: '',
+        skills: { serve: 8 },
+      });
+
+      expect(updateEntity).toHaveBeenCalled();
+      expect(deleteEntity).toHaveBeenCalledWith('club-1', 'player-1:officer-1');
+      expect(deleteEntity).toHaveBeenCalledWith('club-2', 'player-1:officer-2');
+    });
+
+    it('does not clear validations when the member update fails', async () => {
+      const updateEntity = jest.fn().mockRejectedValue(new Error('Storage unavailable'));
+      jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn().mockResolvedValue({
+          DUPRId: 'DUPR-1',
+          Skills: JSON.stringify({ serve: 7 }),
+        }),
+        updateEntity,
+      });
+      const deleteEntity = jest.fn();
+      jest
+        .spyOn(service as any, 'getPlayerReviewsTableClient')
+        .mockReturnValue({ deleteEntity });
+
+      await expect(
+        service.updateMemberAccount('player-1', {
+          name: 'Player One',
+          contactNo: '+639123456789',
+          emergencyContact: '+639987654321',
+          birthday: '1990-01-01',
+          showAge: false,
+          locationType: 'Other',
+          location: 'Sorsogon',
+          gender: 'Female',
+          duprId: 'DUPR-1',
+          reClubId: '',
+          skills: { serve: 8 },
+        }),
+      ).rejects.toThrow();
+
+      expect(deleteEntity).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -96,5 +96,17 @@
         <button type="button" class="secondary" (click)="viewProfile()">View profile</button>
       </div>
     </form>
+    @if (statsUpdateWarningOpen()) {
+      <div class="stats-warning-backdrop">
+        <section class="stats-warning" role="alertdialog" aria-modal="true" aria-labelledby="stats-warning-title">
+          <h2 id="stats-warning-title">Update validated player stats?</h2>
+          <p>Changing your skill ratings or DUPR ID removes every club officer validation from your profile. Continue with this update?</p>
+          <div>
+            <button type="button" class="secondary" (click)="cancelStatsUpdate()">Cancel</button>
+            <button type="button" class="primary" (click)="continueStatsUpdate()">Continue update</button>
+          </div>
+        </section>
+      </div>
+    }
   }
 </main>

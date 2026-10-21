@@ -34,6 +34,11 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { buildTeams } from './matching-selection';
 import {
+  generateTournamentSchedule,
+  randomizeTournamentPools,
+} from './tournament-scheduling';
+import type { TournamentDraw } from './tournament-scheduling';
+import {
   isPlayerInOngoingGame,
   queueSelectionStrategies,
 } from './queue-selection';
@@ -310,6 +315,20 @@ export interface Tournament {
   registrationClosed: boolean;
   registrationClosedAt?: string;
   createdAt: string;
+  lifecycleState?: string;
+}
+
+export interface ArchivedTournament extends Tournament {
+  archivedAt: string;
+  archivedBy: string;
+}
+
+export interface TournamentArchiveDetails {
+  tournament: ArchivedTournament;
+  registrations: TournamentRegistration[];
+  protests: TournamentProtest[];
+  roster: TournamentRoster;
+  draw: TournamentDraw | null;
 }
 
 export interface TournamentRosterPlayer {
@@ -330,7 +349,15 @@ export interface TournamentRoster {
   tournamentName: string;
   category: TournamentCategory;
   level: TournamentLevel;
+  canManageRoster: boolean;
   teams: TournamentRosterTeam[];
+}
+
+export interface TournamentPlanningState {
+  roster: TournamentRoster;
+  draw: TournamentDraw | null;
+  version: string | null;
+  rosterChanged: boolean;
 }
 
 export const TOURNAMENT_PROTEST_CATEGORIES = [
@@ -555,6 +582,8 @@ export class AppService {
     process.env.PLAYER_REVIEWS_AZURE_TABLE ?? 'PlayerReviews';
   private readonly tournamentsAzureTable =
     process.env.TOURNAMENTS_AZURE_TABLE ?? 'Tournaments';
+  private readonly tournamentArchiveAzureTable =
+    process.env.TOURNAMENT_ARCHIVE_AZURE_TABLE ?? 'TournamentArchive';
   private readonly tournamentRegistrationsAzureTable =
     process.env.TOURNAMENT_REGISTRATIONS_AZURE_TABLE ?? 'TournamentRegistrations';
   private readonly tournamentProtestsAzureTable =
@@ -1491,6 +1520,250 @@ export class AppService {
     return tournaments.sort((left, right) => left.date.localeCompare(right.date) || left.name.localeCompare(right.name));
   }
 
+  async getArchivedTournaments(sessionToken: string): Promise<ArchivedTournament[]> {
+    await this.requireAdminSession(sessionToken);
+    const items: ArchivedTournament[] = [];
+    try {
+      for await (const entity of this.getTournamentArchiveTableClient().listEntities({
+        queryOptions: { filter: "PartitionKey eq 'tournaments'" },
+      })) {
+        const tournament = this.toTournament(entity);
+        if (tournament && entity.ArchiveComplete === true) {
+          items.push({
+            ...tournament,
+            ...(tournament.termsUrl ? { termsUrl: `/admin/tournament-archive/${tournament.tournamentId}/terms` } : {}),
+            archivedAt: String(entity.ArchivedAt), archivedBy: String(entity.ArchivedBy),
+          });
+        }
+      }
+    } catch (error) {
+      if (!this.isAzureNotFound(error)) throw this.tournamentLifecycleStorageException(error);
+    }
+    return items.sort((a, b) => b.archivedAt.localeCompare(a.archivedAt));
+  }
+
+  async getTournamentArchiveDetails(sessionToken: string, tournamentId: string): Promise<TournamentArchiveDetails> {
+    await this.requireAdminSession(sessionToken);
+    const entity = await this.getArchivedTournamentEntity(tournamentId);
+    if (entity.ArchiveComplete !== true) throw new ConflictException('Archiving is incomplete. Retry Archive in tournament management.');
+    const tournament = this.toTournament(entity);
+    if (!tournament) throw new BadGatewayException('Stored archived tournament is invalid.');
+    const registrationEntities = await this.getArchivedTournamentChildren(tournamentId, 'registrations');
+    const registrations = registrationEntities
+      .map((item) => this.toTournamentRegistration({ ...item, partitionKey: tournamentId }))
+      .filter((item): item is TournamentRegistration => !!item);
+    const protests = (await this.getArchivedTournamentChildren(tournamentId, 'protests'))
+      .map((item) => this.toTournamentProtest({ ...item, partitionKey: tournamentId }))
+      .filter((item): item is TournamentProtest => !!item);
+    const archiveUrl = `/admin/tournament-archive/${tournamentId}`;
+    if (tournament.termsUrl) tournament.termsUrl = `${archiveUrl}/terms`;
+    for (const registration of registrations) {
+      if (registration.termsUrl) registration.termsUrl = tournament.termsUrl;
+      if (registration.paymentProofUrl) {
+        registration.paymentProofUrl = `${archiveUrl}/registrations/${encodeURIComponent(registration.registrationId)}/payment-proofs/legacy`;
+      }
+      for (const proof of registration.paymentProofs ?? []) {
+        proof.url = `${archiveUrl}/registrations/${encodeURIComponent(registration.registrationId)}/payment-proofs/${encodeURIComponent(proof.memberId)}`;
+      }
+    }
+    for (const protest of protests) {
+      protest.evidence.forEach((evidence, index) => {
+        evidence.url = `${archiveUrl}/protests/${encodeURIComponent(protest.protestId)}/evidence/${index}`;
+      });
+    }
+    const roster: TournamentRoster = {
+      tournamentId, tournamentName: tournament.name, category: tournament.category,
+      level: tournament.level, canManageRoster: false,
+      teams: registrations.filter((item) => this.isApprovedTournamentRegistration(item.status)).map((item) => ({
+        registrationId: item.registrationId, status: item.status, isOwnTeam: false,
+        players: item.teamMembers?.length
+          ? item.teamMembers.map(({ memberId, name, gender }) => ({ memberId, name, gender }))
+          : [{ memberId: item.memberId, name: item.memberName, gender: '' },
+            { memberId: item.partnerId, name: item.partnerName, gender: '' }],
+      })),
+    };
+    tournament.registrationCount = roster.teams.length;
+    tournament.pendingRegistrationCount = registrations.filter((item) =>
+      item.status === 'Invitation Pending' || item.status === 'Pending Approval',
+    ).length;
+    return {
+      tournament: { ...tournament, archivedAt: String(entity.ArchivedAt), archivedBy: String(entity.ArchivedBy) },
+      registrations, protests, roster, draw: await this.readTournamentDraw(tournamentId, entity),
+    };
+  }
+
+  async archiveTournament(sessionToken: string, tournamentId: string): Promise<{ archived: true }> {
+    const session = await this.requireAdminSession(sessionToken);
+    const entity = await this.beginTournamentLifecycle(tournamentId, 'Archiving', session.member.name || session.member.memberId);
+    const archive = this.getTournamentArchiveTableClient();
+    try {
+      const groups = [
+        ['registrations', this.getTournamentRegistrationsTableClient(), await this.getTournamentRegistrationEntities(tournamentId)],
+        ['protests', this.getTournamentProtestsTableClient(), await this.getTournamentProtestEntities(tournamentId)],
+      ] as const;
+      // Copy every record before removing any source records. Retrying resumes a partial move.
+      const { etag: _etag, timestamp: _timestamp, ...properties } = entity;
+      await archive.upsertEntity({
+        ...properties, partitionKey: 'tournaments', rowKey: tournamentId,
+        LifecycleState: 'Archived',
+        ArchivedAt: String(entity.LifecycleStartedAt), ArchivedBy: String(entity.LifecycleStartedBy),
+        ArchiveComplete: false,
+      }, 'Replace');
+      for (const [kind, , children] of groups) {
+        for (const child of children) {
+          const { etag: _childEtag, timestamp: _childTimestamp, ...values } = child;
+          await archive.upsertEntity({
+            ...values, partitionKey: `${tournamentId}:${kind}`, rowKey: String(child.rowKey),
+          }, 'Replace');
+        }
+      }
+      // All partitions must be copied successfully before any source data is removed.
+      for (const [, table, children] of groups) {
+        for (const child of children) await table.deleteEntity(tournamentId, String(child.rowKey), { etag: String(child.etag ?? '*') });
+      }
+      const savedRegistrations = await this.getArchivedTournamentChildren(tournamentId, 'registrations');
+      await archive.updateEntity({
+        partitionKey: 'tournaments', rowKey: tournamentId, ArchiveComplete: true,
+        ArchivedRegistrationCount: savedRegistrations.filter((item) => this.isApprovedTournamentRegistration(String(item.Status))).length,
+        ArchivedPendingRegistrationCount: savedRegistrations.filter((item) =>
+          item.Status === 'Invitation Pending' || item.Status === 'Pending Approval',
+        ).length,
+      }, 'Merge');
+      await this.getTournamentsTableClient().deleteEntity('tournaments', tournamentId, { etag: String(entity.etag ?? '*') });
+    } catch (error) {
+      throw this.tournamentLifecycleStorageException(error);
+    }
+    return { archived: true };
+  }
+
+  async deleteTournament(sessionToken: string, tournamentId: string, archived = false): Promise<{ deleted: true }> {
+    await this.requireAdminSession(sessionToken);
+    const entity = archived
+      ? await this.getArchivedTournamentEntity(tournamentId)
+      : await this.beginTournamentLifecycle(tournamentId, 'Deleting');
+    if (archived) {
+      try {
+        await this.getTournamentsTableClient().getEntity('tournaments', tournamentId);
+      } catch (error) {
+        if (!this.isAzureNotFound(error)) throw this.tournamentLifecycleStorageException(error);
+        return this.purgeTournamentData(tournamentId, entity, true);
+      }
+      throw new ConflictException('Archiving is still in progress. Retry Archive in tournament management first.');
+    }
+    return this.purgeTournamentData(tournamentId, entity, false);
+  }
+
+  private async purgeTournamentData(
+    tournamentId: string, entity: Record<string, unknown>, archived: boolean,
+  ): Promise<{ deleted: true }> {
+    const archive = this.getTournamentArchiveTableClient();
+    try {
+      // Prefix enumeration also removes old proofs, superseded draws and orphaned uploads.
+      const container = this.getTournamentDocumentContainerClient();
+      for (const prefix of ['tournament-terms', 'tournament-payment-proofs', 'tournament-protest-evidence', 'tournament-draws']) {
+        const deletedNames = new Set<string>();
+        for await (const blob of container.listBlobsFlat({ prefix: `${prefix}/${tournamentId}/`, includeVersions: true })) {
+          const client = container.getBlockBlobClient(blob.name);
+          if (!deletedNames.has(blob.name)) {
+            await client.deleteIfExists({ deleteSnapshots: 'include' });
+            deletedNames.add(blob.name);
+          }
+          if (blob.versionId) await client.withVersion(blob.versionId).deleteIfExists();
+        }
+      }
+      for (const [kind, table, children] of [
+        ['registrations', this.getTournamentRegistrationsTableClient(), await this.getTournamentRegistrationEntities(tournamentId)],
+        ['protests', this.getTournamentProtestsTableClient(), await this.getTournamentProtestEntities(tournamentId)],
+      ] as const) {
+        for (const child of children) await table.deleteEntity(tournamentId, String(child.rowKey), { etag: String(child.etag ?? '*') });
+        for (const child of await this.getArchivedTournamentChildren(tournamentId, kind)) {
+          await archive.deleteEntity(`${tournamentId}:${kind}`, String(child.rowKey), { etag: String(child.etag ?? '*') });
+        }
+      }
+      await this.deleteTournamentEntityIfExists(archive, 'tournaments', tournamentId);
+      if (!archived) {
+        await this.getTournamentsTableClient().deleteEntity('tournaments', tournamentId, { etag: String(entity.etag ?? '*') });
+      }
+    } catch (error) {
+      throw this.tournamentLifecycleStorageException(error);
+    }
+    return { deleted: true };
+  }
+
+  private tournamentLifecycleStorageException(error: unknown) {
+    this.logger.error('Tournament archive/delete storage operation failed.', error);
+    return new BadGatewayException('Unable to complete the tournament operation. Some steps may have completed; retry the same action to finish safely.');
+  }
+
+  private getTournamentArchiveTableClient(): TableClient {
+    if (!this.membersAzureStorageAccount) throw new BadRequestException('MEMBERS_AZURE_STORAGE_ACCOUNT is required for tournament archives.');
+    return new TableClient(
+      `https://${this.membersAzureStorageAccount}.table.core.windows.net`,
+      this.tournamentArchiveAzureTable, new DefaultAzureCredential(),
+    );
+  }
+
+  private async getArchivedTournamentEntity(tournamentId: string): Promise<Record<string, unknown>> {
+    if (!/^[A-Fa-f0-9-]{36}$/.test(tournamentId)) throw new BadRequestException('Invalid tournament identifier.');
+    try {
+      return await this.getTournamentArchiveTableClient().getEntity('tournaments', tournamentId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Archived tournament was not found.');
+      throw this.tournamentLifecycleStorageException(error);
+    }
+  }
+
+  private async getArchivedTournamentChildren(tournamentId: string, kind: 'registrations' | 'protests') {
+    const items: Record<string, unknown>[] = [];
+    try {
+      for await (const entity of this.getTournamentArchiveTableClient().listEntities({
+        queryOptions: { filter: `PartitionKey eq '${tournamentId}:${kind}'` },
+      })) items.push(entity);
+    } catch (error) {
+      if (!this.isAzureNotFound(error)) throw this.tournamentLifecycleStorageException(error);
+    }
+    return items;
+  }
+
+  private async getArchivedTournamentChild(tournamentId: string, kind: 'registrations' | 'protests', rowKey: string) {
+    await this.getArchivedTournamentEntity(tournamentId);
+    try {
+      return await this.getTournamentArchiveTableClient().getEntity<Record<string, unknown>>(`${tournamentId}:${kind}`, rowKey);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Archived tournament record was not found.');
+      throw this.tournamentLifecycleStorageException(error);
+    }
+  }
+
+  private async deleteTournamentEntityIfExists(table: TableClient, partitionKey: string, rowKey: string) {
+    try {
+      await table.deleteEntity(partitionKey, rowKey);
+    } catch (error) {
+      if (!this.isAzureNotFound(error)) throw error;
+    }
+  }
+
+  private async beginTournamentLifecycle(tournamentId: string, state: 'Archiving' | 'Deleting', actor = '') {
+    if (!/^[A-Fa-f0-9-]{36}$/.test(tournamentId)) throw new BadRequestException('Invalid tournament identifier.');
+    const entity = await this.getTournamentPlanningEntity(tournamentId);
+    if (entity.LifecycleState && entity.LifecycleState !== state) {
+      throw new ConflictException(`This tournament is already ${String(entity.LifecycleState).toLowerCase()}. Retry that action first.`);
+    }
+    if (!entity.LifecycleState) {
+      try {
+        await this.getTournamentsTableClient().updateEntity({
+          partitionKey: 'tournaments', rowKey: tournamentId, LifecycleState: state,
+          LifecycleStartedAt: new Date().toISOString(), LifecycleStartedBy: actor,
+        }, 'Merge', { etag: entity.etag });
+      } catch (error) {
+        if (this.isTournamentRegistrationVersionConflict(error)) throw new ConflictException('The tournament changed. Reload and retry.');
+        throw this.tournamentLifecycleStorageException(error);
+      }
+      return this.getTournamentPlanningEntity(tournamentId);
+    }
+    return entity;
+  }
+
   async createTournament(
     sessionToken: string,
     input: TournamentCreateInput,
@@ -1576,15 +1849,19 @@ export class AppService {
     return tournament;
   }
 
-  async getTournamentTerms(sessionToken: string, tournamentId: string): Promise<Buffer> {
-    await this.getMemberSession(sessionToken);
+  async getTournamentTerms(sessionToken: string, tournamentId: string, archived = false): Promise<Buffer> {
+    if (archived) await this.requireAdminSession(sessionToken);
+    else await this.getMemberSession(sessionToken);
     let entity: Record<string, unknown>;
     try {
-      entity = await this.getTournamentsTableClient().getEntity('tournaments', tournamentId);
+      entity = archived
+        ? await this.getArchivedTournamentEntity(tournamentId)
+        : await this.getTournamentsTableClient().getEntity('tournaments', tournamentId);
     } catch (error) {
       if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
       throw this.createMemberAuthenticationStorageException(error);
     }
+    if (!archived && entity.LifecycleState) throw new ConflictException('This tournament is being archived or deleted.');
     const blobName = String(entity.TermsBlobName ?? '');
     if (!blobName) throw new NotFoundException('This tournament has no terms and conditions document.');
     if (!blobName.startsWith(`tournament-terms/${tournamentId}/`)) {
@@ -1797,6 +2074,7 @@ export class AppService {
     registrationId: string,
   ): Promise<{ deleted: true }> {
     const session = await this.getMemberSession(sessionToken);
+    await this.getTournament(tournamentId);
     const table = this.getTournamentRegistrationsTableClient();
     let entity: TableEntityResult<Record<string, unknown>>;
     try {
@@ -1972,6 +2250,7 @@ export class AppService {
     file: TournamentPaymentProofUploadInput,
   ): Promise<TournamentRegistration> {
     const session = await this.getMemberSession(sessionToken);
+    await this.getTournament(tournamentId);
     const table = this.getTournamentRegistrationsTableClient();
     let entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
     if (!this.tournamentRegistrationMemberIds(entity).includes(session.member.memberId)) {
@@ -2044,6 +2323,7 @@ export class AppService {
     registrationId: string,
   ): Promise<TournamentRegistration> {
     const session = await this.requireAdminSession(sessionToken);
+    await this.getTournament(tournamentId);
     const entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
     if (!['Approved', 'Payment Submitted'].includes(String(entity.Status ?? ''))) {
       throw new ConflictException('Only approved registrations can be marked as paid.');
@@ -2070,6 +2350,7 @@ export class AppService {
     registrationId: string,
   ): Promise<{ deleted: true }> {
     await this.requireAdminSession(sessionToken);
+    await this.getTournament(tournamentId);
     const entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
     try {
       await this.getTournamentRegistrationsTableClient().deleteEntity(tournamentId, registrationId, { etag: entity.etag });
@@ -2088,9 +2369,14 @@ export class AppService {
     tournamentId: string,
     registrationId: string,
     memberId: string,
+    archived = false,
   ): Promise<{ buffer: Buffer; contentType: string }> {
     const session = await this.getMemberSession(sessionToken);
-    const entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
+    if (archived) await this.requireAdminSession(sessionToken);
+    else await this.getTournament(tournamentId);
+    const entity = archived
+      ? await this.getArchivedTournamentChild(tournamentId, 'registrations', registrationId)
+      : await this.getTournamentRegistrationEntity(tournamentId, registrationId);
     if (session.member.role !== 'admin' && !this.tournamentRegistrationMemberIds(entity).includes(session.member.memberId)) {
       throw new ForbiddenException('You are not part of this tournament team.');
     }
@@ -2169,7 +2455,308 @@ export class AppService {
       tournamentName: tournament.name,
       category: tournament.category,
       level: tournament.level,
+      canManageRoster: session.member.role === 'admin',
       teams: teams.map((team) => ({ ...team, isOwnTeam: team.registrationId === ownRegistration?.registrationId })),
+    };
+  }
+
+  async getTournamentPlanning(
+    sessionToken: string,
+    tournamentId: string,
+  ): Promise<TournamentPlanningState> {
+    await this.requireAdminSession(sessionToken);
+    const roster = await this.getTournamentRoster(sessionToken, tournamentId);
+    const entity = await this.getTournamentPlanningEntity(tournamentId);
+    const draw = await this.readTournamentDraw(tournamentId, entity);
+    const rosterChanged = !!draw &&
+      draw.rosterSignature !== this.tournamentRosterSignature(roster);
+    return {
+      roster,
+      draw: rosterChanged ? null : draw,
+      version: draw?.version ?? null,
+      rosterChanged,
+    };
+  }
+
+  async updateTournamentPlanning(
+    sessionToken: string,
+    tournamentId: string,
+    action: 'pools' | 'schedule',
+    count: unknown,
+    expectedVersion: unknown,
+  ): Promise<TournamentPlanningState> {
+    const session = await this.requireAdminSession(sessionToken);
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) {
+      throw new BadRequestException('Enter a positive whole number for pools or courts.');
+    }
+    const entity = await this.getTournamentPlanningEntity(tournamentId);
+    const existing = await this.readTournamentDraw(tournamentId, entity);
+    if (expectedVersion !== (existing?.version ?? null)) {
+      throw new ConflictException('The saved draw changed. Reload before making changes.');
+    }
+    const roster = await this.getTournamentRoster(sessionToken, tournamentId);
+    const signature = this.tournamentRosterSignature(roster);
+    if (roster.teams.length < 2) {
+      throw new BadRequestException('At least two confirmed teams are required.');
+    }
+    if (action === 'pools' && count > Math.floor(roster.teams.length / 2)) {
+      throw new BadRequestException('Each pool must contain at least two teams.');
+    }
+    if (action === 'schedule' && (!existing || existing.rosterSignature !== signature)) {
+      throw new ConflictException('The roster changed or no pools exist. Randomize pools first.');
+    }
+    const pools = action === 'pools'
+      ? randomizeTournamentPools(roster.teams.map((team) => team.registrationId), count)
+      : existing!.pools;
+    const draw: TournamentDraw = {
+      version: randomUUID(),
+      rosterSignature: signature,
+      pools,
+      courtCount: action === 'schedule' ? count : existing?.courtCount ?? 1,
+      schedule: action === 'schedule' ? generateTournamentSchedule(pools, count) : [],
+      updatedAt: new Date().toISOString(),
+      updatedBy: session.member.memberId,
+    };
+    const blobName = `tournament-draws/${tournamentId}/${draw.version}.json`;
+    try {
+      await this.uploadParticipationBlob(
+        this.getTournamentDocumentBlobClient(blobName),
+        Buffer.from(JSON.stringify(draw)),
+        'application/json',
+      );
+      await this.getTournamentsTableClient().updateEntity(
+        { partitionKey: 'tournaments', rowKey: tournamentId, DrawBlobName: blobName },
+        'Merge',
+        { etag: entity.etag },
+      );
+    } catch (error) {
+      if (this.isTournamentRegistrationVersionConflict(error)) {
+        throw new ConflictException('The tournament changed. Reload before saving the draw.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return { roster, draw, version: draw.version, rosterChanged: false };
+  }
+
+  private async getTournamentPlanningEntity(tournamentId: string) {
+    try {
+      return await this.getTournamentsTableClient().getEntity<Record<string, unknown>>(
+        'tournaments', tournamentId,
+      );
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  private tournamentRosterSignature(roster: TournamentRoster): string {
+    const teams = roster.teams.map((team) => ({
+      registrationId: team.registrationId,
+      players: [...team.players].sort((left, right) => left.memberId.localeCompare(right.memberId)),
+    })).sort((left, right) => left.registrationId.localeCompare(right.registrationId));
+    return createHash('sha256').update(JSON.stringify(teams)).digest('hex');
+  }
+
+  private async readTournamentDraw(
+    tournamentId: string,
+    entity: Record<string, unknown>,
+  ): Promise<TournamentDraw | null> {
+    const blobName = String(entity.DrawBlobName ?? '');
+    if (!blobName) return null;
+    if (!blobName.startsWith(`tournament-draws/${tournamentId}/`)) {
+      throw new BadGatewayException('Stored tournament draw location is invalid.');
+    }
+    try {
+      const contents = await this.getTournamentDocumentBlobClient(blobName).downloadToBuffer();
+      const draw: TournamentDraw = JSON.parse(contents.toString('utf8'));
+      if (!draw.version || !draw.rosterSignature || !Array.isArray(draw.pools) ||
+          !Array.isArray(draw.schedule) || !Number.isInteger(draw.courtCount)) {
+        throw new BadGatewayException('Stored tournament draw is invalid.');
+      }
+      return draw;
+    } catch (error) {
+      if (error instanceof BadGatewayException) throw error;
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  async getTournamentRosterReplacementCandidates(
+    sessionToken: string,
+    tournamentId: string,
+    registrationId: string,
+    memberId: string,
+    searchInput: string,
+  ): Promise<TournamentPartnerSearchResult[]> {
+    await this.requireAdminSession(sessionToken);
+    const searchTerm = String(searchInput ?? '').trim().toLocaleLowerCase();
+    if (searchTerm.length < 2) return [];
+
+    const tournament = await this.getTournament(tournamentId);
+    const registration = await this.getTournamentRegistrationEntity(
+      tournamentId,
+      registrationId,
+    );
+    this.assertConfirmedRosterPlayer(registration, memberId);
+    const registrations = await this.getTournamentRegistrationEntities(tournamentId);
+    const currentPlayers = await this.getTournamentRosterRegistrationPlayers(
+      registration,
+    );
+    const committedMemberIds = new Set(
+      registrations
+        .filter(
+          (entity) =>
+            String(entity.rowKey ?? '') !== registrationId &&
+            String(entity.Status ?? '') !== 'Invitation Declined',
+        )
+        .flatMap((entity) => this.tournamentRegistrationMemberIds(entity)),
+    );
+    const candidates: TournamentPartnerSearchResult[] = [];
+
+    try {
+      for await (const entity of this.getMembersTableClient().listEntities({
+        queryOptions: {
+          filter: "PartitionKey eq 'members' and Status eq 'Approved'",
+          select: ['RowKey', 'Name', 'Gender'],
+        },
+      })) {
+        const candidateId = String(entity.rowKey ?? '');
+        const candidateName = String(entity.Name ?? '');
+        const candidateGender = String(entity.Gender ?? '');
+        if (
+          !candidateId ||
+          !candidateName ||
+          !candidateName.toLocaleLowerCase().includes(searchTerm)
+        ) {
+          continue;
+        }
+        if (
+          this.tournamentRegistrationMemberIds(registration).includes(
+            candidateId,
+          ) ||
+          committedMemberIds.has(candidateId) ||
+          !this.canReplaceTournamentRosterPlayer(
+            tournament.category,
+            currentPlayers,
+            memberId,
+            candidateGender,
+          )
+        ) {
+          continue;
+        }
+        candidates.push({
+          memberId: candidateId,
+          name: candidateName,
+          gender: candidateGender,
+          eligible: true,
+        });
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return candidates.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async replaceTournamentRosterPlayer(
+    sessionToken: string,
+    tournamentId: string,
+    registrationId: string,
+    memberId: string,
+    replacementMemberIdInput: unknown,
+  ): Promise<TournamentRosterPlayer> {
+    const session = await this.requireAdminSession(sessionToken);
+    const replacementMemberId = String(replacementMemberIdInput ?? '').trim();
+    if (!replacementMemberId) {
+      throw new BadRequestException('Choose a replacement player.');
+    }
+
+    const tournament = await this.getTournament(tournamentId);
+    const table = this.getTournamentRegistrationsTableClient();
+    const registration = await this.getTournamentRegistrationEntity(
+      tournamentId,
+      registrationId,
+    );
+    this.assertConfirmedRosterPlayer(registration, memberId);
+    if (this.tournamentRegistrationMemberIds(registration).includes(replacementMemberId)) {
+      throw new BadRequestException('Choose a player who is not already on this team.');
+    }
+
+    const registrations = await this.getTournamentRegistrationEntities(tournamentId);
+    if (
+      registrations.some(
+        (entity) =>
+          String(entity.rowKey ?? '') !== registrationId &&
+          String(entity.Status ?? '') !== 'Invitation Declined' &&
+          this.tournamentRegistrationMemberIds(entity).includes(
+            replacementMemberId,
+          ),
+      )
+    ) {
+      throw new ConflictException(
+        'The replacement player is already registered or invited for this tournament.',
+      );
+    }
+
+    const replacement = await this.getTournamentMember(replacementMemberId);
+    const currentPlayers = await this.getTournamentRosterRegistrationPlayers(
+      registration,
+    );
+    if (
+      !this.canReplaceTournamentRosterPlayer(
+        tournament.category,
+        currentPlayers,
+        memberId,
+        replacement.gender,
+      )
+    ) {
+      throw new BadRequestException(
+        'The replacement player does not meet this tournament category’s gender requirements.',
+      );
+    }
+
+    const teamMembers = this.readTournamentTeamMembers(registration);
+    const update = {
+      partitionKey: tournamentId,
+      rowKey: registrationId,
+      RosterUpdatedAt: new Date().toISOString(),
+      RosterUpdatedBy: session.member.memberId,
+      ...(teamMembers.length
+        ? {
+            TeamMembers: JSON.stringify(
+              teamMembers.map((player) =>
+                player.memberId === memberId
+                  ? {
+                      memberId: replacementMemberId,
+                      name: replacement.name,
+                      gender: replacement.gender,
+                      accepted: true,
+                    }
+                  : player,
+              ),
+            ),
+          }
+        : String(registration.MemberId ?? '') === memberId
+          ? { MemberId: replacementMemberId, MemberName: replacement.name }
+          : { PartnerId: replacementMemberId, PartnerName: replacement.name }),
+    };
+    try {
+      await table.updateEntity(update, 'Merge', { etag: registration.etag });
+    } catch (error) {
+      if (this.isTournamentRegistrationVersionConflict(error)) {
+        throw new ConflictException(
+          'The roster changed. Refresh before replacing this player.',
+        );
+      }
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException('Tournament registration was not found.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return {
+      memberId: replacementMemberId,
+      name: replacement.name,
+      gender: replacement.gender,
     };
   }
 
@@ -2296,6 +2883,7 @@ export class AppService {
     noteInput?: unknown,
   ): Promise<TournamentProtest> {
     const session = await this.requireAdminSession(sessionToken);
+    await this.getTournament(tournamentId);
     if (statusInput !== 'Upheld' && statusInput !== 'Dismissed') {
       throw new BadRequestException('Choose whether to uphold or dismiss the protest.');
     }
@@ -2330,9 +2918,14 @@ export class AppService {
     tournamentId: string,
     protestId: string,
     indexInput: number,
+    archived = false,
   ): Promise<{ buffer: Buffer; contentType: string; fileName: string }> {
     const session = await this.getMemberSession(sessionToken);
-    const entity = await this.getTournamentProtestEntity(tournamentId, protestId);
+    if (archived) await this.requireAdminSession(sessionToken);
+    else await this.getTournament(tournamentId);
+    const entity = archived
+      ? await this.getArchivedTournamentChild(tournamentId, 'protests', protestId)
+      : await this.getTournamentProtestEntity(tournamentId, protestId);
     if (session.member.role !== 'admin' && String(entity.ProtesterId ?? '') !== session.member.memberId) {
       throw new ForbiddenException('Only administrators and the protest author can view this evidence.');
     }
@@ -3333,6 +3926,21 @@ export class AppService {
   ): Promise<MemberAccountDetails> {
     const member = this.validateMemberProfileUpdate(input);
     const tableClient = this.getMembersTableClient();
+    let existingMember: Record<string, unknown>;
+    try {
+      existingMember = await tableClient.getEntity('members', memberId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException('Member account was not found.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    const playerStatsChanged = this.hasPlayerStatsChanged(
+      existingMember,
+      member,
+    );
+
     const profileImageUrl = profileImage
       ? await this.uploadMemberProfileImage(memberId, profileImage)
       : undefined;
@@ -3360,6 +3968,10 @@ export class AppService {
         },
         'Merge',
       );
+
+      if (playerStatsChanged) {
+        await this.deletePlayerProfileValidations(memberId);
+      }
 
       const updatedMember = await tableClient.getEntity('members', memberId);
       return this.toMemberAccountDetails(memberId, updatedMember);
@@ -3899,11 +4511,12 @@ export class AppService {
     }
     try {
       const entity = await this.getTournamentsTableClient().getEntity('tournaments', tournamentId);
+      if (entity.LifecycleState) throw new ConflictException('This tournament is being archived or deleted. Retry the pending action in tournament management.');
       const tournament = this.toTournament(entity);
       if (!tournament) throw new NotFoundException('Tournament was not found.');
       return tournament;
     } catch (error) {
-      if (error instanceof NotFoundException) throw error;
+      if (error instanceof NotFoundException || error instanceof ConflictException) throw error;
       if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
       throw this.createMemberAuthenticationStorageException(error);
     }
@@ -3958,13 +4571,14 @@ export class AppService {
       maxSlots: Number(entity.MaxSlots ?? 0),
       date: String(entity.Date ?? ''),
       location: String(entity.Location ?? ''),
-      registrationCount: 0,
-      pendingRegistrationCount: 0,
+      registrationCount: Number(entity.ArchivedRegistrationCount ?? 0),
+      pendingRegistrationCount: Number(entity.ArchivedPendingRegistrationCount ?? 0),
       registrationClosed: entity.RegistrationClosed === true,
       ...(entity.RegistrationClosed === true && entity.RegistrationClosedAt
         ? { registrationClosedAt: String(entity.RegistrationClosedAt) }
         : {}),
       createdAt: String(entity.CreatedAt ?? ''),
+      ...(entity.LifecycleState ? { lifecycleState: String(entity.LifecycleState) } : {}),
       ...(entity.TermsBlobName ? {
         termsUrl: this.tournamentTermsUrl(tournamentId),
         termsFileName: String(entity.TermsFileName ?? 'Terms and conditions.pdf'),
@@ -4085,6 +4699,10 @@ export class AppService {
   }
 
   private getTournamentDocumentBlobClient(blobName: string): BlockBlobClient {
+    return this.getTournamentDocumentContainerClient().getBlockBlobClient(blobName);
+  }
+
+  private getTournamentDocumentContainerClient() {
     if (!this.azureStorageAccount || !this.azureContainerName) {
       throw new BadRequestException('OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT and OP_PARTICIPATION_AZURE_CONTAINER are required for tournament documents.');
     }
@@ -4092,7 +4710,7 @@ export class AppService {
       `https://${this.azureStorageAccount}.blob.core.windows.net`,
       new DefaultAzureCredential(),
       { retryOptions: { maxTries: 1, tryTimeoutInMs: this.azureUploadTimeoutMs } },
-    ).getContainerClient(this.azureContainerName).getBlockBlobClient(blobName);
+    ).getContainerClient(this.azureContainerName);
   }
 
   private tournamentTermsUrl(tournamentId: string): string {
@@ -4259,6 +4877,70 @@ export class AppService {
     return teamMembers.length
       ? teamMembers.map((member) => member.memberId)
       : [String(entity.MemberId ?? ''), String(entity.PartnerId ?? '')];
+  }
+
+  private assertConfirmedRosterPlayer(
+    registration: Record<string, unknown>,
+    memberId: string,
+  ): void {
+    if (!this.isApprovedTournamentRegistration(String(registration.Status ?? ''))) {
+      throw new ConflictException(
+        'Only confirmed tournament teams can be changed from the roster.',
+      );
+    }
+    if (!this.tournamentRegistrationMemberIds(registration).includes(memberId)) {
+      throw new NotFoundException('The player is not on this tournament team.');
+    }
+  }
+
+  private canReplaceTournamentRosterPlayer(
+    category: TournamentCategory,
+    currentPlayers: TournamentRosterPlayer[],
+    memberId: string,
+    replacementGender: string,
+  ): boolean {
+    const prospectiveTeam = currentPlayers.map((player) =>
+      player.memberId === memberId
+        ? { ...player, gender: replacementGender }
+        : player,
+    );
+    if (category !== 'Team Tournament') {
+      return prospectiveTeam.length === 2 &&
+        this.isTournamentGenderEligible(
+          category,
+          prospectiveTeam[0].gender,
+          prospectiveTeam[1].gender,
+        );
+    }
+    const maleCount = prospectiveTeam.filter(
+      (player) => this.tournamentGenderGroup(player.gender) === 'male',
+    ).length;
+    const femaleCount = prospectiveTeam.filter(
+      (player) => this.tournamentGenderGroup(player.gender) === 'female',
+    ).length;
+    return prospectiveTeam.length === 4 && maleCount === 2 && femaleCount === 2;
+  }
+
+  private async getTournamentRosterRegistrationPlayers(
+    registration: Record<string, unknown>,
+  ): Promise<TournamentRosterPlayer[]> {
+    const teamMembers = this.readTournamentTeamMembers(registration);
+    if (teamMembers.length) {
+      return teamMembers.map(({ memberId, name, gender }) => ({
+        memberId,
+        name,
+        gender,
+      }));
+    }
+    const memberIds = this.tournamentRegistrationMemberIds(registration).filter(
+      Boolean,
+    );
+    return Promise.all(
+      memberIds.map(async (memberId) => {
+        const player = await this.getTournamentMember(memberId);
+        return { memberId, name: player.name, gender: player.gender };
+      }),
+    );
   }
 
   private requireOpenTournamentRegistration(tournament: Tournament): void {
@@ -4695,6 +5377,75 @@ export class AppService {
     return validations.sort((left, right) =>
       right.validatedAt.localeCompare(left.validatedAt),
     );
+  }
+
+  private hasPlayerStatsChanged(
+    existingMember: Record<string, unknown>,
+    updatedMember: {
+      duprId: string;
+      skills: Record<string, number | null>;
+    },
+  ): boolean {
+    if (
+      String(existingMember.DUPRId ?? '').trim() !==
+      updatedMember.duprId.trim()
+    ) {
+      return true;
+    }
+
+    let existingSkills: Record<string, unknown> = {};
+    try {
+      const parsedSkills = JSON.parse(String(existingMember.Skills ?? '{}'));
+      if (typeof parsedSkills === 'object' && parsedSkills !== null) {
+        existingSkills = parsedSkills as Record<string, unknown>;
+      }
+    } catch {
+      return true;
+    }
+
+    const skillNames = new Set([
+      ...Object.keys(existingSkills),
+      ...Object.keys(updatedMember.skills),
+    ]);
+    for (const skillName of skillNames) {
+      const existingRating =
+        typeof existingSkills[skillName] === 'number'
+          ? existingSkills[skillName]
+          : 0;
+      const updatedRating =
+        typeof updatedMember.skills[skillName] === 'number'
+          ? updatedMember.skills[skillName]
+          : 0;
+      if (existingRating !== updatedRating) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private async deletePlayerProfileValidations(memberId: string) {
+    try {
+      const reviews = this.getPlayerReviewsTableClient().listEntities({
+        queryOptions: {
+          filter: `PlayerId eq '${memberId}'`,
+          select: ['PartitionKey', 'RowKey'],
+        },
+      });
+      for await (const review of reviews) {
+        if (review.partitionKey && review.rowKey) {
+          await this.getPlayerReviewsTableClient().deleteEntity(
+            String(review.partitionKey),
+            String(review.rowKey),
+          );
+        }
+      }
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        return;
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
   }
 
   private async requireAdminSession(sessionToken: string) {

@@ -123,4 +123,49 @@ describe('EditProfilePageComponent', () => {
     expect(fixture.componentInstance['errorMessage']()).toContain('10 digits starting with 9');
     http.verify();
   });
+
+  it('requires confirmation before changing validated player stats', async () => {
+    await TestBed.configureTestingModule({
+      imports: [EditProfilePageComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: MemberAuthService, useValue: { updateAuthenticatedMember: vi.fn() } },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(EditProfilePageComponent);
+    const http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+    http.expectOne(({ url }) => url.endsWith('/members/me')).flush({
+      email: 'member@example.com', name: 'Member', contactNo: '+639123456789',
+      emergencyContact: '+639987654321', gender: 'Female', duprId: 'DUPR-1',
+      skills: { serve: 7 },
+    });
+    fixture.detectChanges();
+
+    const component = fixture.componentInstance as any;
+    component.profile.skills.serve = 8;
+    component.saveProfile();
+
+    expect(component.statsUpdateWarningOpen()).toBe(true);
+    http.expectNone(({ method }) => method === 'PATCH');
+
+    component.cancelStatsUpdate();
+    expect(component.statsUpdateWarningOpen()).toBe(false);
+    http.expectNone(({ method }) => method === 'PATCH');
+
+    component.saveProfile();
+    component.continueStatsUpdate();
+    const updateRequest = http.expectOne(({ url, method }) =>
+      method === 'PATCH' && url.endsWith('/members/me'),
+    );
+    expect((updateRequest.request.body as FormData).get('skills')).toContain('"serve":8');
+    updateRequest.flush({
+      email: 'member@example.com', name: 'Member', contactNo: '+639123456789',
+      emergencyContact: '+639987654321', gender: 'Female', duprId: 'DUPR-1',
+      skills: { serve: 8 },
+    });
+    http.verify();
+  });
 });

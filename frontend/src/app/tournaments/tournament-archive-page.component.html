@@ -1,0 +1,102 @@
+<main class="management-shell">
+  <header class="page-heading">
+    <p class="eyebrow">Administrator</p>
+    <h1>Archived tournaments</h1>
+    <p>Historical records are read-only. Archiving does not delete uploaded documents or payment records.</p>
+    <a class="registrations-link" routerLink="/tournament-management">Back to tournament management</a>
+  </header>
+  @if (busy()) { <p role="status" aria-live="polite">Processing. Please wait...</p> }
+  @if (error()) { <p class="notice error" role="alert">{{ error() }}</p> }
+  @if (feedback()) { <p class="notice success" role="status">{{ feedback() }}</p> }
+  <button class="action-button" type="button" [disabled]="busy()" (click)="load()">Reload archive</button>
+  <section class="events-section" aria-label="Archived events">
+    @for (tournament of tournaments(); track tournament.tournamentId) {
+      <article class="event-row">
+        <div><strong>{{ tournament.name }}</strong><span>{{ tournament.category }} · {{ tournament.level }}</span>
+          <span>Archived {{ tournament.archivedAt | date: 'medium' }} by {{ tournament.archivedBy }}</span></div>
+        <button class="action-button" type="button" [disabled]="busy()" (click)="view(tournament)">View records</button>
+        <button class="action-button danger" type="button" [disabled]="busy()" (click)="remove(tournament)">Delete permanently</button>
+      </article>
+    } @empty {
+      @if (!busy() && !error()) { <p class="empty-state">No archived tournaments.</p> }
+    }
+  </section>
+  @if (details(); as data) {
+    <section class="events-section" aria-label="Archived tournament details">
+      <h2>{{ data.tournament.name }}</h2>
+      <p>{{ data.tournament.category }} · {{ data.tournament.level }} · {{ data.tournament.location }}</p>
+      <p>{{ data.tournament.date ? (data.tournament.date | date: 'mediumDate') : 'Date not set' }} · {{ data.tournament.maxSlots }} maximum teams</p>
+      @if (data.tournament.termsUrl; as url) {
+        <a class="registrations-link" [href]="assetUrl(url)" target="_blank" rel="noopener">View terms and conditions</a>
+      }
+      <h3>Confirmed roster</h3>
+      @for (team of data.roster.teams; track team.registrationId) {
+        <p>{{ teamLabel(team.registrationId) }} — {{ team.status }}</p>
+      } @empty { <p>No confirmed teams.</p> }
+      <h3>Registrations &amp; payments</h3>
+      @for (registration of data.registrations; track registration.registrationId) {
+        <article class="registration-row">
+          <div class="registration-copy">
+            <strong>{{ teamNames(registration) }}</strong>
+            <span>{{ registration.status }} · Registered {{ registration.registeredAt | date: 'medium' }}</span>
+            @if (registration.approvedAt) { <span>Approved {{ registration.approvedAt | date: 'medium' }}</span> }
+            @if (registration.paidAt) { <span>Paid {{ registration.paidAt | date: 'medium' }} · {{ registration.paidBy }}</span> }
+            @for (member of registration.teamMembers ?? []; track member.memberId) {
+              <span>{{ member.name }} · {{ member.gender }} · {{ member.accepted ? 'Accepted' : 'Invitation pending' }}</span>
+              @if (member.experience; as experience) {
+                <small>Previous tournaments: {{ experience.hasJoinedTournaments ? 'Yes' : 'No' }} {{ experience.highestTournamentLevel }}.
+                  Wins/podiums: {{ experience.hasWonTournaments ? 'Yes' : 'No' }} {{ experience.winsOrPodiums }} {{ experience.highestWinningLevel }}.</small>
+              }
+            }
+            @if (registration.memberExperience; as experience) {
+              <small>{{ registration.memberName }}: Previous tournaments: {{ experience.hasJoinedTournaments ? 'Yes' : 'No' }} {{ experience.highestTournamentLevel }}.
+                Wins/podiums: {{ experience.hasWonTournaments ? 'Yes' : 'No' }} {{ experience.winsOrPodiums }} {{ experience.highestWinningLevel }}.</small>
+            }
+            @if (registration.partnerExperience; as experience) {
+              <small>{{ registration.partnerName }}: Previous tournaments: {{ experience.hasJoinedTournaments ? 'Yes' : 'No' }} {{ experience.highestTournamentLevel }}.
+                Wins/podiums: {{ experience.hasWonTournaments ? 'Yes' : 'No' }} {{ experience.winsOrPodiums }} {{ experience.highestWinningLevel }}.</small>
+            }
+            @for (proof of registration.paymentProofs ?? []; track proof.memberId) {
+              <a class="registrations-link" [href]="assetUrl(proof.url)" target="_blank" rel="noopener">
+                {{ proof.memberName }}: {{ proof.fileName }} ({{ proof.uploadedAt | date: 'medium' }})
+              </a>
+            }
+            @if (registration.paymentProofUrl; as url) {
+              <a class="registrations-link" [href]="assetUrl(url)" target="_blank" rel="noopener">View payment proof</a>
+            }
+          </div>
+        </article>
+      } @empty { <p>No registrations.</p> }
+      <h3>Protests</h3>
+      @for (protest of data.protests; track protest.protestId) {
+        <article class="registration-row">
+          <div class="registration-copy">
+            <strong>{{ protest.protestedMemberName }} · {{ protest.status }}</strong>
+            <span>Filed by {{ protest.protesterName }} on {{ protest.createdAt | date: 'medium' }}</span>
+            <span>{{ protest.eligibilityCategory }}</span>
+            <p style="white-space: pre-wrap">{{ protest.reason }}</p>
+            @if (protest.reviewedAt) { <span>Reviewed {{ protest.reviewedAt | date: 'medium' }} by {{ protest.reviewedBy }}</span> }
+            @if (protest.reviewNote) { <p style="white-space: pre-wrap">{{ protest.reviewNote }}</p> }
+            @for (evidence of protest.evidence; track evidence.url) {
+              <a class="registrations-link" [href]="assetUrl(evidence.url)" target="_blank" rel="noopener">{{ evidence.fileName }}</a>
+            }
+          </div>
+        </article>
+      } @empty { <p>No protests.</p> }
+      <h3>Pools &amp; schedule</h3>
+      @if (data.draw; as draw) {
+        <p>{{ draw.courtCount }} courts · Last saved {{ draw.updatedAt | date: 'medium' }}</p>
+        @for (pool of draw.pools; track pool.number) {
+          <h4>Pool {{ pool.number }}</h4>
+          @for (id of pool.registrationIds; track id) { <p>{{ teamLabel(id) }}</p> }
+        }
+        @for (slot of draw.schedule; track slot.number) {
+          <h4>Time slot {{ slot.number }}</h4>
+          @for (match of slot.matches; track match.courtNumber) {
+            <p>Court {{ match.courtNumber }} · Pool {{ match.poolNumber }}: {{ teamLabel(match.teamOneId) }} vs {{ teamLabel(match.teamTwoId) }}</p>
+          }
+        } @empty { <p>No saved schedule.</p> }
+      } @else { <p>No saved pools or schedule.</p> }
+    </section>
+  }
+</main>

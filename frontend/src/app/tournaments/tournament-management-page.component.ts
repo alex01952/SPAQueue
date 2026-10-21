@@ -131,6 +131,41 @@ export class TournamentManagementPageComponent implements OnInit {
     });
   }
 
+  protected archiveTournament(tournament: Tournament) {
+    this.changeTournamentLifecycle(tournament, false);
+  }
+
+  protected deleteTournament(tournament: Tournament) {
+    this.changeTournamentLifecycle(tournament, true);
+  }
+
+  private changeTournamentLifecycle(tournament: Tournament, permanent: boolean) {
+    if (this.isSaving()) return;
+    const prompt = permanent
+      ? `Permanently delete "${tournament.name}" and ALL registrations, payment proofs, protests, evidence, terms, pools and schedules? This cannot be undone and does not issue refunds.`
+      : `Archive "${tournament.name}"? It will be removed from active tournaments. All related records and files will remain available read-only in Archived tournaments.`;
+    if (!window.confirm(prompt)) return;
+    this.isSaving.set(true);
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    const url = `${this.apiUrl}/admin/tournaments/${encodeURIComponent(tournament.tournamentId)}`;
+    const request = permanent
+      ? this.http.delete(`${url}`, { withCredentials: true })
+      : this.http.post(`${url}/archive`, {}, { withCredentials: true });
+    request.subscribe({
+      next: () => {
+        this.tournaments.update((items) => items.filter((item) => item.tournamentId !== tournament.tournamentId));
+        this.registrations.update((items) => items.filter((item) => item.tournamentId !== tournament.tournamentId));
+        this.feedbackMessage.set(permanent ? 'Tournament and related data permanently deleted.' : 'Tournament archived.');
+        this.isSaving.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.showError(error, 'Unable to complete the operation. Retry the same action to finish.');
+        this.isSaving.set(false);
+      },
+    });
+  }
+
   protected pendingApprovals() {
     return this.registrations().filter((item) => item.status === 'Pending Approval');
   }

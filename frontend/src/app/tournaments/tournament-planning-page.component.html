@@ -1,0 +1,91 @@
+<main class="planning-shell">
+  <header class="page-heading">
+    <p class="eyebrow">Tournament planning</p>
+    <h1>{{ state()?.roster?.tournamentName ?? 'Pools and schedule' }}</h1>
+    <p>Keep the registered teams together. Randomize their pools, then generate a round-robin schedule.</p>
+    <nav>
+      <a [routerLink]="['/tournaments', tournamentId, 'roster']">Back to roster</a>
+      <button type="button" class="quiet-button" [disabled]="!!saving() || isLoading()" (click)="load()">Reload saved draw</button>
+    </nav>
+  </header>
+
+  @if (errorMessage()) { <p class="notice error" role="alert">{{ errorMessage() }}</p> }
+  @if (feedbackMessage()) { <p class="notice success" role="status">{{ feedbackMessage() }}</p> }
+  @if (isLoading()) {
+    <p role="status">Loading roster and saved draw...</p>
+  } @else if (state(); as current) {
+    @if (current.rosterChanged) {
+      <p class="notice warning" role="alert">The participating roster has changed. The previous pools and schedule are no longer valid. Randomize pools again using the updated roster.</p>
+    }
+    <section class="panel">
+      <h2>Participating teams ({{ current.roster.teams.length }})</h2>
+      <p class="hint">{{ current.roster.category }} · {{ current.roster.level }} · Approved, Payment Submitted and Paid teams only.</p>
+      <ol class="team-list">
+        @for (team of current.roster.teams; track team.registrationId) {
+          <li>{{ teamLabel(team.registrationId) }}</li>
+        } @empty { <li>No confirmed teams are available yet.</li> }
+      </ol>
+    </section>
+    <section class="panel" aria-labelledby="pools-title">
+      <p class="eyebrow">Step 1</p>
+      <h2 id="pools-title">Randomize team pools</h2>
+      <p class="hint">Teams are distributed evenly. Each pool must have at least two teams. Saving a new draw clears the previous schedule.</p>
+      <div class="controls">
+        <label>Number of pools
+          <input type="number" name="poolCount" min="1" [max]="maxPools()" step="1" [(ngModel)]="poolCount" [disabled]="!!saving()" />
+        </label>
+        <button type="button" class="action-button" [disabled]="!!saving() || !validCount(poolCount, maxPools())" (click)="randomizePools()">{{ saving() === 'pools' ? 'Randomizing and saving...' : 'Randomize pools' }}</button>
+      </div>
+      @if (maxPools() < 1) {
+        <p class="hint">At least two confirmed teams are required to create pools.</p>
+      } @else if (!validCount(poolCount, maxPools())) {
+        <p class="notice error">Choose between 1 and {{ maxPools() }} pools.</p>
+      }
+      <div class="pool-list">
+        @for (pool of current.draw?.pools ?? []; track pool.number) {
+          <article class="pool-card">
+            <h3>Pool {{ pool.number }}</h3>
+            <ul>
+              @for (teamId of pool.registrationIds; track teamId) { <li>{{ teamLabel(teamId) }}</li> }
+            </ul>
+          </article>
+        }
+      </div>
+    </section>
+    @if (current.draw; as draw) {
+      <section class="panel" aria-labelledby="schedule-title">
+        <p class="eyebrow">Step 2 · Round robin</p>
+        <h2 id="schedule-title">Generate match schedule</h2>
+        <p class="hint">Each team plays every other team in its pool once. Teams cannot play on two courts in the same time slot. Rest between slots is preferred when possible.</p>
+        <div class="controls">
+          <label>Number of courts
+            <input type="number" name="courtCount" min="1" step="1" [(ngModel)]="courtCount" [disabled]="!!saving()" />
+          </label>
+          <button type="button" class="action-button" [disabled]="!!saving() || !validCount(courtCount)" (click)="generateSchedule()">{{ saving() === 'schedule' ? 'Generating and saving...' : 'Generate schedule' }}</button>
+        </div>
+        @if (!validCount(courtCount)) { <p class="notice error">Choose a positive whole number of courts.</p> }
+        @if (draw.schedule.length) {
+          <p class="hint">{{ matchCount() }} matches · {{ draw.schedule.length }} time slots · {{ draw.courtCount }} courts</p>
+          <div class="schedule-list">
+            @for (slot of draw.schedule; track slot.number) {
+              <section class="schedule-slot">
+                <h3>Time slot {{ slot.number }}</h3>
+                <div class="scheduled-matches">
+                  @for (match of slot.matches; track match.courtNumber) {
+                    <article>
+                      <small>Court {{ match.courtNumber }} · Pool {{ match.poolNumber }}</small>
+                      <strong>{{ teamLabel(match.teamOneId) }} vs {{ teamLabel(match.teamTwoId) }}</strong>
+                    </article>
+                  }
+                </div>
+              </section>
+            }
+          </div>
+        }
+      </section>
+      <p class="hint">Saved {{ draw.updatedAt | date: 'medium' }}. This draw is shared with other tournament administrators.</p>
+    }
+  } @else {
+    <button type="button" class="action-button" (click)="load()">Try again</button>
+  }
+</main>

@@ -47,5 +47,10 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .status-panel p { margin-bottom: 10px; }
 .status-panel.error { color: #842f22; background: rgba(184,67,49,.1); border-color: rgba(184,67,49,.18); }
 .status-panel.success { color: #356b3e; background: rgba(76,140,87,.14); }
+.stats-warning-backdrop { position: fixed; z-index: 1200; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(23,30,25,.68); }
+.stats-warning { width: min(460px, 100%); padding: 24px; background: #fffaf3; border: 1px solid rgba(103,70,41,.22); border-radius: 8px; box-shadow: 0 22px 70px rgba(0,0,0,.28); }
+.stats-warning h2 { margin-bottom: 12px; font-size: 1.3rem; }
+.stats-warning p { margin-bottom: 20px; color: var(--text-secondary); line-height: 1.5; }
+.stats-warning > div { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
 @media (max-width: 720px) { .edit-shell { padding: 24px 12px 40px; } .form-panel { padding: 16px; } .skills-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 480px) { .form-grid, .skills-grid { grid-template-columns: 1fr; } }

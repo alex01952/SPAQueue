@@ -8,6 +8,7 @@ import {
   tournamentProtestCategories,
   type TournamentProtest,
   type TournamentProtestCategory,
+  type TournamentPartnerSearchResult,
   type TournamentRoster,
   type TournamentRosterPlayer,
   type TournamentRosterTeam,
@@ -45,11 +46,19 @@ export class TournamentRosterPageComponent implements OnInit {
   protected readonly protests = signal<TournamentProtest[]>([]);
   protected readonly isLoading = signal(true);
   protected readonly isSubmitting = signal(false);
+  protected readonly isManagingRoster = signal(false);
   protected readonly errorMessage = signal('');
   protected readonly feedbackMessage = signal('');
   protected readonly protestTarget = signal<TournamentRosterPlayer | null>(null);
   protected readonly evidenceFiles = signal<File[]>([]);
   protected readonly evidenceError = signal('');
+  protected readonly replacementTarget = signal<{
+    team: TournamentRosterTeam;
+    player: TournamentRosterPlayer;
+  } | null>(null);
+  protected readonly replacementCandidates = signal<TournamentPartnerSearchResult[]>([]);
+  protected readonly replacementError = signal('');
+  protected replacementSearch = '';
   protected protestForm: { eligibilityCategory: TournamentProtestCategory | ''; reason: string } = {
     eligibilityCategory: '',
     reason: '',
@@ -75,6 +84,128 @@ export class TournamentRosterPageComponent implements OnInit {
     this.protestTarget.set(null);
     this.evidenceFiles.set([]);
     this.evidenceError.set('');
+  }
+
+  protected beginReplacement(
+    team: TournamentRosterTeam,
+    player: TournamentRosterPlayer,
+  ) {
+    this.replacementTarget.set({ team, player });
+    this.replacementCandidates.set([]);
+    this.replacementError.set('');
+    this.replacementSearch = '';
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+  }
+
+  protected cancelReplacement() {
+    this.replacementTarget.set(null);
+    this.replacementCandidates.set([]);
+    this.replacementError.set('');
+    this.replacementSearch = '';
+  }
+
+  protected searchReplacementCandidates() {
+    const target = this.replacementTarget();
+    const search = this.replacementSearch.trim();
+    if (!target || this.isManaging()) return;
+    if (search.length < 2) {
+      this.replacementCandidates.set([]);
+      this.replacementError.set('Enter at least two characters to find an eligible replacement.');
+      return;
+    }
+
+    this.isManagingRoster.set(true);
+    this.replacementError.set('');
+    const path = this.replacementPath(target);
+    this.http.get<TournamentPartnerSearchResult[]>(
+      `${this.apiUrl}${path}/replacement-candidates?search=${encodeURIComponent(search)}`,
+      { withCredentials: true },
+    ).subscribe({
+      next: (candidates) => {
+        this.replacementCandidates.set(candidates);
+        this.isManagingRoster.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.replacementError.set(this.errorText(error, 'Unable to find replacement players.'));
+        this.isManagingRoster.set(false);
+      },
+    });
+  }
+
+  protected replacePlayer(candidate: TournamentPartnerSearchResult) {
+    const target = this.replacementTarget();
+    if (!target || this.isManaging()) return;
+
+    this.isManagingRoster.set(true);
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.replacementError.set('');
+    this.http.patch<TournamentRosterPlayer>(
+      `${this.apiUrl}${this.replacementPath(target)}`,
+      { replacementMemberId: candidate.memberId },
+      { withCredentials: true },
+    ).subscribe({
+      next: (replacement) => {
+        this.roster.update((current) => current && ({
+          ...current,
+          teams: current.teams.map((team) =>
+            team.registrationId !== target.team.registrationId
+              ? team
+              : {
+                  ...team,
+                  players: team.players.map((player) =>
+                    player.memberId === target.player.memberId
+                      ? replacement
+                      : player,
+                  ),
+                },
+          ),
+        }));
+        this.feedbackMessage.set(`${target.player.name} was replaced by ${replacement.name}.`);
+        this.cancelReplacement();
+        this.isManagingRoster.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.replacementError.set(this.errorText(error, 'Unable to replace this player.'));
+        this.isManagingRoster.set(false);
+      },
+    });
+  }
+
+  protected removeTeam(team: TournamentRosterTeam) {
+    if (
+      this.isManaging() ||
+      !window.confirm(
+        `Remove this ${team.status === 'Paid' ? 'PAID ' : ''}team from the tournament roster? This removes the registration for every member and does not issue a refund.`,
+      )
+    ) {
+      return;
+    }
+
+    this.isManagingRoster.set(true);
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.http.delete(
+      `${this.apiUrl}/admin/tournaments/${encodeURIComponent(this.tournamentId)}/registrations/${encodeURIComponent(team.registrationId)}`,
+      { withCredentials: true },
+    ).subscribe({
+      next: () => {
+        this.roster.update((current) => current && ({
+          ...current,
+          teams: current.teams.filter(
+            (currentTeam) => currentTeam.registrationId !== team.registrationId,
+          ),
+        }));
+        this.feedbackMessage.set('The team was removed from the tournament roster.');
+        this.cancelReplacement();
+        this.isManagingRoster.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.errorMessage.set(this.errorText(error, 'Unable to remove this team.'));
+        this.isManagingRoster.set(false);
+      },
+    });
   }
 
   protected selectEvidence(input: HTMLInputElement) {
@@ -159,6 +290,17 @@ export class TournamentRosterPageComponent implements OnInit {
 
   private ownTeamListed(): boolean {
     return this.roster()?.teams.some((team) => team.isOwnTeam) ?? false;
+  }
+
+  protected isManaging(): boolean {
+    return this.isManagingRoster();
+  }
+
+  private replacementPath(target: {
+    team: TournamentRosterTeam;
+    player: TournamentRosterPlayer;
+  }): string {
+    return `/admin/tournaments/${encodeURIComponent(this.tournamentId)}/roster/${encodeURIComponent(target.team.registrationId)}/players/${encodeURIComponent(target.player.memberId)}`;
   }
 
   private isAllowedEvidence(file: File): boolean {

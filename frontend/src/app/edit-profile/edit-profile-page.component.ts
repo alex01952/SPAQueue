@@ -56,6 +56,7 @@ export class EditProfilePageComponent implements OnInit {
   ] as const;
   protected readonly isLoading = signal(true);
   protected readonly isSaving = signal(false);
+  protected readonly statsUpdateWarningOpen = signal(false);
   protected readonly errorMessage = signal('');
   protected readonly successMessage = signal('');
   protected readonly email = signal('');
@@ -83,6 +84,7 @@ export class EditProfilePageComponent implements OnInit {
     reClubId: '',
     skills: Object.fromEntries(this.skillFields.map(([key]) => [key, 0])),
   };
+  private originalPlayerStats = this.getPlayerStats();
 
   ngOnInit() {
     this.loadAccount();
@@ -109,10 +111,11 @@ export class EditProfilePageComponent implements OnInit {
             locationType: account.locationType ?? '',
             location: account.location ?? '',
             gender: account.gender,
-            duprId: account.duprId,
-            reClubId: account.reClubId,
+            duprId: account.duprId ?? '',
+            reClubId: account.reClubId ?? '',
             skills: { ...this.profile.skills, ...account.skills },
           });
+          this.originalPlayerStats = this.getPlayerStats();
           this.isLoading.set(false);
         },
         error: () => {
@@ -137,6 +140,24 @@ export class EditProfilePageComponent implements OnInit {
       return;
     }
 
+    if (this.hasPlayerStatsChanged()) {
+      this.statsUpdateWarningOpen.set(true);
+      return;
+    }
+
+    this.saveProfileChanges();
+  }
+
+  protected continueStatsUpdate() {
+    this.statsUpdateWarningOpen.set(false);
+    this.saveProfileChanges();
+  }
+
+  protected cancelStatsUpdate() {
+    this.statsUpdateWarningOpen.set(false);
+  }
+
+  private saveProfileChanges() {
     this.isSaving.set(true);
     this.errorMessage.set('');
     this.successMessage.set('');
@@ -166,6 +187,7 @@ export class EditProfilePageComponent implements OnInit {
           this.selectedProfileImage.set(null);
           this.croppedImageUrl.set(null);
           this.auth.updateAuthenticatedMember(account);
+          this.originalPlayerStats = this.getPlayerStats();
           this.successMessage.set('Profile changes saved.');
           this.isSaving.set(false);
         },
@@ -176,6 +198,22 @@ export class EditProfilePageComponent implements OnInit {
           this.isSaving.set(false);
         },
       });
+  }
+
+  private getPlayerStats() {
+    return {
+      duprId: this.profile.duprId.trim(),
+      skills: Object.fromEntries(
+        this.skillFields.map(([name]) => [
+          name,
+          Number(this.profile.skills[name] ?? 0),
+        ]),
+      ),
+    };
+  }
+
+  private hasPlayerStatsChanged() {
+    return JSON.stringify(this.originalPlayerStats) !== JSON.stringify(this.getPlayerStats());
   }
 
   protected selectProfileImage(event: Event) {

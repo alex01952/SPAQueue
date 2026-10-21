@@ -49,6 +49,7 @@ export interface Tournament {
   registrationClosed?: boolean;
   registrationClosedAt?: string;
   createdAt: string;
+  lifecycleState?: string;
 }
 
 export const tournamentProtestCategories = [
@@ -68,6 +69,27 @@ export interface TournamentRosterPlayer {
   gender: string;
 }
 
+export interface ArchivedTournament extends Tournament {
+  archivedAt: string;
+  archivedBy: string;
+}
+
+export interface TournamentArchiveDetails {
+  tournament: ArchivedTournament;
+  registrations: TournamentRegistration[];
+  protests: TournamentProtest[];
+  roster: TournamentRoster;
+  draw: TournamentDraw | null;
+}
+
+export interface TournamentPartnerSearchResult {
+  memberId: string;
+  name: string;
+  gender: string;
+  eligible: boolean;
+  unavailableReason?: string;
+}
+
 export interface TournamentRosterTeam {
   registrationId: string;
   status: string;
@@ -80,7 +102,40 @@ export interface TournamentRoster {
   tournamentName: string;
   category: TournamentCategory;
   level: TournamentLevel;
+  canManageRoster: boolean;
   teams: TournamentRosterTeam[];
+}
+
+export interface TournamentPool {
+  number: number;
+  registrationIds: string[];
+}
+
+export interface TournamentScheduleSlot {
+  number: number;
+  matches: {
+    courtNumber: number;
+    poolNumber: number;
+    teamOneId: string;
+    teamTwoId: string;
+  }[];
+}
+
+export interface TournamentDraw {
+  version: string;
+  rosterSignature: string;
+  pools: TournamentPool[];
+  courtCount: number;
+  schedule: TournamentScheduleSlot[];
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface TournamentPlanningState {
+  roster: TournamentRoster;
+  draw: TournamentDraw | null;
+  version: string | null;
+  rosterChanged: boolean;
 }
 
 export interface TournamentProtestEvidence {

@@ -1193,6 +1193,7 @@ describe('AppService tournament registration', () => {
             players: [{ memberId: 'rival-a', name: 'Rita', gender: 'Female' }, { memberId: 'rival-b', name: 'Rob', gender: 'Male' }],
           },
         ]);
+        expect(roster.canManageRoster).toBe(false);
       });
 
       it('hides the roster from players while registration is open', async () => {
@@ -1212,6 +1213,116 @@ describe('AppService tournament registration', () => {
         const roster = await service.getTournamentRoster('session', tournament.tournamentId);
         expect(roster.teams.map((team) => team.registrationId)).toEqual(['member-a', 'rival-a']);
         expect(roster.teams.every((team) => !team.isOwnTeam)).toBe(true);
+        expect(roster.canManageRoster).toBe(true);
+      });
+
+      it('lets an administrator replace a roster player only with an eligible uncommitted player', async () => {
+        const updateEntity = jest.fn().mockResolvedValue(undefined);
+        const registration = {
+          ...registrations[1],
+          etag: 'registration-version',
+        };
+        jest
+          .spyOn(service as any, 'getMemberSession')
+          .mockResolvedValue(memberSession('admin', 'Male', 'admin'));
+        jest
+          .spyOn(service as any, 'getTournamentRegistrationEntities')
+          .mockResolvedValue(registrations);
+        jest
+          .spyOn(service as any, 'getTournamentRegistrationsTableClient')
+          .mockReturnValue({
+            getEntity: jest.fn().mockResolvedValue(registration),
+            updateEntity,
+          });
+        jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue({
+          getEntity: jest.fn().mockImplementation((_partition: string, id: string) =>
+            Promise.resolve({
+              Status: 'Approved',
+              Name: id === 'replacement' ? 'Replacement Player' : id === 'rival-a' ? 'Rita' : 'Rob',
+              Gender: 'Male',
+            })),
+          listEntities: jest.fn().mockReturnValue((async function* () {
+            yield { rowKey: 'replacement', Name: 'Replacement Player', Gender: 'Male' };
+            yield { rowKey: 'ineligible', Name: 'Ineligible Player', Gender: 'Female' };
+            yield { rowKey: 'member-a', Name: 'Already Registered', Gender: 'Male' };
+          })()),
+        });
+
+        await expect(
+          service.getTournamentRosterReplacementCandidates(
+            'session',
+            tournament.tournamentId,
+            'rival-a',
+            'rival-a',
+            'player',
+          ),
+        ).resolves.toEqual([
+          {
+            memberId: 'replacement',
+            name: 'Replacement Player',
+            gender: 'Male',
+            eligible: true,
+          },
+        ]);
+
+        await expect(
+          service.replaceTournamentRosterPlayer(
+            'session',
+            tournament.tournamentId,
+            'rival-a',
+            'rival-a',
+            'replacement',
+          ),
+        ).resolves.toEqual({
+          memberId: 'replacement',
+          name: 'Replacement Player',
+          gender: 'Male',
+        });
+        expect(updateEntity).toHaveBeenCalledWith(
+          expect.objectContaining({
+            MemberId: 'replacement',
+            MemberName: 'Replacement Player',
+            RosterUpdatedBy: 'admin',
+          }),
+          'Merge',
+          { etag: 'registration-version' },
+        );
+      });
+
+      it('rejects an administrator replacement that violates the roster gender requirement', async () => {
+        jest
+          .spyOn(service as any, 'getMemberSession')
+          .mockResolvedValue(memberSession('admin', 'Male', 'admin'));
+        jest
+          .spyOn(service as any, 'getTournamentRegistrationEntities')
+          .mockResolvedValue(registrations);
+        jest
+          .spyOn(service as any, 'getTournamentRegistrationsTableClient')
+          .mockReturnValue({
+            getEntity: jest.fn().mockResolvedValue({
+              ...registrations[1],
+              etag: 'registration-version',
+            }),
+            updateEntity: jest.fn(),
+          });
+        jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue({
+          getEntity: jest.fn().mockImplementation((_partition: string, id: string) =>
+            Promise.resolve({
+              Status: 'Approved',
+              Name: id === 'replacement' ? 'Replacement Player' : 'Rob',
+              Gender: id === 'replacement' ? 'Female' : 'Male',
+            })),
+        });
+
+        await expect(
+          service.replaceTournamentRosterPlayer(
+            'session',
+            tournament.tournamentId,
+            'rival-a',
+            'rival-a',
+            'replacement',
+          ),
+        ).rejects.toThrow('gender requirements');
       });
     });
 
