@@ -61,6 +61,7 @@
             <button type="button" class="action-button" [disabled]="isSaving() || !!tournament.lifecycleState" (click)="toggleRegistration(tournament)">{{ tournament.registrationClosed ? 'Reopen registration' : 'Close registration' }}</button>
             <a class="registrations-link" [routerLink]="['/tournament-registrations']" [queryParams]="{ tournamentId: tournament.tournamentId }">View registrations &amp; payments</a>
             <a class="registrations-link" [routerLink]="['/tournaments', tournament.tournamentId, 'roster']">View roster</a>
+            <button type="button" class="action-button" [disabled]="isSaving() || !!tournament.lifecycleState" (click)="exportApprovedTeams(tournament)">Export approved teams (CSV)</button>
             <a class="registrations-link" [routerLink]="['/tournaments', tournament.tournamentId, 'planning']">Plan pools &amp; schedule</a>
             <a class="registrations-link" [routerLink]="['/tournament-protests']" [queryParams]="{ tournamentId: tournament.tournamentId }">Review protests</a>
             <button type="button" class="action-button" [disabled]="isSaving() || tournament.lifecycleState === 'Deleting'" (click)="archiveTournament(tournament)">Archive</button>

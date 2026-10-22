@@ -135,6 +135,70 @@ export class TournamentManagementPageComponent implements OnInit {
     this.changeTournamentLifecycle(tournament, false);
   }
 
+  protected exportApprovedTeams(tournament: Tournament) {
+    if (this.isSaving() || tournament.lifecycleState) return;
+    this.isSaving.set(true);
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.http.get<TournamentRegistration[]>(`${this.apiUrl}/admin/tournament-registrations`, {
+      withCredentials: true,
+    }).subscribe({
+      next: (registrations) => {
+        const teams = registrations.filter((item) =>
+          item.tournamentId === tournament.tournamentId &&
+          ['Approved', 'Payment Submitted', 'Paid'].includes(item.status),
+        );
+        const rows = [
+          ['Tournament ID', 'Tournament name', 'Category', 'Level', 'Tournament date', 'Location',
+            'Registration ID', 'Status', 'Registered at', 'Approved at', 'Paid at',
+            ...[1, 2, 3, 4].flatMap((number) => [`Player ${number} ID`, `Player ${number} name`])],
+          ...teams.map((team) => {
+            const players = team.teamMembers?.length ? team.teamMembers : [
+              { memberId: team.memberId, name: team.memberName },
+              { memberId: team.partnerId, name: team.partnerName },
+            ];
+            return [
+              tournament.tournamentId, tournament.name, tournament.category, tournament.level,
+              tournament.date, tournament.location, team.registrationId, team.status,
+              team.registeredAt, team.approvedAt ?? '', team.paidAt ?? '',
+              ...[0, 1, 2, 3].flatMap((index) => [players[index]?.memberId ?? '', players[index]?.name ?? '']),
+            ];
+          }),
+        ];
+        const csv = '\uFEFF' + rows.map((row) => row.map((value) => this.csvCell(value)).join(',')).join('\r\n') + '\r\n';
+        try {
+          const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `tournament-${tournament.tournamentId}-approved-teams-${new Date().toISOString().slice(0, 10)}.csv`;
+          try {
+            document.body.appendChild(link);
+            link.click();
+          } finally {
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+          }
+          this.feedbackMessage.set(`CSV download started: ${teams.length} approved ${teams.length === 1 ? 'team' : 'teams'}.`);
+        } catch (error) {
+          console.error('Tournament CSV download failed.', error);
+          this.errorMessage.set('Unable to download the teams CSV. Please try again.');
+        } finally {
+          this.isSaving.set(false);
+        }
+      },
+      error: (error: HttpErrorResponse) => {
+        this.showError(error, 'Unable to load approved teams for export.');
+        this.isSaving.set(false);
+      },
+    });
+  }
+
+  private csvCell(value: string): string {
+    // Quoting alone does not prevent spreadsheet applications from evaluating formulas.
+    const safe = /^[\s\uFEFF]*[=+\-@]/.test(value) || /^[\t\r\n]/.test(value) ? `'${value}` : value;
+    return `"${safe.replace(/"/g, '""')}"`;
+  }
+
   protected deleteTournament(tournament: Tournament) {
     this.changeTournamentLifecycle(tournament, true);
   }

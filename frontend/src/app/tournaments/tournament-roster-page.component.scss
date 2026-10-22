@@ -14,6 +14,8 @@ section { margin-bottom: 28px; }
 .team-card li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .roster-admin-actions { display: flex; justify-content: flex-end; margin: -2px 0 10px; }
 .player-copy { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.profile-link { padding: 0; color: var(--accent-dark); font: inherit; text-align: left; overflow-wrap: anywhere; background: none; border: 0; text-decoration: underline; cursor: pointer; }
+.profile-link:focus-visible { outline: 2px solid var(--accent-dark); outline-offset: 3px; }
 .player-copy small, .protest-card small, .hint { color: var(--text-secondary); font-size: .76rem; }
 .pill { padding: 4px 8px; color: #664d24; font-size: .7rem; font-weight: 700; background: rgba(217, 139, 43, .16); border-radius: 99px; white-space: nowrap; }
 .pill[data-status='Upheld'] { color: #842f22; background: rgba(184, 67, 49, .12); }

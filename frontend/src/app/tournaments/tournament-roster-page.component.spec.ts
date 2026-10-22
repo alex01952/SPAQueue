@@ -64,7 +64,7 @@ describe('TournamentRosterPageComponent', () => {
 
   function startProtest(name: string) {
     const button = [...element().querySelectorAll<HTMLButtonElement>('.team-card li')]
-      .find((item) => item.textContent!.includes(name))!.querySelector('button')!;
+      .find((item) => item.textContent!.includes(name))!.querySelector<HTMLButtonElement>('.quiet-button')!;
     button.click();
     fixture.detectChanges();
   }
@@ -76,15 +76,36 @@ describe('TournamentRosterPageComponent', () => {
     const cards = element().querySelectorAll('.team-card');
     expect(cards).toHaveLength(2);
     expect(cards[0].textContent).toContain('Your team');
-    expect(cards[0].querySelectorAll('button')).toHaveLength(0);
-    expect(cards[1].querySelectorAll('button')).toHaveLength(2);
+    expect(cards[0].querySelectorAll('.quiet-button')).toHaveLength(0);
+    expect(cards[1].querySelectorAll('.quiet-button')).toHaveLength(2);
+    expect(element().querySelectorAll('.profile-link')).toHaveLength(4);
   });
 
   it('does not offer protests to an admin who is not on the roster', async () => {
     roster.teams = roster.teams.map((team) => ({ ...team, isOwnTeam: false }));
     await render();
-    expect(element().querySelectorAll('.team-card button')).toHaveLength(0);
+    expect(element().querySelectorAll('.team-card .quiet-button')).toHaveLength(0);
+    expect(element().querySelectorAll('.profile-link')).toHaveLength(4);
     expect(http.get).not.toHaveBeenCalledWith(expect.stringContaining('/protests/mine'), expect.anything());
+  });
+
+  it.each(['me', 'mate', 'rival'])('opens %s in the existing profile popup and closes without leaving the roster', async (memberId) => {
+    await render();
+    const player = roster.teams.flatMap((team) => team.players).find((item) => item.memberId === memberId)!;
+    const button = [...element().querySelectorAll<HTMLButtonElement>('.profile-link')]
+      .find((item) => item.textContent!.trim() === player.name)!;
+    button.click();
+    fixture.detectChanges();
+    expect(element().querySelector('[role="dialog"]')).not.toBeNull();
+    const iframe = element().querySelector<HTMLIFrameElement>('app-member-profile-frame iframe')!;
+    expect(iframe.getAttribute('src')).toBe(`/member-profile/${memberId}?embedded=true`);
+    expect(iframe.title).toBe(`${player.name} member profile`);
+    expect(element().querySelector('#roster-title')).not.toBeNull();
+    expect(element().querySelector('.protest-section')).toBeNull();
+    element().querySelector<HTMLButtonElement>('[aria-label="Close member profile"]')!.click();
+    fixture.detectChanges();
+    expect(element().querySelector('app-member-profile-frame')).toBeNull();
+    expect(element().querySelectorAll('.team-card')).toHaveLength(2);
   });
 
   it('shows roster administration controls and replaces a player', async () => {
@@ -138,7 +159,7 @@ describe('TournamentRosterPageComponent', () => {
     await render();
     const rival = [...element().querySelectorAll('.team-card li')].find((item) => item.textContent!.includes('Rival'))!;
     expect(rival.textContent).toContain('Protest open');
-    expect(rival.querySelector('button')).toBeNull();
+    expect(rival.querySelector('.quiet-button')).toBeNull();
   });
 
   it('requires a category, a detailed reason, and evidence before submitting', async () => {

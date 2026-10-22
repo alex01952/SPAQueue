@@ -4,6 +4,7 @@ import { Component, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { getApiBaseUrl } from '../api-base-url';
+import { MemberProfileFrameComponent } from '../member-profile/member-profile-frame.component';
 import {
   tournamentProtestCategories,
   type TournamentProtest,
@@ -29,7 +30,7 @@ export const MAX_PROTEST_REASON_LENGTH = 2000;
 
 @Component({
   selector: 'app-tournament-roster-page',
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink, MemberProfileFrameComponent],
   templateUrl: './tournament-roster-page.component.html',
   styleUrl: './tournament-roster-page.component.scss',
 })
@@ -50,6 +51,7 @@ export class TournamentRosterPageComponent implements OnInit {
   protected readonly errorMessage = signal('');
   protected readonly feedbackMessage = signal('');
   protected readonly protestTarget = signal<TournamentRosterPlayer | null>(null);
+  protected readonly profilePlayer = signal<TournamentRosterPlayer | null>(null);
   protected readonly evidenceFiles = signal<File[]>([]);
   protected readonly evidenceError = signal('');
   protected readonly replacementTarget = signal<{
@@ -69,6 +71,14 @@ export class TournamentRosterPageComponent implements OnInit {
   ngOnInit() {
     this.tournamentId = this.route.snapshot.paramMap.get('tournamentId') ?? '';
     this.loadData();
+  }
+
+  protected showProfile(player: TournamentRosterPlayer) {
+    this.profilePlayer.set(player);
+  }
+
+  protected closeProfile() {
+    this.profilePlayer.set(null);
   }
 
   protected beginProtest(player: TournamentRosterPlayer) {

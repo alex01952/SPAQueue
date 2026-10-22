@@ -34,7 +34,7 @@
             <ul>
               @for (player of team.players; track player.memberId) {
                 <li>
-                  <span class="player-copy"><span>{{ player.name }}</span>@if (player.gender) { <small>{{ player.gender }}</small> }</span>
+                  <span class="player-copy"><button type="button" class="profile-link" (click)="showProfile(player)" [attr.aria-label]="'View ' + player.name + ' profile'">{{ player.name }}</button>@if (player.gender) { <small>{{ player.gender }}</small> }</span>
                   @if (canProtest(team)) {
                     @if (hasOpenProtest(player.memberId)) {
                       <span class="pill">Protest open</span>
@@ -143,5 +143,12 @@
         }
       </section>
     }
+  }
+  @if (profilePlayer(); as player) {
+    <app-member-profile-frame
+      [memberId]="player.memberId"
+      [memberName]="player.name"
+      (closed)="closeProfile()"
+    />
   }
 </main>
