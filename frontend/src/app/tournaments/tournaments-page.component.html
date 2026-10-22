@@ -159,6 +159,7 @@
             <span class="status-pill" [attr.data-status]="registration.status">{{ memberRegistrationStatus(registration) }}</span>
             @if (canViewRoster(registration)) {
               <a class="action-button roster-link" [routerLink]="['/tournaments', registration.tournamentId, 'roster']">View roster &amp; protests</a>
+              <a class="action-button roster-link" [routerLink]="['/tournaments', registration.tournamentId, 'live-draw']">Watch live pool draw</a>
             }
             @if (isIncomingInvitation(registration)) {
               @if (isRegistrationClosed(registration.tournamentId)) {

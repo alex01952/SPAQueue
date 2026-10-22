@@ -80,6 +80,7 @@ describe('Tournament archive and deletion', () => {
       `tournament-terms/${id}/terms.pdf`, `tournament-payment-proofs/${id}/team-1/proof.pdf`,
       `tournament-payment-proofs/${id}/deleted-team/old.pdf`, `tournament-protest-evidence/${id}/protest-1/evidence.pdf`,
       `tournament-draws/${id}/old.json`, 'tournament-draws/other-event/keep.json',
+      `tournament-live-draws/${id}/event.json`, 'tournament-live-draws/other-event/keep.json',
     ]);
     deleteBlob = jest.fn(async (name: string) => { blobs.delete(name); return { succeeded: true }; });
     jest.spyOn(service as any, 'getTournamentDocumentContainerClient').mockReturnValue({
@@ -189,14 +190,14 @@ describe('Tournament archive and deletion', () => {
   it('permanently deletes active data, orphaned/old files, and no other tournament files', async () => {
     await expect(service.deleteTournament('session', id)).resolves.toEqual({ deleted: true });
     expect(active.rows.size + registrations.rows.size + protests.rows.size + archive.rows.size).toBe(0);
-    expect(blobs).toEqual(new Set(['tournament-draws/other-event/keep.json']));
+    expect(blobs).toEqual(new Set(['tournament-draws/other-event/keep.json', 'tournament-live-draws/other-event/keep.json']));
   });
 
   it('permanently deletes an archived tournament and its retained files', async () => {
     await service.archiveTournament('session', id);
     await expect(service.deleteTournament('session', id, true)).resolves.toEqual({ deleted: true });
     expect(archive.rows.size).toBe(0);
-    expect(blobs).toEqual(new Set(['tournament-draws/other-event/keep.json']));
+    expect(blobs).toEqual(new Set(['tournament-draws/other-event/keep.json', 'tournament-live-draws/other-event/keep.json']));
   });
 
   it('keeps a retryable parent when blob deletion fails instead of reporting success', async () => {

@@ -29,6 +29,7 @@ import { TournamentRosterPageComponent } from './tournaments/tournament-roster-p
 import { TournamentProtestsPageComponent } from './tournaments/tournament-protests-page.component';
 import { TournamentPlanningPageComponent } from './tournaments/tournament-planning-page.component';
 import { TournamentArchivePageComponent } from './tournaments/tournament-archive-page.component';
+import { TournamentLiveDrawPageComponent } from './tournaments/tournament-live-draw-page.component';
 
 export const routes: Routes = [
   {
@@ -208,6 +209,12 @@ export const routes: Routes = [
     component: TournamentRosterPageComponent,
     canActivate: [memberAuthGuard],
     title: 'Tournament Roster',
+  },
+  {
+    path: 'tournaments/:tournamentId/live-draw',
+    component: TournamentLiveDrawPageComponent,
+    canActivate: [memberAuthGuard],
+    title: 'Live Tournament Pool Draw',
   },
   {
     path: 'tournaments/:tournamentId/planning',

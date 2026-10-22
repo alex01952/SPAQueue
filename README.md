@@ -60,6 +60,26 @@ Both steps save immediately and are shared across administrator sessions. Re-ran
 
 The admin-only endpoints are `GET /admin/tournaments/:tournamentId/planning`, `POST /admin/tournaments/:tournamentId/planning/pools` (`poolCount`, `version`), and `POST /admin/tournaments/:tournamentId/planning/schedule` (`courtCount`, `version`). Draw JSON uses the existing private tournament-document blob storage under `tournament-draws/`; the existing tournaments table stores its blob reference (`DrawBlobName`). No new table or credentials are required.
 
+## Live tournament pool draws
+
+From tournament management or the pool planner, use **Schedule / view live pool draw** (`/tournaments/:tournamentId/live-draw`). Administrators must close registration, confirm the finalized roster, choose the pool count (at least two teams per pool), and schedule a time at least one minute ahead. Scheduling clears any saved pools and match schedule. Confirmed participants can join from their tournament registration or roster; login is required. Partners stay together.
+
+The shared server-authoritative timeline is:
+
+1. Countdown to the scheduled start.
+2. A 10-second animated draw, then the same initial pools appear for everyone.
+3. A fixed **60-second voting window**, with totals hidden. Each eligible player can cast one irreversible vote to reroll. Not voting keeps the first draw.
+4. A **10-second vote-results reveal** showing totals and whether a reroll was approved, before any next action.
+5. A strict majority triggers **at most one** 10-second reroll animation; otherwise the original pools become final. The result panel remains visible. Final pools save into the normal planner, where administrators choose courts and generate matches. Manual pool randomization is blocked while a valid live event controls the pools.
+
+Eligibility is fixed at the start: a confirmed player must have sent a presence heartbeat in the preceding 15 seconds. Leave the page open before the countdown ends; late arrivals may watch but cannot vote. Each member counts once across tabs/devices. The majority denominator stays fixed even if players disconnect; a tie or no attendees keeps the initial draw. Reconnecting restores the persisted state and any recorded vote. Roster changes or reopening registration invalidate the live event and require rescheduling.
+
+This first version uses authenticated polling every 3–4 seconds with extra refreshes at phase boundaries and a server-clock-adjusted countdown, not WebSockets or frame-perfect synchronization. Network delays and throttled background tabs can delay visual transitions; the server alone enforces deadlines. Stages advance on requests using absolute UTC timestamps, so API restarts or an empty page do not reset the event. There is no background job: when nobody is watching, the next request catches up and publishes final pools. Randomization is server-side, not a publicly verifiable draw.
+
+The admin scheduling form appears once the first live-draw request loads, even before an event is scheduled. Requests allow up to 30 seconds for storage-backed responses. Connection errors distinguish timeouts, unreachable APIs and HTTP failures; a failed refresh retains the form but disables scheduling/voting until reconnection. If a submission times out, reconnect to confirm whether it was saved before trying again.
+
+Endpoints: `GET /tournaments/:id/live-draw`, `POST /tournaments/:id/live-draw/presence`, `POST /tournaments/:id/live-draw/vote` (`eventId`), and admin-only `POST /admin/tournaments/:id/live-draw` (`scheduledAt`, `poolCount`, `rosterFinalized: true`, `expectedEventId`, initially `null`). Private blobs under `tournament-live-draws/:tournamentId/` store the event, attendance, votes and draws. The tournaments row stores `LiveDrawBlobName` and `LiveDrawPublishedVersion`. Blob ETags protect simultaneous votes; table ETags protect event replacement and final publication. No new dependencies, tables or credentials are required; the existing storage identity needs blob read/write permissions. Archive retains these blobs and final pools; permanent deletion cleans up all live-event versions as well.
+
 ## Tournament archive and permanent deletion
 
 Administrators can **Archive** or **Delete permanently** from tournament management. Both actions require confirmation and block repeat clicks while processing; neither issues refunds.

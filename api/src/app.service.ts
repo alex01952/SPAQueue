@@ -39,6 +39,12 @@ import {
 } from './tournament-scheduling';
 import type { TournamentDraw } from './tournament-scheduling';
 import {
+  advanceLiveDraw,
+  liveDrawPhase,
+  toLiveDrawView,
+} from './tournament-live-draw';
+import type { LiveDrawEvent, LiveDrawView } from './tournament-live-draw';
+import {
   isPlayerInOngoingGame,
   queueSelectionStrategies,
 } from './queue-selection';
@@ -358,6 +364,13 @@ export interface TournamentPlanningState {
   draw: TournamentDraw | null;
   version: string | null;
   rosterChanged: boolean;
+}
+
+export interface TournamentLiveDrawState {
+  serverNow: string;
+  canManage: boolean;
+  roster: TournamentRoster;
+  event: LiveDrawView | null;
 }
 
 export const TOURNAMENT_PROTEST_CATEGORIES = [
@@ -1660,7 +1673,7 @@ export class AppService {
     try {
       // Prefix enumeration also removes old proofs, superseded draws and orphaned uploads.
       const container = this.getTournamentDocumentContainerClient();
-      for (const prefix of ['tournament-terms', 'tournament-payment-proofs', 'tournament-protest-evidence', 'tournament-draws']) {
+      for (const prefix of ['tournament-terms', 'tournament-payment-proofs', 'tournament-protest-evidence', 'tournament-draws', 'tournament-live-draws']) {
         const deletedNames = new Set<string>();
         for await (const blob of container.listBlobsFlat({ prefix: `${prefix}/${tournamentId}/`, includeVersions: true })) {
           const client = container.getBlockBlobClient(blob.name);
@@ -2445,17 +2458,24 @@ export class AppService {
   async getTournamentRoster(sessionToken: string, tournamentId: string): Promise<TournamentRoster> {
     const session = await this.getMemberSession(sessionToken);
     const tournament = await this.getTournament(tournamentId);
+    return this.getTournamentRosterForMember(tournament, session.member);
+  }
+
+  private async getTournamentRosterForMember(
+    tournament: Tournament,
+    member: MemberSessionResult['member'],
+  ): Promise<TournamentRoster> {
     const { teams, ownRegistration } = await this.loadConfirmedTournamentRoster(
       tournament,
-      session.member.memberId,
-      session.member.role === 'admin',
+      member.memberId,
+      member.role === 'admin',
     );
     return {
-      tournamentId,
+      tournamentId: tournament.tournamentId,
       tournamentName: tournament.name,
       category: tournament.category,
       level: tournament.level,
-      canManageRoster: session.member.role === 'admin',
+      canManageRoster: member.role === 'admin',
       teams: teams.map((team) => ({ ...team, isOwnTeam: team.registrationId === ownRegistration?.registrationId })),
     };
   }
@@ -2478,6 +2498,181 @@ export class AppService {
     };
   }
 
+  async scheduleTournamentLiveDraw(
+    sessionToken: string, tournamentId: string, input: {
+      scheduledAt?: unknown; poolCount?: unknown; rosterFinalized?: unknown; expectedEventId?: unknown;
+    },
+  ): Promise<TournamentLiveDrawState> {
+    const session = await this.requireAdminSession(sessionToken);
+    const tournament = await this.getTournament(tournamentId);
+    if (!tournament.registrationClosed) throw new ConflictException('Close registration before scheduling a live draw.');
+    const roster = await this.getTournamentRosterForMember(tournament, session.member);
+    const entity = await this.getTournamentPlanningEntity(tournamentId);
+    const previous = await this.readTournamentLiveDraw(tournamentId, entity);
+    if (input.expectedEventId !== (previous?.event.eventId ?? null)) {
+      throw new ConflictException('The live event changed. Reload before scheduling.');
+    }
+    if (previous && previous.event.rosterSignature === this.tournamentRosterSignature(roster) &&
+        !['scheduled', 'invalidated', 'final'].includes(liveDrawPhase(previous.event, Date.now()))) {
+      throw new ConflictException('A live draw is in progress. Wait until it finishes.');
+    }
+    const scheduledAt = typeof input.scheduledAt === 'string' ? Date.parse(input.scheduledAt) : NaN;
+    if (!Number.isFinite(scheduledAt) || scheduledAt < Date.now() + 60_000) {
+      throw new BadRequestException('Schedule the draw at least one minute in the future.');
+    }
+    if (input.rosterFinalized !== true) throw new BadRequestException('Confirm that the tournament roster is finalized.');
+    if (typeof input.poolCount !== 'number' || !Number.isSafeInteger(input.poolCount) ||
+        input.poolCount < 1 || input.poolCount > Math.floor(roster.teams.length / 2)) {
+      throw new BadRequestException('Choose a valid pool count with at least two confirmed teams per pool.');
+    }
+    const event: LiveDrawEvent = {
+      eventId: randomUUID(), scheduledAt, poolCount: input.poolCount,
+      rosterSignature: this.tournamentRosterSignature(roster),
+      roster: { ...roster, teams: roster.teams.map((team) => ({ ...team, isOwnTeam: false })) },
+      createdBy: session.member.memberId, presence: {}, eligibleMemberIds: null,
+      rerollVoterIds: [], initialDraw: null, rerollDraw: null, invalidated: false,
+    };
+    const blobName = `tournament-live-draws/${tournamentId}/${event.eventId}.json`;
+    try {
+      await this.writeTournamentLiveDraw(blobName, event);
+      await this.getTournamentsTableClient().updateEntity({
+        partitionKey: 'tournaments', rowKey: tournamentId, LiveDrawBlobName: blobName,
+        LiveDrawPublishedVersion: '', DrawBlobName: '',
+      }, 'Merge', { etag: entity.etag });
+    } catch (error) {
+      if (this.isTournamentRegistrationVersionConflict(error)) throw new ConflictException('The tournament changed. Reload before scheduling.');
+      throw this.liveDrawStorageException(error);
+    }
+    return {
+      serverNow: new Date().toISOString(), canManage: true, roster,
+      event: toLiveDrawView(event, session.member.memberId, Date.now()),
+    };
+  }
+
+  async getTournamentLiveDraw(
+    sessionToken: string, tournamentId: string,
+    action: 'read' | 'presence' | 'vote' = 'read', eventId?: unknown,
+  ): Promise<TournamentLiveDrawState> {
+    const session = await this.getMemberSession(sessionToken);
+    const tournament = await this.getTournament(tournamentId);
+    const roster = await this.getTournamentRosterForMember(tournament, session.member);
+    const isParticipant = roster.teams.some((team) =>
+      team.players.some((player) => player.memberId === session.member.memberId),
+    );
+    if (!isParticipant && session.member.role !== 'admin') throw new ForbiddenException('Only confirmed participants and administrators can view the live draw.');
+    const signature = this.tournamentRosterSignature(roster);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const entity = await this.getTournamentPlanningEntity(tournamentId);
+      if (entity.LifecycleState) throw new ConflictException('This tournament is being archived or deleted.');
+      const stored = await this.readTournamentLiveDraw(tournamentId, entity);
+      const now = Date.now();
+      if (!stored) {
+        if (action === 'vote') throw new ConflictException('No live draw has been scheduled.');
+        return { serverNow: new Date(now).toISOString(), canManage: session.member.role === 'admin', roster, event: null };
+      }
+      const event = stored.event;
+      const before = JSON.stringify(event);
+      if (!tournament.registrationClosed || signature !== event.rosterSignature) event.invalidated = true;
+      advanceLiveDraw(event, now);
+      if (action === 'presence' && isParticipant && liveDrawPhase(event, now) === 'scheduled') {
+        event.presence[session.member.memberId] = now;
+        // Keep the persisted attendance map bounded to recent participants.
+        for (const [id, seenAt] of Object.entries(event.presence)) {
+          if (seenAt < now - 15_000) delete event.presence[id];
+        }
+      }
+      if (action === 'vote') {
+        if (eventId !== event.eventId) throw new ConflictException('The live event changed. Reload before voting.');
+        if (liveDrawPhase(event, now) !== 'voting') throw new ConflictException('The voting window is not open.');
+        if (!event.eligibleMemberIds?.includes(session.member.memberId)) {
+          throw new ForbiddenException('Only players present when the draw started may vote.');
+        }
+        // An identical retry acknowledges the original vote instead of consuming another vote.
+        if (!event.rerollVoterIds.includes(session.member.memberId)) event.rerollVoterIds.push(session.member.memberId);
+      }
+      if (before !== JSON.stringify(event)) {
+        try {
+          await this.writeTournamentLiveDraw(stored.blobName, event, stored.etag);
+        } catch (error) {
+          if (this.isTournamentRegistrationVersionConflict(error)) {
+            await new Promise((resolve) => setTimeout(resolve, 20 + Math.random() * 60));
+            continue;
+          }
+          throw this.liveDrawStorageException(error);
+        }
+      }
+      const currentEntity = await this.getTournamentPlanningEntity(tournamentId);
+      if (currentEntity.LifecycleState || currentEntity.LiveDrawBlobName !== stored.blobName) {
+        throw new ConflictException('The tournament or live event changed. Reload the page.');
+      }
+      if (liveDrawPhase(event, now) === 'final') await this.publishTournamentLiveDraw(tournamentId, stored.blobName, event);
+      return {
+        serverNow: new Date(now).toISOString(), canManage: session.member.role === 'admin', roster,
+        event: toLiveDrawView(event, session.member.memberId, now),
+      };
+    }
+    throw new ConflictException('The live event is busy. Please retry; your vote is not confirmed until acknowledged.');
+  }
+
+  private async readTournamentLiveDraw(tournamentId: string, entity: Record<string, unknown>) {
+    const blobName = String(entity.LiveDrawBlobName ?? '');
+    if (!blobName) return null;
+    if (!new RegExp(`^tournament-live-draws/${tournamentId}/[a-f0-9-]{36}\\.json$`).test(blobName)) {
+      throw new BadGatewayException('Stored live draw location is invalid.');
+    }
+    try {
+      const response = await this.getTournamentDocumentBlobClient(blobName).download();
+      if (!response.readableStreamBody || !response.etag) throw new Error('Live draw storage response is incomplete.');
+      const chunks: Buffer[] = [];
+      for await (const chunk of response.readableStreamBody) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      const event: LiveDrawEvent = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (!event.eventId || !Number.isFinite(event.scheduledAt) || !Number.isInteger(event.poolCount) ||
+          !event.rosterSignature || !Array.isArray(event.roster?.teams) || !event.presence ||
+          typeof event.presence !== 'object' || Array.isArray(event.presence) ||
+          !Object.values(event.presence).every((value) => typeof value === 'number' && Number.isFinite(value)) ||
+          !(event.eligibleMemberIds === null || Array.isArray(event.eligibleMemberIds)) ||
+          !Array.isArray(event.rerollVoterIds) || typeof event.invalidated !== 'boolean') {
+        throw new Error('Stored live draw is invalid.');
+      }
+      return { event, etag: response.etag, blobName };
+    } catch (error) {
+      throw this.liveDrawStorageException(error);
+    }
+  }
+
+  private async writeTournamentLiveDraw(blobName: string, event: LiveDrawEvent, etag?: string) {
+    const body = Buffer.from(JSON.stringify(event));
+    await this.getTournamentDocumentBlobClient(blobName).upload(body, body.length, {
+      blobHTTPHeaders: { blobContentType: 'application/json' },
+      conditions: etag ? { ifMatch: etag } : { ifNoneMatch: '*' },
+    });
+  }
+
+  private async publishTournamentLiveDraw(tournamentId: string, eventBlobName: string, event: LiveDrawEvent) {
+    const draw = event.rerollDraw ?? event.initialDraw;
+    if (!draw) throw new BadGatewayException('The final live draw is missing.');
+    const entity = await this.getTournamentPlanningEntity(tournamentId);
+    if (entity.LifecycleState || entity.LiveDrawBlobName !== eventBlobName) {
+      throw new ConflictException('The tournament or live event changed. Reload the page.');
+    }
+    if (entity.LiveDrawPublishedVersion === draw.version) return;
+    const blobName = `tournament-draws/${tournamentId}/${draw.version}.json`;
+    try {
+      await this.uploadParticipationBlob(this.getTournamentDocumentBlobClient(blobName), Buffer.from(JSON.stringify(draw)), 'application/json');
+      await this.getTournamentsTableClient().updateEntity({
+        partitionKey: 'tournaments', rowKey: tournamentId, DrawBlobName: blobName, LiveDrawPublishedVersion: draw.version,
+      }, 'Merge', { etag: entity.etag });
+    } catch (error) {
+      if (this.isTournamentRegistrationVersionConflict(error)) throw new ConflictException('The final draw is being saved. Reload to confirm.');
+      throw this.liveDrawStorageException(error);
+    }
+  }
+
+  private liveDrawStorageException(error: unknown) {
+    this.logger.error('Tournament live draw storage operation failed.', error);
+    return new BadGatewayException('Unable to load or save the live draw. Please reconnect and retry.');
+  }
+
   async updateTournamentPlanning(
     sessionToken: string,
     tournamentId: string,
@@ -2490,6 +2685,17 @@ export class AppService {
       throw new BadRequestException('Enter a positive whole number for pools or courts.');
     }
     const entity = await this.getTournamentPlanningEntity(tournamentId);
+    const live = await this.readTournamentLiveDraw(tournamentId, entity);
+    if (live && !live.event.invalidated) {
+      const phase = liveDrawPhase(live.event, Date.now());
+      if (action === 'pools' || phase !== 'final') {
+        throw new ConflictException('Pools are controlled by the live draw. Finish the event, or reschedule it from the live draw page.');
+      }
+      const finalDraw = live.event.rerollDraw ?? live.event.initialDraw;
+      if (!finalDraw || entity.LiveDrawPublishedVersion !== finalDraw.version) {
+        throw new ConflictException('Open the live draw page to finish saving the final pools before scheduling matches.');
+      }
+    }
     const existing = await this.readTournamentDraw(tournamentId, entity);
     if (expectedVersion !== (existing?.version ?? null)) {
       throw new ConflictException('The saved draw changed. Reload before making changes.');

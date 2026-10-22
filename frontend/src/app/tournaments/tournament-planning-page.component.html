@@ -5,6 +5,7 @@
     <p>Keep the registered teams together. Randomize their pools, then generate a round-robin schedule.</p>
     <nav>
       <a [routerLink]="['/tournaments', tournamentId, 'roster']">Back to roster</a>
+      <a [routerLink]="['/tournaments', tournamentId, 'live-draw']">Schedule / view live pool draw</a>
       <button type="button" class="quiet-button" [disabled]="!!saving() || isLoading()" (click)="load()">Reload saved draw</button>
     </nav>
   </header>

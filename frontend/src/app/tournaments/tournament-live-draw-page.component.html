@@ -1,0 +1,104 @@
+<main class="live-shell">
+  <header>
+    <p class="eyebrow">Live pool draw</p>
+    <h1>{{ state()?.roster?.tournamentName ?? 'Tournament live draw' }}</h1>
+    <nav>
+      <a [routerLink]="['/tournaments', tournamentId, 'roster']">Tournament roster</a>
+      @if (state()?.canManage) { <a [routerLink]="['/tournaments', tournamentId, 'planning']">Pools &amp; match schedule</a> }
+    </nav>
+  </header>
+  @if (error()) { <p class="notice error" role="alert">{{ error() }}</p> }
+  @if (feedback()) { <p class="notice success" role="status">{{ feedback() }}</p> }
+  <p class="connection" role="status">{{ connected() ? 'Connected · synchronized with server' : 'Not connected · displayed information may be out of date' }}</p>
+  <button type="button" class="quiet" [disabled]="busy() || refreshing()" (click)="refresh()">Reconnect / refresh</button>
+  @if (busy()) { <p role="status">Saving. Please wait...</p> }
+
+  @if (state(); as current) {
+    @if (current.event; as event) {
+      <section class="stage" [attr.data-phase]="event.phase" aria-labelledby="stage-title">
+        <p>Scheduled {{ event.scheduledAt | date: 'medium' }} (your local time) · {{ event.poolCount }} pools</p>
+        @switch (event.phase) {
+          @case ('scheduled') {
+            <h2 id="stage-title">The live draw starts in</h2>
+            <p class="countdown">{{ countdown() }}</p>
+            <p>{{ event.attendeeCount }} players currently present. Stay on this page until the draw starts to qualify for one reroll vote.</p>
+          }
+          @case ('revealing') {
+            <h2 id="stage-title">Drawing the pools...</h2>
+            <div class="draw-animation" aria-hidden="true"><span>Pool</span><span>Team</span><span>Draw</span></div>
+            <p class="countdown">{{ countdown() }}</p>
+            <p>Everyone receives the same server-generated draw. The pools will appear together.</p>
+          }
+          @case ('voting') {
+            <h2 id="stage-title">First draw revealed · reroll voting is open</h2>
+            <p class="countdown">{{ countdown() }}</p>
+            <p>{{ event.eligibleCount }} eligible players; {{ event.majorityRequired }} reroll votes required. Votes stay hidden until the full 60 seconds ends.</p>
+            <button class="action" type="button" [disabled]="busy() || refreshing() || !connected() || !event.canVote || remaining() === 0" (click)="vote()">
+              {{ event.hasVoted ? 'Reroll vote recorded' : 'Use my one vote to reroll' }}
+            </button>
+            @if (!event.canVote && !event.hasVoted) { <p>You did not join before the draw started. You may watch, but cannot vote.</p> }
+            <p>Not voting keeps the first draw. The majority is based on the fixed attendance list, even if someone disconnects.</p>
+          }
+          @case ('results') {
+            <h2 id="stage-title">Voting closed · revealing the decision</h2>
+            <p class="countdown">{{ countdown() }}</p>
+            <p>The decision is shown below for 10 seconds before the next action.</p>
+          }
+          @case ('rerolling') {
+            <h2 id="stage-title">Majority approved · the single reroll is underway</h2>
+            <div class="draw-animation" aria-hidden="true"><span>Pool</span><span>Team</span><span>Reroll</span></div>
+            <p class="countdown">{{ countdown() }}</p>
+            <p>The next pools are final. There is no second voting round.</p>
+          }
+          @case ('final') {
+            <h2 id="stage-title">Final pools saved</h2>
+            <p>This result is shared with all participants and is ready for match scheduling.</p>
+          }
+          @case ('invalidated') {
+            <h2 id="stage-title">Live draw invalidated</h2>
+            <p>The roster changed or registration reopened. An administrator must close registration, finalize the updated roster and reschedule the draw.</p>
+          }
+        }
+      </section>
+      @if (event.voteResult; as result) {
+        <section class="decision" aria-labelledby="decision-title" aria-live="polite">
+          <h2 id="decision-title">Vote results: {{ result.reroll ? 'Reroll approved' : 'No reroll — keep the first draw' }}</h2>
+          <p><strong>{{ result.rerollVotes }}</strong> voted to reroll · {{ result.didNotVote }} did not vote</p>
+          <p>{{ event.majorityRequired }} votes required out of {{ event.eligibleCount }} eligible players.</p>
+          @if (event.phase === 'results') {
+            <p>{{ result.reroll ? 'The reroll will begin' : 'The first draw will become final' }} when the decision countdown ends.</p>
+          }
+        </section>
+      }
+      @if (event.pools; as pools) {
+        <section class="pools" aria-label="Pool assignments">
+          @for (pool of pools; track pool.number) {
+            <article><h2>Pool {{ pool.number }}</h2><ul>
+              @for (id of pool.registrationIds; track id) { <li>{{ teamLabel(id) }}</li> }
+            </ul></article>
+          }
+        </section>
+      }
+    } @else { <p>No live pool draw has been scheduled yet.</p> }
+
+    @if (canSchedule()) {
+      <section class="admin-panel">
+        <h2>{{ current.event ? 'Schedule a new live draw' : 'Schedule the live draw' }}</h2>
+        <p>Close registration and check the roster first. Scheduling replaces any saved pools and match schedule, and resets attendance for the new event.</p>
+        <form (ngSubmit)="schedule()">
+          <label>Start date and time (your local time)
+            <input name="scheduledAt" type="datetime-local" [(ngModel)]="scheduledAt" [disabled]="busy()" required />
+          </label>
+          <label>Number of pools
+            <input name="poolCount" type="number" min="1" [max]="current.roster.teams.length / 2" step="1" [(ngModel)]="poolCount" [disabled]="busy()" required />
+          </label>
+          <label class="confirmation">
+            <input name="rosterFinalized" type="checkbox" [(ngModel)]="rosterFinalized" [disabled]="busy()" />
+            I confirm the {{ current.roster.teams.length }} participating teams are finalized.
+          </label>
+          <button type="submit" class="action" [disabled]="busy() || refreshing() || !connected() || !rosterFinalized">Schedule live draw</button>
+        </form>
+      </section>
+    }
+  } @else if (!error()) { <p role="status">Connecting to the live draw...</p> }
+</main>

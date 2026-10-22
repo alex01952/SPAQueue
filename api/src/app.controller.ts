@@ -59,6 +59,7 @@ import type {
   TournamentRoster,
   TournamentRosterPlayer,
   TournamentPlanningState,
+  TournamentLiveDrawState,
   ArchivedTournament,
   TournamentArchiveDetails,
   TournamentProtest,
@@ -487,6 +488,52 @@ export class AppController {
       registrationId,
       memberId,
       search,
+    );
+  }
+
+  @Get('tournaments/:tournamentId/live-draw')
+  @Header('Cache-Control', 'private, no-store')
+  getTournamentLiveDraw(
+    @Param('tournamentId') tournamentId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentLiveDrawState> {
+    return this.appService.getTournamentLiveDraw(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId,
+    );
+  }
+
+  @Post('tournaments/:tournamentId/live-draw/presence')
+  @Header('Cache-Control', 'private, no-store')
+  attendTournamentLiveDraw(
+    @Param('tournamentId') tournamentId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentLiveDrawState> {
+    return this.appService.getTournamentLiveDraw(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, 'presence',
+    );
+  }
+
+  @Post('tournaments/:tournamentId/live-draw/vote')
+  @Header('Cache-Control', 'private, no-store')
+  voteTournamentLiveDraw(
+    @Param('tournamentId') tournamentId: string,
+    @Body('eventId') eventId: unknown,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentLiveDrawState> {
+    return this.appService.getTournamentLiveDraw(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, 'vote', eventId,
+    );
+  }
+
+  @Post('admin/tournaments/:tournamentId/live-draw')
+  @Header('Cache-Control', 'private, no-store')
+  scheduleTournamentLiveDraw(
+    @Param('tournamentId') tournamentId: string,
+    @Body() body: { scheduledAt?: unknown; poolCount?: unknown; rosterFinalized?: unknown; expectedEventId?: unknown },
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentLiveDrawState> {
+    return this.appService.scheduleTournamentLiveDraw(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, body,
     );
   }
 

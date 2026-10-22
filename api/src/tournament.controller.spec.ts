@@ -22,6 +22,8 @@ describe('Tournament payment HTTP endpoints', () => {
     replaceTournamentRosterPlayer: jest.fn(),
     getTournamentPlanning: jest.fn(),
     updateTournamentPlanning: jest.fn(),
+    getTournamentLiveDraw: jest.fn(),
+    scheduleTournamentLiveDraw: jest.fn(),
     createTournamentProtest: jest.fn(),
     getMyTournamentProtests: jest.fn(),
     getTournamentProtestsForAdmin: jest.fn(),
@@ -46,6 +48,25 @@ describe('Tournament payment HTTP endpoints', () => {
   });
 
   afterEach(async () => { await app.close(); });
+
+  it('forwards authenticated live draw reads, presence, votes and scheduling without caching', async () => {
+    const state = { serverNow: '2026-10-23T10:00:00Z', event: { phase: 'scheduled' } };
+    service.getTournamentLiveDraw.mockResolvedValue(state);
+    service.scheduleTournamentLiveDraw.mockResolvedValue(state);
+    await request(app.getHttpServer()).get('/tournaments/event-1/live-draw').set('Cookie', cookie)
+      .expect('Cache-Control', 'private, no-store').expect(200, state);
+    expect(service.getTournamentLiveDraw).toHaveBeenLastCalledWith('member-session', 'event-1');
+    await request(app.getHttpServer()).post('/tournaments/event-1/live-draw/presence').set('Cookie', cookie)
+      .expect('Cache-Control', 'private, no-store').expect(201, state);
+    expect(service.getTournamentLiveDraw).toHaveBeenLastCalledWith('member-session', 'event-1', 'presence');
+    await request(app.getHttpServer()).post('/tournaments/event-1/live-draw/vote').set('Cookie', cookie)
+      .send({ eventId: 'draw-1' }).expect('Cache-Control', 'private, no-store').expect(201, state);
+    expect(service.getTournamentLiveDraw).toHaveBeenLastCalledWith('member-session', 'event-1', 'vote', 'draw-1');
+    const input = { scheduledAt: '2026-10-23T11:00:00Z', poolCount: 2, rosterFinalized: true, expectedEventId: null };
+    await request(app.getHttpServer()).post('/admin/tournaments/event-1/live-draw').set('Cookie', cookie)
+      .send(input).expect('Cache-Control', 'private, no-store').expect(201, state);
+    expect(service.scheduleTournamentLiveDraw).toHaveBeenCalledWith('member-session', 'event-1', input);
+  });
 
   it('routes archive, active/archived deletion and read-only archive requests with the admin session', async () => {
     service.archiveTournament.mockResolvedValue({ archived: true });

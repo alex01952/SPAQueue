@@ -6,6 +6,9 @@
       <p>{{ current.category }} · {{ current.level }} · {{ current.teams.length }} confirmed {{ current.teams.length === 1 ? 'team' : 'teams' }}</p>
     }
     <a class="back-link" routerLink="/tournaments">Back to tournaments</a>
+    @if (roster(); as current) {
+      <a class="back-link" [routerLink]="['/tournaments', current.tournamentId, 'live-draw']">View live pool draw</a>
+    }
     @if (roster()?.canManageRoster) {
       <a class="back-link" [routerLink]="['/tournaments', roster()?.tournamentId, 'planning']">Plan pools &amp; schedule</a>
     }

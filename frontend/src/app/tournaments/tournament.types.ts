@@ -138,6 +138,28 @@ export interface TournamentPlanningState {
   rosterChanged: boolean;
 }
 
+export type LiveDrawPhase = 'scheduled' | 'revealing' | 'voting' | 'results' | 'rerolling' | 'final' | 'invalidated';
+
+export interface TournamentLiveDrawState {
+  serverNow: string;
+  canManage: boolean;
+  roster: TournamentRoster;
+  event: {
+    eventId: string;
+    scheduledAt: string;
+    phase: LiveDrawPhase;
+    phaseEndsAt: string | null;
+    poolCount: number;
+    attendeeCount: number;
+    eligibleCount: number | null;
+    majorityRequired: number | null;
+    canVote: boolean;
+    hasVoted: boolean;
+    pools: TournamentPool[] | null;
+    voteResult: { rerollVotes: number; didNotVote: number; reroll: boolean } | null;
+  } | null;
+}
+
 export interface TournamentProtestEvidence {
   fileName: string;
   contentType: string;
