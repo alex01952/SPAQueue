@@ -3,7 +3,7 @@ import { inject, Injectable, signal } from '@angular/core';
 import { catchError, map, Observable, of, tap } from 'rxjs';
 import { getApiBaseUrl } from './api-base-url';
 
-export type MemberRole = 'member' | 'club-owner' | 'admin';
+export type MemberRole = 'member' | 'club-owner' | 'balance-staff' | 'admin';
 
 export interface AuthenticatedMember {
   memberId: string;

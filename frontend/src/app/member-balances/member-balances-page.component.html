@@ -31,6 +31,7 @@
               type="button"
               class="member-option"
               [class.selected]="selectedMember()?.memberId === member.memberId"
+              [disabled]="operationPending()"
               (click)="selectMember(member)"
             >
               <strong>{{ member.name }}</strong>
@@ -50,8 +51,29 @@
               <h2 id="balance-title">{{ member.name }}</h2>
               <p>{{ member.memberId }}</p>
             </div>
-            <button type="button" class="quiet-button" (click)="clearSelectedMember()">Change member</button>
+            <button type="button" class="quiet-button" [disabled]="operationPending()" (click)="clearSelectedMember()">Change member</button>
           </div>
+
+          @if (canAssignBalanceRole()) {
+            <section class="staff-access" aria-label="Balance staff access">
+              <p>Balance staff can add, edit, delete and remind balances without access to other admin pages.</p>
+              @if (member.role.toLowerCase() === 'balance-staff') {
+                <button type="button" class="quiet-button" [disabled]="operationPending()" (click)="setBalanceStaff(false)">Remove balance staff access</button>
+              } @else {
+                <button type="button" class="quiet-button" [disabled]="operationPending()" (click)="setBalanceStaff(true)">Grant balance staff access</button>
+              }
+            </section>
+          }
+          <section class="reminder-panel" aria-label="Balance email reminder">
+            <button type="button" [disabled]="operationPending() || isLoadingBalances() || !reminderStatusLoaded() || reminderCoolingDown() || outstandingTotal() <= 0" (click)="remindMember()">
+              {{ isReminding() ? 'Sending reminder...' : 'Remind by email' }}
+            </button>
+            <p>Sends all current unpaid balance records and the total. Limited to once per member every 24 hours across all staff and admins.</p>
+            @if (reminderCoolingDown()) {
+              <p>Next reminder allowed: {{ nextReminderAt() | date: 'medium' }} (your local time).</p>
+            }
+            <button type="button" class="quiet-button" [disabled]="operationPending()" (click)="loadReminderStatus(member.memberId)">Reload reminder status</button>
+          </section>
 
           <form class="balance-form" (ngSubmit)="saveBalance()">
             <label>
@@ -87,11 +109,11 @@
               />
             </label>
             <div class="form-actions">
-              <button type="submit" [disabled]="isSaving()">
+              <button type="submit" [disabled]="operationPending()">
                 {{ isSaving() ? 'Saving...' : editingBalanceId() ? 'Update balance' : 'Add balance' }}
               </button>
               @if (editingBalanceId()) {
-                <button type="button" class="quiet-button" (click)="cancelEdit()">Cancel</button>
+                <button type="button" class="quiet-button" [disabled]="operationPending()" (click)="cancelEdit()">Cancel</button>
               }
             </div>
           </form>
@@ -116,8 +138,8 @@
                 </div>
                 <strong class="amount">{{ balance.amount | number: '1.2-2' }}</strong>
                 <div class="row-actions">
-                  <button type="button" class="quiet-button" (click)="startEdit(balance)">Edit</button>
-                  <button type="button" class="danger-button" (click)="deleteBalance(balance)">Delete</button>
+                  <button type="button" class="quiet-button" [disabled]="operationPending()" (click)="startEdit(balance)">Edit</button>
+                  <button type="button" class="danger-button" [disabled]="operationPending()" (click)="deleteBalance(balance)">Delete</button>
                 </div>
               </article>
             } @empty {

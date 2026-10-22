@@ -19,6 +19,14 @@ This keeps the first version easy to change while preserving an API shape you ca
 - Shows a suggested next game from the ready, non-playing players
 - Tracks recent completed games
 
+## Balance staff and email reminders
+
+The `balance-staff` account role can open **Member balances** (`/member-balances`) and list, add, edit and delete member balances, and send balance reminder emails. It does not grant other administrator pages or APIs; normal member features remain available. Administrators retain all balance permissions. To assign/revoke access, sign in as an admin, open **Member balances**, select the staff member and choose **Grant balance staff access** or **Remove balance staff access**. These controls are only shown for regular member/balance-staff accounts, not admins or club owners. Roles are mutually exclusive, and only admins can change them through `PATCH /members/:memberId/role`.
+
+Select a member and click **Remind by email** to email all current unpaid balance records, dates, types, amounts and the total in PHP. Existing balances have no paid flag: settled records should be removed or adjusted using the existing controls. Credits/negative adjustments are included in the total; reminders require a positive outstanding total. The email uses the member's stored email address and existing Mailgun configuration (`MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `EMAIL_FROM`, optional `MAILGUN_BASE_URL`), and links to **My balances** using the existing public application URL.
+
+Each member can receive at most one reminder trigger in any **24-hour period**, shared across all admins, staff, tabs and API instances. The next allowed time is displayed in the staff member's local time. `GET /members/:memberId/balance-reminder` reads the cooldown; `POST /members/:memberId/balance-reminder` triggers delivery. Both require admin/balance-staff access. Reminder reservations are stored in the existing members table, partition `balance-reminders`, row key equal to the member ID; no new table or credentials are needed. Atomic creation/ETag updates prevent simultaneous triggers. The reservation is saved **before** contacting Mailgun, so a failed or uncertain delivery attempt also consumes the 24-hour window to prevent accidental duplicate emails. Delivery errors are surfaced explicitly and never reported as successful. Reload reminder status after an interrupted request to check its cooldown.
+
 ## Tournament registrations
 
 Roster gender requirements include the member sending the invitations:

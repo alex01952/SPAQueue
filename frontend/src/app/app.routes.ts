@@ -130,7 +130,7 @@ export const routes: Routes = [
     path: 'member-balances',
     component: MemberBalancesPageComponent,
     canActivate: [memberAuthGuard, memberRoleGuard],
-    data: { allowedRoles: ['admin'] },
+    data: { allowedRoles: ['admin', 'balance-staff'] },
     title: 'Member Balances',
   },
   {

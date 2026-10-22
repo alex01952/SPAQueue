@@ -870,6 +870,28 @@ export class AppController {
     );
   }
 
+  @Get('members/:memberId/balance-reminder')
+  @Header('Cache-Control', 'private, no-store')
+  getMemberBalanceReminderStatus(
+    @Param('memberId') memberId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<{ nextAllowedAt: string | null }> {
+    return this.appService.getMemberBalanceReminderStatus(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), memberId,
+    );
+  }
+
+  @Post('members/:memberId/balance-reminder')
+  @Header('Cache-Control', 'private, no-store')
+  remindMemberBalances(
+    @Param('memberId') memberId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<{ sent: true; nextAllowedAt: string }> {
+    return this.appService.remindMemberBalances(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), memberId,
+    );
+  }
+
   @Patch('members/:memberId/balances/:balanceId')
   updateMemberBalance(
     @Param('memberId') memberId: string,

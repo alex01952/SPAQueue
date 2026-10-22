@@ -20,6 +20,8 @@ input, select { width: 100%; min-height: 42px; padding: 9px 11px; color: var(--t
 .balance-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
 .balance-heading p { margin: 8px 0 0; font-size: .8rem; }
 .balance-form { display: grid; grid-template-columns: minmax(0, 1fr) 170px 150px auto; align-items: end; gap: 14px; margin: 26px 0; padding: 18px; background: rgba(217,139,43,.1); border: 1px solid rgba(181,107,62,.2); border-radius: 7px; }
+.staff-access, .reminder-panel { margin-top: 20px; padding: 16px; border: 1px solid rgba(103,70,41,.2); border-radius: 5px; }
+.staff-access p, .reminder-panel p { margin: 10px 0; color: var(--text-secondary); font-size: .85rem; }
 button { min-height: 42px; padding: 9px 14px; color: #fff9f1; font: inherit; font-weight: 700; background: #cb5d33; border: 0; border-radius: 5px; cursor: pointer; }
 button:disabled { cursor: wait; opacity: .55; }
 .quiet-button { color: var(--text-primary); font-size: .82rem; background: transparent; border: 1px solid rgba(103,70,41,.28); }

@@ -145,7 +145,7 @@ interface ReferenceCsvData {
 
 const scrypt = promisify(scryptCallback);
 
-export const MEMBER_ROLES = ['member', 'club-owner', 'admin'] as const;
+export const MEMBER_ROLES = ['member', 'club-owner', 'balance-staff', 'admin'] as const;
 export type MemberRole = (typeof MEMBER_ROLES)[number];
 export const SORSOGON_TOWNS = [
   'Barcelona',
@@ -3778,7 +3778,7 @@ export class AppService {
   }
 
   async getBalanceTypes(sessionToken: string): Promise<string[]> {
-    await this.requireAdminSession(sessionToken);
+    await this.requireBalanceManagerSession(sessionToken);
     const types = new Set<string>();
 
     try {
@@ -3806,7 +3806,7 @@ export class AppService {
     sessionToken: string,
     memberId: string,
   ): Promise<MemberBalance[]> {
-    await this.requireAdminSession(sessionToken);
+    await this.requireBalanceManagerSession(sessionToken);
     this.validateMemberId(memberId);
 
     return this.readMemberBalances(memberId);
@@ -3868,7 +3868,7 @@ export class AppService {
     memberId: string,
     input: MemberBalanceInput,
   ): Promise<MemberBalance> {
-    await this.requireAdminSession(sessionToken);
+    await this.requireBalanceManagerSession(sessionToken);
     this.validateMemberId(memberId);
     const balance = await this.validateBalanceInput(input);
     const balanceId = randomUUID();
@@ -3897,7 +3897,7 @@ export class AppService {
     balanceId: string,
     input: MemberBalanceInput,
   ): Promise<MemberBalance> {
-    await this.requireAdminSession(sessionToken);
+    await this.requireBalanceManagerSession(sessionToken);
     this.validateMemberId(memberId);
     if (!/^[A-Za-z0-9_-]{1,200}$/.test(balanceId)) {
       throw new BadRequestException('Invalid balance identifier.');
@@ -3933,7 +3933,7 @@ export class AppService {
     memberId: string,
     balanceId: string,
   ): Promise<{ deleted: true }> {
-    await this.requireAdminSession(sessionToken);
+    await this.requireBalanceManagerSession(sessionToken);
     this.validateMemberId(memberId);
     if (!/^[A-Za-z0-9_-]{1,200}$/.test(balanceId)) {
       throw new BadRequestException('Invalid balance identifier.');
@@ -3950,6 +3950,91 @@ export class AppService {
     }
 
     return { deleted: true };
+  }
+
+  async getMemberBalanceReminderStatus(
+    sessionToken: string, memberId: string,
+  ): Promise<{ nextAllowedAt: string | null }> {
+    await this.requireBalanceManagerSession(sessionToken);
+    this.validateMemberId(memberId);
+    const reminder = await this.readBalanceReminder(memberId);
+    return { nextAllowedAt: reminder ? String(reminder.NextAllowedAt) : null };
+  }
+
+  async remindMemberBalances(
+    sessionToken: string, memberId: string,
+  ): Promise<{ sent: true; nextAllowedAt: string }> {
+    const session = await this.requireBalanceManagerSession(sessionToken);
+    this.validateMemberId(memberId);
+    const table = this.getMembersTableClient();
+    let member: Record<string, unknown>;
+    try {
+      member = await table.getEntity('members', memberId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Member account was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    const email = String(member.Email ?? '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException('This member does not have a valid email address.');
+    }
+    const balances = await this.readMemberBalances(memberId);
+    const total = balances.reduce((sum, balance) => sum + Math.round(balance.amount * 100), 0) / 100;
+    if (!balances.length || total <= 0) {
+      throw new BadRequestException('This member has no unpaid balance to remind.');
+    }
+    const previous = await this.readBalanceReminder(memberId);
+    const now = Date.now();
+    if (previous && Date.parse(String(previous.NextAllowedAt)) > now) {
+      throw new ConflictException(`A reminder was already triggered. You can send another after ${previous.NextAllowedAt}.`);
+    }
+    const nextAllowedAt = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+    const reservation = {
+      partitionKey: 'balance-reminders', rowKey: memberId,
+      TriggeredAt: new Date(now).toISOString(), NextAllowedAt: nextAllowedAt,
+      TriggeredBy: session.member.memberId,
+    };
+    try {
+      // Reserve before contacting email delivery: even uncertain delivery must not send twice.
+      if (previous) await table.updateEntity(reservation, 'Replace', { etag: previous.etag });
+      else await table.createEntity(reservation);
+    } catch (error) {
+      if (this.isTournamentRegistrationVersionConflict(error) || this.isAzureConflict(error)) {
+        throw new ConflictException('Another staff member already triggered this reminder. Reload the reminder status.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    const name = String(member.Name ?? 'Member');
+    const money = (amount: number) => `PHP ${amount.toFixed(2)}`;
+    const lines = balances.map((balance) =>
+      `${balance.balanceDate || 'Date unavailable'} | ${balance.balanceType} | ${money(balance.amount)}`);
+    const rows = balances.map((balance) =>
+      `<tr><td>${this.escapeHtml(balance.balanceDate || 'Date unavailable')}</td><td>${this.escapeHtml(balance.balanceType)}</td><td>${money(balance.amount)}</td></tr>`).join('');
+    try {
+      await this.sendEmail(
+        email,
+        'Your Sorsogon Pickleball Arena unpaid balances',
+        `Hello ${name},\n\nHere are all your current unpaid balance records (including any credits):\n\n${lines.join('\n')}\n\nTotal outstanding: ${money(total)}\n\nView your balances: ${this.publicAppUrl}/my-balances\n\nPlease contact the Arena staff if you have already settled these balances.`,
+        `<p>Hello ${this.escapeHtml(name)},</p><p>Here are all your current unpaid balance records (including any credits):</p><table><thead><tr><th>Date</th><th>Balance type</th><th>Amount</th></tr></thead><tbody>${rows}</tbody></table><p><strong>Total outstanding: ${money(total)}</strong></p><p><a href="${this.escapeHtml(`${this.publicAppUrl}/my-balances`)}">View your balances</a></p><p>Please contact the Arena staff if you have already settled these balances.</p>`,
+      );
+    } catch (error) {
+      this.logger.error('Balance reminder email delivery could not be confirmed.', error);
+      throw new BadGatewayException(`Reminder delivery could not be confirmed. To avoid duplicate emails, the next attempt is allowed after ${nextAllowedAt}.`);
+    }
+    return { sent: true, nextAllowedAt };
+  }
+
+  private async readBalanceReminder(memberId: string) {
+    try {
+      const entity = await this.getMembersTableClient().getEntity<Record<string, unknown>>('balance-reminders', memberId);
+      if (!Number.isFinite(Date.parse(String(entity.NextAllowedAt))) || !entity.etag) {
+        throw new Error('Invalid balance reminder record.');
+      }
+      return entity;
+    } catch (error) {
+      if (this.isAzureNotFound(error)) return null;
+      throw this.createMemberAuthenticationStorageException(error);
+    }
   }
 
   async requestEmailVerification(
@@ -5658,6 +5743,14 @@ export class AppService {
     const session = await this.getMemberSession(sessionToken);
     if (session.member.role !== 'admin') {
       throw new ForbiddenException('Administrator access is required.');
+    }
+    return session;
+  }
+
+  private async requireBalanceManagerSession(sessionToken: string) {
+    const session = await this.getMemberSession(sessionToken);
+    if (session.member.role !== 'admin' && session.member.role !== 'balance-staff') {
+      throw new ForbiddenException('Administrator or balance staff access is required.');
     }
     return session;
   }
