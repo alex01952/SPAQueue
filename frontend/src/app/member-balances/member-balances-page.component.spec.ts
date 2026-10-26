@@ -163,12 +163,16 @@ describe('Balance staff page and reminders', () => {
     home.detectChanges();
     const links = [...(home.nativeElement as HTMLElement).querySelectorAll<HTMLAnchorElement>('a[href]')].map((link) => link.getAttribute('href'));
     expect(links).toContain('/member-balances');
-    for (const adminPage of ['/tournament-management', '/queue-dashboard', '/club-management', '/member-registration-approvals', '/open-play-participation/upload']) {
+    for (const adminPage of ['/email-announcements', '/tournament-management', '/queue-dashboard', '/club-management', '/member-registration-approvals', '/open-play-participation/upload']) {
       expect(links).not.toContain(adminPage);
     }
     actor.update((member) => ({ ...member, role: 'member' }));
     home.detectChanges();
     expect(home.nativeElement.querySelector('a[href="/member-balances"]')).toBeNull();
+    expect(home.nativeElement.querySelector('a[href="/email-announcements"]')).toBeNull();
+    actor.update((member) => ({ ...member, role: 'admin' }));
+    home.detectChanges();
+    expect(home.nativeElement.querySelector('a[href="/email-announcements"]')).not.toBeNull();
     home.destroy();
   });
 });

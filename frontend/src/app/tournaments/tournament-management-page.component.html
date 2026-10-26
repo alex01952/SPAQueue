@@ -42,6 +42,15 @@
               <small>{{ experienceSummary(registration.partnerName, registration.partnerExperience) }}</small>
             }
           </div>
+          <div class="registration-copy">
+            @for (details of registration.eligibilityDetails ?? []; track details.memberId) {
+              <strong>{{ details.memberName }}: Eligibility verification</strong>
+              <a [href]="apiUrl + details.url" target="_blank" rel="noopener">View ID: {{ details.fileName }}</a>
+              <p style="white-space: pre-wrap">{{ details.clubDetails || 'No club verification details provided.' }}</p>
+            } @empty {
+              <small>No eligibility documents submitted (existing registration).</small>
+            }
+          </div>
           <span class="status-pill">Pending approval</span>
           <button type="button" class="action-button" [disabled]="isSaving()" (click)="approve(registration)">Approve team</button>
         </article>

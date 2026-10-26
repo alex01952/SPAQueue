@@ -89,6 +89,14 @@
     }
 
     @if (member()?.role === 'admin') {
+      <a routerLink="/email-announcements" class="menu-item">
+        <span class="menu-index">14</span>
+        <span class="menu-copy">
+          <strong>Email announcements</strong>
+          <small>Compose formatted emails for all members, a club, or selected users.</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
       <a routerLink="/queue-dashboard" class="menu-item">
         <span class="menu-index">08</span>
         <span class="menu-copy">
@@ -137,7 +145,7 @@
       [disabled]="isLoggingOut()"
       (click)="logout()"
     >
-      <span class="menu-index">{{ member()?.role === 'admin' ? '14' : '08' }}</span>
+      <span class="menu-index">{{ member()?.role === 'admin' ? '15' : '08' }}</span>
       <span class="menu-copy">
         <strong>{{ isLoggingOut() ? 'Logging out...' : 'Logout' }}</strong>
         <small>End your member session on this device.</small>

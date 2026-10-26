@@ -10,6 +10,7 @@ import { TournamentsPageComponent } from './tournaments-page.component';
 describe('TournamentsPageComponent', () => {
   let fixture: ComponentFixture<TournamentsPageComponent>;
   const member = signal({ memberId: 'invited-member', gender: 'Male' });
+  const playerId = new File(['%PDF-1.7'], 'player-id.pdf', { type: 'application/pdf' });
   const http = {
     get: vi.fn(() => of([])),
     post: vi.fn((_url: string, _body: unknown, _options: unknown) => of({})),
@@ -50,6 +51,75 @@ describe('TournamentsPageComponent', () => {
     teamMembers: [{ memberId: 'invited-member', name: 'Invitee', gender: 'Male', accepted: false }],
   };
 
+  it('requires each player ID while keeping club verification optional', () => {
+    const component = fixture.componentInstance as any;
+    component.activeTournament.set({ tournamentId: 'event-1', category: 'Mens Doubles' });
+    component.selectedPartnerId.set('partner');
+    Object.assign(component.memberExperienceForm, { hasJoinedTournaments: false, hasWonTournaments: false });
+    component.register();
+    expect(http.post).not.toHaveBeenCalled();
+    expect(component.errorMessage()).toContain('Upload your school, government, or company ID');
+    component.beginAccepting(registration);
+    Object.assign(component.partnerExperienceForm, { hasJoinedTournaments: false, hasWonTournaments: false });
+    component.respond(registration, 'Accepted');
+    expect(http.post).not.toHaveBeenCalled();
+    component.partnerIdFile.set(playerId);
+    component.respond(registration, 'Accepted');
+    const body = http.post.mock.calls.at(-1)![1] as FormData;
+    expect(body.get('idFile')).toBe(playerId);
+    expect(body.get('clubDetails')).toBe('');
+  });
+
+  it.each([
+    new File(['html'], 'id.html', { type: 'text/html' }),
+    new File([], 'id.pdf', { type: 'application/pdf' }),
+    new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'id.pdf', { type: 'application/pdf' }),
+  ])('rejects unsupported, empty, and oversized ID selections', (file) => {
+    const component = fixture.componentInstance as any;
+    const input = document.createElement('input');
+    input.type = 'file';
+    Object.defineProperty(input, 'files', { value: [file] });
+    component.memberIdFile.set(playerId);
+    component.selectIdFile(input);
+    expect(component.memberIdFile()).toBeNull();
+    expect(component.errorMessage()).toContain('PDF, JPEG, or PNG');
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it('submits club and officer details with an ID and clears them when the form closes', () => {
+    const component = fixture.componentInstance as any;
+    component.activeTournament.set({ tournamentId: 'event-1', category: 'Mens Doubles' });
+    component.selectedPartnerId.set('partner');
+    Object.assign(component.memberExperienceForm, { hasJoinedTournaments: false, hasWonTournaments: false });
+    const input = document.createElement('input');
+    input.type = 'file';
+    Object.defineProperty(input, 'files', { value: [playerId] });
+    component.selectIdFile(input);
+    component.memberClubDetails = 'City Club\nJane Doe: jane@example.com';
+    component.register();
+    const body = http.post.mock.calls.at(-1)![1] as FormData;
+    expect(body.get('clubDetails')).toBe('City Club\nJane Doe: jane@example.com');
+    expect(body.get('idFile')).toBe(playerId);
+    expect(component.memberIdFile()).toBeNull();
+    expect(component.memberClubDetails).toBe('');
+  });
+
+  it('preserves ID and club details when an upload fails so the player can retry', () => {
+    const component = fixture.componentInstance as any;
+    component.beginAccepting(registration);
+    Object.assign(component.partnerExperienceForm, { hasJoinedTournaments: false, hasWonTournaments: false });
+    component.partnerIdFile.set(playerId);
+    component.partnerClubDetails = 'City Club';
+    http.post.mockReturnValueOnce(throwError(() => new HttpErrorResponse({
+      status: 502, error: { message: 'ID storage unavailable.' },
+    })));
+    component.respond(registration, 'Accepted');
+    expect(component.errorMessage()).toBe('ID storage unavailable.');
+    expect(component.partnerIdFile()).toBe(playerId);
+    expect(component.partnerClubDetails).toBe('City Club');
+    expect(component.isWorking()).toBe(false);
+  });
+
   it('requires the sender agreement, opens terms separately, and submits explicit consent', async () => {
     const component = fixture.componentInstance as any;
     const tournament = {
@@ -77,12 +147,16 @@ describe('TournamentsPageComponent', () => {
     const checkbox = form.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
     expect(checkbox.checked).toBe(false);
     checkbox.click();
+    component.memberIdFile.set(playerId);
     await fixture.whenStable();
     fixture.detectChanges();
     expect(submit.disabled).toBe(false);
-    submit.click();
+    component.register();
     expect(http.post).toHaveBeenCalledWith(expect.stringContaining('/event-1/registrations'),
-      expect.objectContaining({ termsAccepted: true }), { withCredentials: true });
+      expect.any(FormData), { withCredentials: true });
+    const body = http.post.mock.calls.at(-1)![1] as FormData;
+    expect(body.get('termsAccepted')).toBe('true');
+    expect(body.get('idFile')).toBe(playerId);
     component.openRegistration(tournament);
     expect(component.memberTermsAccepted).toBe(false);
   });
@@ -104,12 +178,17 @@ describe('TournamentsPageComponent', () => {
     expect(http.post).not.toHaveBeenCalled();
     expect(component.errorMessage()).toContain('must agree');
     form.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
+    component.partnerIdFile.set(playerId);
     await fixture.whenStable();
     fixture.detectChanges();
     expect(submit.disabled).toBe(false);
-    submit.click();
+    component.respond(invitation, 'Accepted');
     expect(http.post).toHaveBeenCalledWith(expect.stringContaining('/captain/respond'),
-      expect.objectContaining({ decision: 'Accepted', termsAccepted: true }), { withCredentials: true });
+      expect.any(FormData), { withCredentials: true });
+    const body = http.post.mock.calls.at(-1)![1] as FormData;
+    expect(body.get('termsAccepted')).toBe('true');
+    expect(body.get('decision')).toBe('Accepted');
+    expect(body.get('idFile')).toBe(playerId);
     component.beginAccepting(invitation);
     expect(component.partnerTermsAccepted).toBe(false);
   });
@@ -314,6 +393,7 @@ describe('TournamentsPageComponent', () => {
     const component = fixture.componentInstance as any;
     component.registrations.set([registration]);
     component.beginAccepting(registration);
+    component.partnerIdFile.set(playerId);
     Object.assign(component.partnerExperienceForm, {
       hasJoinedTournaments: false,
       hasWonTournaments: true,
@@ -376,16 +456,17 @@ describe('TournamentsPageComponent', () => {
       hasJoinedTournaments: false,
       hasWonTournaments: false,
     });
+    component.memberIdFile.set(playerId);
     component.register();
 
     expect(http.post).toHaveBeenCalledWith(
       expect.stringContaining('/registrations'),
-      expect.objectContaining({
-        partnerId: 'male-2',
-        teamMemberIds: ['male-2', 'female-1', 'female-2'],
-      }),
+      expect.any(FormData),
       { withCredentials: true },
     );
+    const body = http.post.mock.calls.at(-1)![1] as FormData;
+    expect(body.get('partnerId')).toBe('male-2');
+    expect(JSON.parse(String(body.get('teamMemberIds')))).toEqual(['male-2', 'female-1', 'female-2']);
   });
 });
 

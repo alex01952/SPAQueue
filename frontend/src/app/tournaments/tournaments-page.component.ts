@@ -65,6 +65,10 @@ export class TournamentsPageComponent implements OnInit {
   protected readonly paymentProofFiles = signal<Record<string, File>>({});
   protected memberTermsAccepted = false;
   protected partnerTermsAccepted = false;
+  protected readonly memberIdFile = signal<File | null>(null);
+  protected readonly partnerIdFile = signal<File | null>(null);
+  protected memberClubDetails = '';
+  protected partnerClubDetails = '';
 
   constructor() {
     this.partnerSearchTerms
@@ -103,6 +107,8 @@ export class TournamentsPageComponent implements OnInit {
     this.feedbackMessage.set('');
     this.activeTournament.set(tournament);
     this.memberTermsAccepted = false;
+    this.memberIdFile.set(null);
+    this.memberClubDetails = '';
     this.eligiblePartners.set([]);
     this.selectedPartnerId.set('');
     this.selectedTeamMembers.set([]);
@@ -114,6 +120,8 @@ export class TournamentsPageComponent implements OnInit {
   protected closeRegistration() {
     this.activeTournament.set(null);
     this.memberTermsAccepted = false;
+    this.memberIdFile.set(null);
+    this.memberClubDetails = '';
     this.eligiblePartners.set([]);
     this.selectedPartnerId.set('');
     this.selectedTeamMembers.set([]);
@@ -141,21 +149,27 @@ export class TournamentsPageComponent implements OnInit {
       this.errorMessage.set('You must agree to the tournament terms and conditions before continuing.');
       return;
     }
+    const idFile = this.memberIdFile();
+    if (!idFile) {
+      this.errorMessage.set('Upload your school, government, or company ID.');
+      return;
+    }
+    const body = new FormData();
+    body.append('idFile', idFile);
+    body.append('clubDetails', this.memberClubDetails);
+    body.append('partnerId', this.isTeamTournament()
+      ? this.selectedTeamMembers()[0]!.memberId : this.selectedPartnerId());
+    if (this.isTeamTournament()) {
+      body.append('teamMemberIds', JSON.stringify(this.selectedTeamMembers().map((member) => member.memberId)));
+    }
+    body.append('memberExperience', JSON.stringify(this.toExperienceDetails(this.memberExperienceForm)));
+    body.append('termsAccepted', JSON.stringify(this.memberTermsAccepted));
     this.isWorking.set(true);
     this.errorMessage.set('');
     this.http
       .post<TournamentRegistration>(
         `${this.apiUrl}/tournaments/${encodeURIComponent(tournament.tournamentId)}/registrations`,
-        {
-          partnerId: this.isTeamTournament()
-            ? this.selectedTeamMembers()[0]?.memberId
-            : this.selectedPartnerId(),
-          ...(this.isTeamTournament()
-            ? { teamMemberIds: this.selectedTeamMembers().map((member) => member.memberId) }
-            : {}),
-          memberExperience: this.toExperienceDetails(this.memberExperienceForm),
-          termsAccepted: this.memberTermsAccepted,
-        },
+        body,
         { withCredentials: true },
       )
       .subscribe({
@@ -183,17 +197,28 @@ export class TournamentsPageComponent implements OnInit {
       this.errorMessage.set('You must agree to the tournament terms and conditions before continuing.');
       return;
     }
+    let body: FormData | { decision: 'Declined' };
+    if (decision === 'Accepted') {
+      const idFile = this.partnerIdFile();
+      if (!idFile) {
+        this.errorMessage.set('Upload your school, government, or company ID.');
+        return;
+      }
+      body = new FormData();
+      body.append('decision', decision);
+      body.append('idFile', idFile);
+      body.append('clubDetails', this.partnerClubDetails);
+      body.append('partnerExperience', JSON.stringify(this.toExperienceDetails(this.partnerExperienceForm)));
+      body.append('termsAccepted', JSON.stringify(this.partnerTermsAccepted));
+    } else {
+      body = { decision };
+    }
     this.isWorking.set(true);
     this.errorMessage.set('');
     this.http
       .post<TournamentRegistration>(
         `${this.apiUrl}/tournaments/${encodeURIComponent(registration.tournamentId)}/registrations/${encodeURIComponent(registration.registrationId)}/respond`,
-        {
-          decision,
-          ...(decision === 'Accepted'
-            ? { partnerExperience: this.toExperienceDetails(this.partnerExperienceForm), termsAccepted: this.partnerTermsAccepted }
-            : {}),
-        },
+        body,
         { withCredentials: true },
       )
       .subscribe({
@@ -204,6 +229,8 @@ export class TournamentsPageComponent implements OnInit {
               ? 'All teammates accepted. The team is now pending admin approval.'
               : 'You accepted the invitation. The team is waiting for its other teammates.');
           this.respondingInvitationId.set('');
+          this.partnerIdFile.set(null);
+          this.partnerClubDetails = '';
           this.isWorking.set(false);
           this.loadPage();
         },
@@ -245,8 +272,24 @@ export class TournamentsPageComponent implements OnInit {
 
   protected beginAccepting(registration: TournamentRegistration) {
     this.partnerTermsAccepted = false;
+    this.partnerIdFile.set(null);
+    this.partnerClubDetails = '';
     this.partnerExperienceForm = emptyTournamentExperienceForm();
     this.respondingInvitationId.set(registration.registrationId);
+  }
+
+  protected selectIdFile(input: HTMLInputElement, invitee = false) {
+    const selected = invitee ? this.partnerIdFile : this.memberIdFile;
+    selected.set(null);
+    this.errorMessage.set('');
+    const file = input.files?.[0];
+    if (!file) return;
+    if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type) || !file.size || file.size > 10 * 1024 * 1024) {
+      input.value = '';
+      this.errorMessage.set('Player ID must be a PDF, JPEG, or PNG file no larger than 10 MB.');
+      return;
+    }
+    selected.set(file);
   }
 
   protected isTeamTournament(): boolean {

@@ -25,6 +25,15 @@ export interface TournamentExperienceDetails {
   winsOrPodiums?: number;
 }
 
+export interface TournamentEligibilityDetails {
+  memberId: string;
+  memberName: string;
+  fileName: string;
+  uploadedAt: string;
+  clubDetails: string;
+  url: string;
+}
+
 export interface TournamentTeamMember {
   memberId: string;
   name: string;
@@ -216,6 +225,7 @@ export interface TournamentRegistration {
   approvedAt?: string;
   paymentProofUrl?: string;
   paymentProofs?: TournamentPaymentProof[];
+  eligibilityDetails?: TournamentEligibilityDetails[];
   paidAt?: string;
   paidBy?: string;
 }

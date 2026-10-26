@@ -56,6 +56,11 @@
               <small>{{ registration.partnerName }}: Previous tournaments: {{ experience.hasJoinedTournaments ? 'Yes' : 'No' }} {{ experience.highestTournamentLevel }}.
                 Wins/podiums: {{ experience.hasWonTournaments ? 'Yes' : 'No' }} {{ experience.winsOrPodiums }} {{ experience.highestWinningLevel }}.</small>
             }
+            @for (details of registration.eligibilityDetails ?? []; track details.memberId) {
+              <strong>{{ details.memberName }}: Eligibility verification</strong>
+              <a class="registrations-link" [href]="assetUrl(details.url)" target="_blank" rel="noopener">View ID: {{ details.fileName }}</a>
+              <p style="white-space: pre-wrap">{{ details.clubDetails || 'No club verification details provided.' }}</p>
+            }
             @for (proof of registration.paymentProofs ?? []; track proof.memberId) {
               <a class="registrations-link" [href]="assetUrl(proof.url)" target="_blank" rel="noopener">
                 {{ proof.memberName }}: {{ proof.fileName }} ({{ proof.uploadedAt | date: 'medium' }})

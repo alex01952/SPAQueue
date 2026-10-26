@@ -134,6 +134,15 @@ export const routes: Routes = [
     title: 'Member Balances',
   },
   {
+    path: 'email-announcements',
+    loadComponent: () => import('./email-announcements/email-announcements-page.component').then(
+      (module) => module.EmailAnnouncementsPageComponent,
+    ),
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'] },
+    title: 'Email Announcements',
+  },
+  {
     path: 'member-registration-approvals',
     component: MemberRegistrationApprovalsPageComponent,
     canActivate: [memberAuthGuard, memberRoleGuard],

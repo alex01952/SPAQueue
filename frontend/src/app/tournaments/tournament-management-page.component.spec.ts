@@ -32,6 +32,33 @@ describe('TournamentManagementPageComponent terms upload', () => {
     return input;
   }
 
+  it('shows each player ID and club officer details before an administrator approves the team', () => {
+    const component = fixture.componentInstance as any;
+    component.registrations.set([{
+      tournamentId: 'event-1', registrationId: 'captain', tournamentName: 'Club Open',
+      category: 'Mens Doubles', level: 'Beginner', memberId: 'captain', memberName: 'Captain',
+      partnerId: 'partner', partnerName: 'Partner', status: 'Pending Approval', registeredAt: '',
+      eligibilityDetails: [{
+        memberId: 'captain', memberName: 'Captain', fileName: 'school-id.pdf', uploadedAt: '',
+        clubDetails: 'City Club\nOfficer Jane: jane@example.com',
+        url: '/admin/tournaments/event-1/registrations/captain/player-ids/captain',
+      }, {
+        memberId: 'partner', memberName: 'Partner', fileName: 'company-id.png', uploadedAt: '',
+        clubDetails: '', url: '/admin/tournaments/event-1/registrations/captain/player-ids/partner',
+      }],
+    }]);
+    fixture.detectChanges();
+    const section = (fixture.nativeElement as HTMLElement).querySelector('.approval-section')!;
+    expect(section.textContent).toContain('Officer Jane: jane@example.com');
+    expect(section.textContent).toContain('No club verification details provided.');
+    const links = section.querySelectorAll<HTMLAnchorElement>('a');
+    expect(links).toHaveLength(2);
+    expect(links[0].href).toContain('/player-ids/captain');
+    expect(links[1].href).toContain('/player-ids/partner');
+    expect(links[0].target).toBe('_blank');
+    expect(section.textContent).toContain('Approve team');
+  });
+
   it('submits a selected PDF with the tournament fields and clears selection after success', () => {
     const file = new File(['%PDF-1.7'], 'terms.pdf', { type: 'application/pdf' });
     const input = selectFile(file);

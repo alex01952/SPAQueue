@@ -122,6 +122,14 @@
                 </div>
                 <p class="truthfulness-note">Please answer truthfully. The club may disqualify participants during the tournament, even after approval, without a refund if answers are found to be untruthful.</p>
               </fieldset>
+              <fieldset class="experience-questions">
+                <legend>Your eligibility verification</legend>
+                <div class="experience-fields">
+                  <label><span>School, government, or company ID (required)</span><input #memberIdInput type="file" accept="application/pdf,image/jpeg,image/png" required [disabled]="isWorking()" (change)="selectIdFile(memberIdInput)" /></label>
+                  <label><span>Club memberships and eligibility verifiers (optional)</span><textarea name="memberClubDetails" [(ngModel)]="memberClubDetails" maxlength="4000" rows="4" placeholder="List your clubs and any officers who can verify your eligibility. Include each club, officer's name, and contact details if possible."></textarea></label>
+                </div>
+                <p>Upload a PDF, JPEG, or PNG up to 10 MB. Your ID and club details are shared only with administrators for registration review.</p>
+              </fieldset>
               @if (tournament.termsUrl) {
                 <div class="terms-agreement">
                   <a [href]="apiUrl + tournament.termsUrl" target="_blank" rel="noopener">Terms and conditions (opens in a new window)</a>
@@ -133,7 +141,7 @@
               }
               <div class="panel-actions">
                 <button type="button" class="quiet-button" (click)="closeRegistration()">Cancel</button>
-                <button type="submit" class="action-button" [disabled]="registrationForm.invalid || (tournament.termsUrl && !memberTermsAccepted) || (isTeamTournament() ? !isTeamRosterComplete() : !selectedPartnerId()) || !isExperienceFormComplete(memberExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : (isTeamTournament() ? 'Invite teammates' : 'Send invitation') }}</button>
+                <button type="submit" class="action-button" [disabled]="registrationForm.invalid || !memberIdFile() || (tournament.termsUrl && !memberTermsAccepted) || (isTeamTournament() ? !isTeamRosterComplete() : !selectedPartnerId()) || !isExperienceFormComplete(memberExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : (isTeamTournament() ? 'Invite teammates' : 'Send invitation') }}</button>
               </div>
             </form>
           }
@@ -218,6 +226,14 @@
                     </div>
                     <p class="truthfulness-note">Please answer truthfully. The club may disqualify participants during the tournament, even after approval, without a refund if answers are found to be untruthful.</p>
                   </fieldset>
+                  <fieldset class="experience-questions">
+                    <legend>Your eligibility verification</legend>
+                    <div class="experience-fields">
+                      <label><span>School, government, or company ID (required)</span><input #partnerIdInput type="file" accept="application/pdf,image/jpeg,image/png" required [disabled]="isWorking()" (change)="selectIdFile(partnerIdInput, true)" /></label>
+                      <label><span>Club memberships and eligibility verifiers (optional)</span><textarea name="partnerClubDetails" [(ngModel)]="partnerClubDetails" maxlength="4000" rows="4" placeholder="List your clubs and any officers who can verify your eligibility. Include each club, officer's name, and contact details if possible."></textarea></label>
+                    </div>
+                    <p>Upload a PDF, JPEG, or PNG up to 10 MB. Your ID and club details are shared only with administrators for registration review.</p>
+                  </fieldset>
                   @if (registration.termsUrl) {
                     <div class="terms-agreement">
                       <a [href]="apiUrl + registration.termsUrl" target="_blank" rel="noopener">Terms and conditions (opens in a new window)</a>
@@ -229,7 +245,7 @@
                   }
                   <div class="row-actions">
                     <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="respondingInvitationId.set('')">Cancel</button>
-                    <button type="submit" class="action-button" [disabled]="(registration.termsUrl && !partnerTermsAccepted) || !isExperienceFormComplete(partnerExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : 'Accept invitation' }}</button>
+                    <button type="submit" class="action-button" [disabled]="!partnerIdFile() || (registration.termsUrl && !partnerTermsAccepted) || !isExperienceFormComplete(partnerExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : 'Accept invitation' }}</button>
                   </div>
                 </form>
               }

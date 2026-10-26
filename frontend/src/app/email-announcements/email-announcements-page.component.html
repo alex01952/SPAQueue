@@ -1,0 +1,192 @@
+<main class="announcement-shell">
+  <header>
+    <p class="eyebrow">Administration</p>
+    <h1>Email announcements</h1>
+    <p>
+      Send formatted emails to approved members with verified, valid email addresses. Each recipient
+      uses one Mailgun email. Duplicate email addresses are counted once.
+    </p>
+  </header>
+
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+  @if (loading()) {
+    <p role="status">Loading members and clubs...</p>
+  } @else if (!members().length) {
+    <p>No eligible members are available.</p>
+  }
+  <button type="button" (click)="loadRecipients()" [disabled]="loading() || locked()">
+    Refresh recipients
+  </button>
+
+  @if (requestId()) {
+    <section class="panel" aria-labelledby="send-status-title">
+      <h2 id="send-status-title">Send status</h2>
+      <p>
+        Request ID: <code>{{ requestId() }}</code>
+      </p>
+      @if (status(); as result) {
+        <p role="status">
+          {{
+            result.status === 'completed'
+              ? 'Sending finished'
+              : 'Sending started; completion is not yet confirmed'
+          }}.
+        </p>
+        <p>
+          {{ result.accepted }} of {{ result.total }} accepted by Mailgun.
+          {{ result.unconfirmed }} failed or unconfirmed.
+        </p>
+        @if (result.status !== 'completed') {
+          <p>
+            Counts reflect the last saved progress. An interrupted server send cannot be resumed.
+            Check Mailgun logs before creating another announcement.
+          </p>
+        }
+        @if (result.unconfirmed) {
+          <p class="error">
+            Some deliveries could not be confirmed. They may have been accepted before a connection
+            failed. Check Mailgun logs before resending to avoid duplicates.
+          </p>
+        }
+        <p>Accepted does not guarantee delivery to an inbox.</p>
+      } @else {
+        <p>
+          Do not resend while the outcome is unknown. Use Check send status to recover progress.
+        </p>
+      }
+      <div class="actions">
+        <button type="button" (click)="checkStatus()" [disabled]="busy()">Check send status</button>
+        <button type="button" (click)="newAnnouncement()" [disabled]="busy()">
+          New announcement
+        </button>
+      </div>
+    </section>
+  }
+
+  <fieldset class="panel" [disabled]="locked() || loading()">
+    <legend>Compose announcement</legend>
+    <label for="audience">Recipients</label>
+    <select
+      id="audience"
+      [ngModel]="mode()"
+      (ngModelChange)="mode.set($event); invalidatePreview()"
+    >
+      <option value="all">All members</option>
+      <option value="club">Members of a specific club</option>
+      <option value="users">Specific users</option>
+    </select>
+    @if (mode() === 'club') {
+      <label for="club">Club</label>
+      <select
+        id="club"
+        [ngModel]="clubId()"
+        (ngModelChange)="clubId.set($event); invalidatePreview()"
+      >
+        <option value="">Select a club</option>
+        @for (club of clubs(); track club.clubId) {
+          <option [value]="club.clubId">{{ club.name }}</option>
+        }
+      </select>
+    }
+    @if (mode() === 'users') {
+      <label for="member-search">Find members</label>
+      <input
+        id="member-search"
+        type="search"
+        [ngModel]="search()"
+        (ngModelChange)="search.set($event)"
+      />
+      <p>
+        {{ selectedIds().length }} {{ selectedIds().length === 1 ? 'user' : 'users' }} selected.
+        Filtering keeps your selections.
+      </p>
+      <div class="member-list" aria-label="Select recipients">
+        @for (member of filteredMembers(); track member.memberId) {
+          <label class="member">
+            <input
+              type="checkbox"
+              [checked]="selectedIds().includes(member.memberId)"
+              (change)="toggleMember(member.memberId, !selectedIds().includes(member.memberId))"
+            />
+            <span
+              >{{ member.name }} <small>{{ member.email }}</small></span
+            >
+          </label>
+        } @empty {
+          <p>No matching members.</p>
+        }
+      </div>
+    }
+    <label for="subject">Subject</label>
+    <input
+      id="subject"
+      maxlength="200"
+      [ngModel]="subject()"
+      (ngModelChange)="subject.set($event); invalidatePreview()"
+    />
+
+    <label for="email-html">Message HTML</label>
+    <p id="editor-help">
+      Write or paste HTML, or select text and use the formatting buttons. Preview shows the safe
+      version that will be sent. Scripts, images, styles, forms, and unsafe links are removed.
+    </p>
+    <div class="toolbar" role="group" aria-label="Email formatting">
+      <button type="button" (click)="format(editor, '<p>', '</p>')">Paragraph</button>
+      <button type="button" (click)="format(editor, '<h2>', '</h2>')">Heading</button>
+      <button type="button" (click)="format(editor, '<strong>', '</strong>')">Bold</button>
+      <button type="button" (click)="format(editor, '<em>', '</em>')">Italic</button>
+      <button type="button" (click)="format(editor, '<u>', '</u>')">Underline</button>
+      <button type="button" (click)="format(editor, '<ul><li>', '</li></ul>')">Bullet list</button>
+      <button type="button" (click)="format(editor, '<ol><li>', '</li></ol>')">
+        Numbered list
+      </button>
+      <button
+        type="button"
+        (click)="format(editor, '<a href=&quot;https://example.com&quot;>', '</a>')"
+      >
+        Link
+      </button>
+    </div>
+    <textarea
+      #editor
+      id="email-html"
+      rows="14"
+      aria-describedby="editor-help"
+      [ngModel]="html()"
+      (ngModelChange)="html.set($event); invalidatePreview()"
+    ></textarea>
+    <p>Maximum HTML size: 60,000 UTF-8 bytes.</p>
+    <button class="primary" type="button" (click)="buildPreview()" [disabled]="!members().length">
+      Preview and count recipients
+    </button>
+  </fieldset>
+
+  @if (preview(); as email) {
+    <section class="panel" aria-labelledby="preview-title">
+      <h2 id="preview-title">Review before sending</h2>
+      <p>
+        <strong>{{ email.subject }}</strong>
+      </p>
+      <p>
+        This announcement will send
+        <strong
+          >{{ email.recipientCount }} {{ email.recipientCount === 1 ? 'email' : 'emails' }}</strong
+        >. Each recipient receives a private copy; member addresses are never shared.
+      </p>
+      <article
+        class="email-preview"
+        aria-label="Sanitized email preview"
+        [innerHTML]="email.html"
+      ></article>
+      <details>
+        <summary>Plain-text version</summary>
+        <pre>{{ email.text }}</pre>
+      </details>
+      <button class="primary" type="button" (click)="send()" [disabled]="locked()">
+        {{ busy() ? 'Please wait...' : 'Send announcement' }}
+      </button>
+    </section>
+  }
+</main>

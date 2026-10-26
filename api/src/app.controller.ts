@@ -14,6 +14,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
   StreamableFile,
   UploadedFile,
@@ -21,7 +22,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { AppService } from './app.service';
 import type {
   DashboardAuthResult,
@@ -74,6 +75,50 @@ export class AppController {
   private readonly memberSessionCookieName = 'spaqueue_member_session';
 
   constructor(private readonly appService: AppService) {}
+
+  @Get('admin/email-announcements/recipients')
+  @Header('Cache-Control', 'private, no-store')
+  getAnnouncementRecipients(@Headers('cookie') cookieHeader = '') {
+    return this.appService.getAnnouncementRecipients(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Post('admin/email-announcements/preview')
+  @Header('Cache-Control', 'private, no-store')
+  previewAnnouncement(
+    @Headers('cookie') cookieHeader = '',
+    @Body() body: unknown,
+  ) {
+    return this.appService.previewAnnouncement(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      body,
+    );
+  }
+
+  @Post('admin/email-announcements/send')
+  @Header('Cache-Control', 'private, no-store')
+  sendAnnouncement(
+    @Headers('cookie') cookieHeader = '',
+    @Body() body: unknown,
+  ) {
+    return this.appService.sendAnnouncement(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      body,
+    );
+  }
+
+  @Get('admin/email-announcements/:requestId')
+  @Header('Cache-Control', 'private, no-store')
+  getAnnouncementStatus(
+    @Headers('cookie') cookieHeader = '',
+    @Param('requestId') requestId: string,
+  ) {
+    return this.appService.getAnnouncementStatus(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      requestId,
+    );
+  }
 
   @Post('dashboard-auth')
   validateDashboardPassword(
@@ -216,6 +261,7 @@ export class AppController {
   }
 
   @Post('tournaments/:tournamentId/registrations')
+  @UseInterceptors(FileInterceptor('idFile', { limits: { fileSize: 10 * 1024 * 1024 } }))
   registerTournamentTeam(
     @Param('tournamentId') tournamentId: string,
     @Body('partnerId') partnerId: string,
@@ -223,14 +269,18 @@ export class AppController {
     @Body('teamMemberIds') teamMemberIds: string[] | undefined,
     @Headers('cookie') cookieHeader = '',
     @Body('termsAccepted') termsAccepted?: boolean,
+    @UploadedFile() idFile?: TournamentDocumentUploadInput,
+    @Body('clubDetails') clubDetails?: string,
   ): Promise<TournamentRegistration> {
     return this.appService.registerTournamentTeam(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
       tournamentId,
       partnerId,
-      memberExperience,
-      teamMemberIds,
-      termsAccepted,
+      this.parseTournamentFormValue(memberExperience),
+      this.parseTournamentFormValue(teamMemberIds),
+      this.parseTournamentFormValue(termsAccepted),
+      idFile,
+      clubDetails,
     );
   }
 
@@ -248,6 +298,7 @@ export class AppController {
   }
 
   @Post('tournaments/:tournamentId/registrations/:registrationId/respond')
+  @UseInterceptors(FileInterceptor('idFile', { limits: { fileSize: 10 * 1024 * 1024 } }))
   respondToTournamentInvitation(
     @Param('tournamentId') tournamentId: string,
     @Param('registrationId') registrationId: string,
@@ -255,14 +306,18 @@ export class AppController {
     @Body('partnerExperience') partnerExperience: TournamentExperienceDetails,
     @Headers('cookie') cookieHeader = '',
     @Body('termsAccepted') termsAccepted?: boolean,
+    @UploadedFile() idFile?: TournamentDocumentUploadInput,
+    @Body('clubDetails') clubDetails?: string,
   ): Promise<TournamentRegistration> {
     return this.appService.respondToTournamentInvitation(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
       tournamentId,
       registrationId,
       decision,
-      partnerExperience,
-      termsAccepted,
+      this.parseTournamentFormValue(partnerExperience),
+      this.parseTournamentFormValue(termsAccepted),
+      idFile,
+      clubDetails,
     );
   }
 
@@ -294,6 +349,7 @@ export class AppController {
   }
 
   @Get('admin/tournament-registrations')
+  @Header('Cache-Control', 'private, no-store')
   getTournamentRegistrationsForAdmin(
     @Headers('cookie') cookieHeader = '',
   ): Promise<TournamentRegistration[]> {
@@ -324,6 +380,7 @@ export class AppController {
   }
 
   @Get('admin/tournament-archive/:tournamentId')
+  @Header('Cache-Control', 'private, no-store')
   getTournamentArchiveDetails(
     @Param('tournamentId') tournamentId: string,
     @Headers('cookie') cookieHeader = '',
@@ -451,6 +508,35 @@ export class AppController {
       this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, registrationId, memberId,
     );
     return new StreamableFile(proof.buffer, { type: proof.contentType, disposition: 'inline' });
+  }
+
+  @Get([
+    'admin/tournaments/:tournamentId/registrations/:registrationId/player-ids/:memberId',
+    'admin/tournament-archive/:tournamentId/registrations/:registrationId/player-ids/:memberId',
+  ])
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async getTournamentPlayerId(
+    @Param('tournamentId') tournamentId: string,
+    @Param('registrationId') registrationId: string,
+    @Param('memberId') memberId: string,
+    @Headers('cookie') cookieHeader = '',
+    @Req() request?: Request,
+  ): Promise<StreamableFile> {
+    const document = await this.appService.getTournamentPlayerId(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, registrationId, memberId,
+      request?.url.startsWith('/admin/tournament-archive/') ?? false,
+    );
+    return new StreamableFile(document.buffer, { type: document.contentType, disposition: 'inline' });
+  }
+
+  private parseTournamentFormValue(value: unknown): unknown {
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      throw new BadRequestException('Tournament registration form contains invalid JSON.');
+    }
   }
 
   @Patch('admin/tournaments/:tournamentId/registration-status')

@@ -20,7 +20,7 @@ import {
 })
 export class TournamentManagementPageComponent implements OnInit {
   private readonly http = inject(HttpClient);
-  private readonly apiUrl = getApiBaseUrl();
+  protected readonly apiUrl = getApiBaseUrl();
 
   protected readonly categories = tournamentCategories;
   protected readonly levels = tournamentLevels;

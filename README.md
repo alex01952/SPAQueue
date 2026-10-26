@@ -27,6 +27,25 @@ Select a member and click **Remind by email** to email all current unpaid balanc
 
 Each member can receive at most one reminder trigger in any **24-hour period**, shared across all admins, staff, tabs and API instances. The next allowed time is displayed in the staff member's local time. `GET /members/:memberId/balance-reminder` reads the cooldown; `POST /members/:memberId/balance-reminder` triggers delivery. Both require admin/balance-staff access. Reminder reservations are stored in the existing members table, partition `balance-reminders`, row key equal to the member ID; no new table or credentials are needed. Atomic creation/ETag updates prevent simultaneous triggers. The reservation is saved **before** contacting Mailgun, so a failed or uncertain delivery attempt also consumes the 24-hour window to prevent accidental duplicate emails. Delivery errors are surfaced explicitly and never reported as successful. Reload reminder status after an interrupted request to check its cooldown.
 
+## Email announcements
+
+Administrators can open **Email announcements** from Member Home (`/email-announcements`). The page and all announcement APIs require the `admin` role; club owners, balance staff, and regular members cannot send announcements or read the announcement recipient directory.
+
+Choose **All members**, **Members of a specific club**, or **Specific users**. Recipients must be approved members with verified, valid email addresses. Club targeting uses current club assignments, not the profile's club display name. Selected users who become ineligible are rejected rather than silently omitted. Each distinct email address receives one private copy, even when several members share that address.
+
+The HTML editor supports formatting buttons for headings, paragraphs, bold, italic, underline, lists, and links. Paste/edit HTML directly and select **Preview and count recipients** to review the server-sanitized email and plain-text alternative. Subjects are limited to 200 characters and message HTML to 60,000 UTF-8 bytes. Scripts, images, custom styles, forms, and unsafe links are removed. The preview shows the exact number of Mailgun emails before confirmation; 50 distinct recipients consume 50 emails. Changed content or recipient addresses require a new preview.
+
+Sending reuses `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `EMAIL_FROM`, and optional `MAILGUN_BASE_URL`. No new credentials or tables are needed. Send reservations and progress use the existing members table with partition `email-announcements` and a unique request-ID row key. Atomic reservation prevents the same send request from running twice, including concurrent requests. Emails are submitted privately with up to five concurrent submissions and a 30-second timeout per submission. There are no automatic delivery retries.
+
+The result distinguishes emails **accepted by Mailgun** from **failed or unconfirmed** submissions; accepted does not guarantee inbox delivery. Keep the page open while sending. The last request ID is retained in the browser tab's session storage, so **Check send status** can recover progress after a lost response or reload. If the API process stops, a reservation may remain in `sending`; counts represent the last saved batch and an interrupted send is not automatically resumed. Check Mailgun logs before sending again: an unconfirmed submission may already have been accepted. Starting a new announcement does not cancel an existing send.
+
+Admin endpoints (cookie-authenticated, private/no-store responses):
+
+- `GET /admin/email-announcements/recipients`: eligible members, names and email addresses.
+- `POST /admin/email-announcements/preview`: `{ subject, html, audience }`, where audience is `{ mode: "all" }`, `{ mode: "club", clubId }`, or `{ mode: "users", memberIds }`; returns sanitized HTML/text, recipient count, and a confirmation fingerprint.
+- `POST /admin/email-announcements/send`: the same payload plus the preview's `fingerprint` and a UUID v4 `requestId`; resolves current recipients again, verifies the fingerprint, reserves the request, and sends.
+- `GET /admin/email-announcements/:requestId`: persisted `status`, `total`, `accepted`, and `unconfirmed` counts.
+
 ## Tournament registrations
 
 Roster gender requirements include the member sending the invitations:
@@ -37,6 +56,10 @@ Roster gender requirements include the member sending the invitations:
 - Team Tournament: four players, exactly two male and two female.
 
 Tournament slot counts include approved teams only (statuses **Approved**, **Payment Submitted**, and **Paid**). **Invitation Pending** and **Pending Approval** entries are shown separately as pending and do not reserve slots. New registrations remain open until approved teams reach the maximum; admins cannot approve additional teams once that limit is reached. Declined entries count toward neither total.
+
+Each player must upload a school, government, or company ID (PDF, JPEG, or PNG, up to 10 MB): the sender when registering and each invitee when accepting. Players may optionally list club memberships and officers who can verify eligibility, including the club, officer's name, and contact details if possible (up to 4,000 characters). Registration and acceptance use multipart form data with `idFile`, optional `clubDetails`, and JSON-encoded questionnaire/consent fields. Declining still accepts JSON and needs no ID. Existing registrations remain reviewable without retroactive uploads.
+
+IDs use the existing private tournament document storage and managed identity, under `tournament-player-ids/`. Only administrators receive the ID links and club details, in the approval queue, registration browser, and archived registration details. ID downloads are administrator-only, authenticated, and non-cacheable; teammates cannot access them. Archiving preserves the documents; permanent tournament deletion removes their blobs and versions along with the other tournament data.
 
 In **Tournament management**, select **Export approved teams (CSV)** for an event to download its current Approved, Payment Submitted, and Paid teams. The export fetches fresh records through the existing administrator-only registration API and includes one row per team: tournament details, registration ID/status/timestamps, and up to four player IDs and names (unused player columns are blank for doubles). Empty rosters produce a header-only file. The UTF-8 CSV supports commas, quotes and line breaks in names; formula-like cells are prefixed with an apostrophe for spreadsheet safety. This is a team-list backup, not a complete database backup: it excludes uploaded files, questionnaires, protests and schedules, and has no automatic restore/import feature.
 

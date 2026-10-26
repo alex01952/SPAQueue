@@ -84,6 +84,13 @@
                 }
               </div>
             }
+            <div class="registration-copy">
+              @for (details of registration.eligibilityDetails ?? []; track details.memberId) {
+                <strong>{{ details.memberName }}: Eligibility verification</strong>
+                <a class="proof-link" [href]="apiUrl + details.url" target="_blank" rel="noopener">View ID: {{ details.fileName }}</a>
+                <p style="white-space: pre-wrap">{{ details.clubDetails || 'No club verification details provided.' }}</p>
+              }
+            </div>
             @if (registration.paidAt) { <small class="paid-note">Payment confirmed {{ registration.paidAt | date: 'medium' }}</small> }
           </article>
         } @empty {

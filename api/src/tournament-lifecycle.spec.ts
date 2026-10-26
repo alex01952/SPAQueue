@@ -56,6 +56,11 @@ describe('Tournament archive and deletion', () => {
         memberId: 'a', memberName: 'Alice', fileName: 'proof.pdf', uploadedAt: '2026-10-01',
         blobName: `tournament-payment-proofs/${id}/team-1/proof.pdf`, contentType: 'application/pdf',
       }]),
+      EligibilityDetails: JSON.stringify([{
+        memberId: 'a', memberName: 'Alice', fileName: 'id.pdf', uploadedAt: '2026-10-01',
+        clubDetails: 'City Club, Officer Jane', contentType: 'application/pdf',
+        blobName: `tournament-player-ids/${id}/team-1/id.pdf`,
+      }]),
     });
     protests.rows.set(key(id, 'protest-1'), {
       partitionKey: id, rowKey: 'protest-1', TournamentName: 'Club Open', Status: 'Open',
@@ -81,6 +86,7 @@ describe('Tournament archive and deletion', () => {
       `tournament-payment-proofs/${id}/deleted-team/old.pdf`, `tournament-protest-evidence/${id}/protest-1/evidence.pdf`,
       `tournament-draws/${id}/old.json`, 'tournament-draws/other-event/keep.json',
       `tournament-live-draws/${id}/event.json`, 'tournament-live-draws/other-event/keep.json',
+      `tournament-player-ids/${id}/team-1/id.pdf`, 'tournament-player-ids/other-event/keep.pdf',
     ]);
     deleteBlob = jest.fn(async (name: string) => { blobs.delete(name); return { succeeded: true }; });
     jest.spyOn(service as any, 'getTournamentDocumentContainerClient').mockReturnValue({
@@ -111,6 +117,12 @@ describe('Tournament archive and deletion', () => {
     expect(details.tournament).toMatchObject({ name: 'Club Open', archivedBy: 'Administrator', registrationCount: 1 });
     expect(details.roster.canManageRoster).toBe(false);
     expect(details.registrations[0].paymentProofs![0].url).toContain(`/admin/tournament-archive/${id}/registrations/`);
+    expect(details.registrations[0].eligibilityDetails![0]).toMatchObject({
+      clubDetails: 'City Club, Officer Jane',
+      url: `/admin/tournament-archive/${id}/registrations/team-1/player-ids/a`,
+    });
+    await expect(service.getTournamentPlayerId('session', id, 'team-1', 'a', true))
+      .resolves.toMatchObject({ contentType: 'application/pdf' });
     expect(details.protests[0].evidence[0].url).toContain(`/admin/tournament-archive/${id}/protests/`);
     await expect(service.getTournamentTerms('session', id, true)).resolves.toEqual(Buffer.from('%PDF-1.7'));
     await expect(service.getTournamentPaymentProof('session', id, 'team-1', 'a', true)).resolves.toMatchObject({ contentType: 'application/pdf' });
@@ -190,14 +202,14 @@ describe('Tournament archive and deletion', () => {
   it('permanently deletes active data, orphaned/old files, and no other tournament files', async () => {
     await expect(service.deleteTournament('session', id)).resolves.toEqual({ deleted: true });
     expect(active.rows.size + registrations.rows.size + protests.rows.size + archive.rows.size).toBe(0);
-    expect(blobs).toEqual(new Set(['tournament-draws/other-event/keep.json', 'tournament-live-draws/other-event/keep.json']));
+    expect(blobs).toEqual(new Set(['tournament-draws/other-event/keep.json', 'tournament-live-draws/other-event/keep.json', 'tournament-player-ids/other-event/keep.pdf']));
   });
 
   it('permanently deletes an archived tournament and its retained files', async () => {
     await service.archiveTournament('session', id);
     await expect(service.deleteTournament('session', id, true)).resolves.toEqual({ deleted: true });
     expect(archive.rows.size).toBe(0);
-    expect(blobs).toEqual(new Set(['tournament-draws/other-event/keep.json', 'tournament-live-draws/other-event/keep.json']));
+    expect(blobs).toEqual(new Set(['tournament-draws/other-event/keep.json', 'tournament-live-draws/other-event/keep.json', 'tournament-player-ids/other-event/keep.pdf']));
   });
 
   it('keeps a retryable parent when blob deletion fails instead of reporting success', async () => {

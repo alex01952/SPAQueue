@@ -33,6 +33,7 @@ describe('Tournament payment HTTP endpoints', () => {
     deleteTournament: jest.fn(),
     getArchivedTournaments: jest.fn(),
     getTournamentArchiveDetails: jest.fn(),
+    getTournamentPlayerId: jest.fn(),
   };
   const path = '/tournaments/event-1/registrations/captain';
   const cookie = 'spaqueue_member_session=member-session';
@@ -142,10 +143,54 @@ describe('Tournament payment HTTP endpoints', () => {
     service.respondToTournamentInvitation.mockResolvedValue({});
     await request(app.getHttpServer()).post('/tournaments/event-1/registrations').set('Cookie', cookie)
       .send({ partnerId: 'partner', memberExperience: {}, termsAccepted: true }).expect(201);
-    expect(service.registerTournamentTeam).toHaveBeenCalledWith('member-session', 'event-1', 'partner', {}, undefined, true);
+    expect(service.registerTournamentTeam).toHaveBeenCalledWith('member-session', 'event-1', 'partner', {}, undefined, true, undefined, undefined);
     await request(app.getHttpServer()).post(`${path}/respond`).set('Cookie', cookie)
       .send({ decision: 'Accepted', partnerExperience: {}, termsAccepted: true }).expect(201);
-    expect(service.respondToTournamentInvitation).toHaveBeenCalledWith('member-session', 'event-1', 'captain', 'Accepted', {}, true);
+    expect(service.respondToTournamentInvitation).toHaveBeenCalledWith('member-session', 'event-1', 'captain', 'Accepted', {}, true, undefined, undefined);
+  });
+
+  it('accepts multipart player IDs and parses registration and acceptance fields', async () => {
+    const buffer = Buffer.from('%PDF-1.7');
+    const file = expect.objectContaining({ originalname: 'id.pdf', mimetype: 'application/pdf', buffer });
+    service.registerTournamentTeam.mockResolvedValue({});
+    service.respondToTournamentInvitation.mockResolvedValue({});
+    await request(app.getHttpServer()).post('/tournaments/event-1/registrations').set('Cookie', cookie)
+      .field('partnerId', 'partner').field('memberExperience', '{"hasJoinedTournaments":false,"hasWonTournaments":false}')
+      .field('teamMemberIds', '["partner","third","fourth"]').field('termsAccepted', 'true')
+      .field('clubDetails', 'City Club: Officer Jane, jane@example.com')
+      .attach('idFile', buffer, { filename: 'id.pdf', contentType: 'application/pdf' }).expect(201);
+    expect(service.registerTournamentTeam).toHaveBeenCalledWith(
+      'member-session', 'event-1', 'partner', { hasJoinedTournaments: false, hasWonTournaments: false },
+      ['partner', 'third', 'fourth'], true, file, 'City Club: Officer Jane, jane@example.com',
+    );
+    await request(app.getHttpServer()).post(`${path}/respond`).set('Cookie', cookie)
+      .field('decision', 'Accepted').field('partnerExperience', '{"hasJoinedTournaments":false,"hasWonTournaments":false}')
+      .field('termsAccepted', 'false')
+      .attach('idFile', buffer, { filename: 'id.pdf', contentType: 'application/pdf' }).expect(201);
+    expect(service.respondToTournamentInvitation).toHaveBeenCalledWith(
+      'member-session', 'event-1', 'captain', 'Accepted',
+      { hasJoinedTournaments: false, hasWonTournaments: false }, false, file, undefined,
+    );
+  });
+
+  it('rejects malformed multipart fields and oversized player IDs', async () => {
+    await request(app.getHttpServer()).post('/tournaments/event-1/registrations').set('Cookie', cookie)
+      .field('memberExperience', 'not JSON').expect(400);
+    await request(app.getHttpServer()).post(`${path}/respond`).set('Cookie', cookie)
+      .attach('idFile', Buffer.alloc(10 * 1024 * 1024 + 1), { filename: 'id.pdf', contentType: 'application/pdf' })
+      .expect(413);
+    expect(service.registerTournamentTeam).not.toHaveBeenCalled();
+    expect(service.respondToTournamentInvitation).not.toHaveBeenCalled();
+  });
+
+  it('serves active and archived player IDs through non-cacheable admin endpoints', async () => {
+    service.getTournamentPlayerId.mockResolvedValue({ buffer: Buffer.from('%PDF-1.7'), contentType: 'application/pdf' });
+    for (const [prefix, archived] of [['/admin/tournaments', false], ['/admin/tournament-archive', true]] as const) {
+      await request(app.getHttpServer()).get(`${prefix}/event-1/registrations/captain/player-ids/partner`)
+        .set('Cookie', cookie).expect(200).expect('Cache-Control', 'private, no-store')
+        .expect('X-Content-Type-Options', 'nosniff').expect('Content-Type', 'application/pdf');
+      expect(service.getTournamentPlayerId).toHaveBeenLastCalledWith('member-session', 'event-1', 'captain', 'partner', archived);
+    }
   });
 
   it('accepts a multipart proof with the session and file bytes', async () => {

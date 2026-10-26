@@ -43,7 +43,8 @@ select, .registration-panel input[type='number'], .registration-panel input[type
 .experience-questions legend { padding: 0 10px 0 0; color: var(--text-primary); font-size: .9rem; font-weight: 800; }
 .experience-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
 .experience-fields label { display: grid; align-content: start; gap: 6px; min-width: 0; color: var(--text-secondary); font-size: .76rem; font-weight: 700; }
-.experience-fields select, .experience-fields input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 10px; color: var(--text-primary); font: inherit; background: #fffdf8; border: 1px solid rgba(103, 70, 41, .26); border-radius: 4px; }
+.experience-fields select, .experience-fields input, .experience-fields textarea { width: 100%; min-width: 0; min-height: 40px; padding: 8px 10px; color: var(--text-primary); font: inherit; background: #fffdf8; border: 1px solid rgba(103, 70, 41, .26); border-radius: 4px; }
+.experience-fields textarea { resize: vertical; }
 .truthfulness-note { padding: 10px 12px; color: #743d25 !important; background: rgba(203, 93, 51, .09); border-left: 3px solid #cb5d33; }
 .partner-experience-form { display: grid; flex: 0 0 100%; order: 1; min-width: 0; gap: 14px; }
 .panel-actions { display: flex; gap: 8px; }
@@ -72,4 +73,3 @@ select, .registration-panel input[type='number'], .registration-panel input[type
 @media (max-width: 520px) { .tournaments-shell { width: calc(100% - 24px); padding: 28px 0 48px; } .page-heading { padding: 18px 0 28px; } .tournament-row { grid-template-columns: 54px minmax(0, 1fr); } .event-slots { grid-column: 2; grid-row: auto; } .tournament-row > .action-button { grid-column: 2; grid-row: auto; justify-self: start; } .row-actions, .proof-action { width: 100%; } }
 .roster-link { display: inline-flex; align-items: center; text-decoration: none; }
 .closed-note { color: var(--text-secondary); font-size: .75rem; }
-
