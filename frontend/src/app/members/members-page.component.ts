@@ -2,9 +2,11 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { getApiBaseUrl } from '../api-base-url';
+import { isGoldMembershipActive } from '../gold-membership';
 
 interface MemberSummary {
   memberId: string;
+  goldMembershipExpiresOn?: string | null;
   name: string;
   role: string;
   clubName: string;
@@ -22,6 +24,7 @@ interface ClubSummary { clubId: string; name: string; }
 })
 export class MembersPageComponent implements OnInit {
   private readonly http = inject(HttpClient);
+  protected readonly isGoldMembershipActive = isGoldMembershipActive;
 
   protected readonly searchTerm = signal('');
   protected readonly locationScope = signal('');

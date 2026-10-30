@@ -7,6 +7,7 @@ export type MemberRole = 'member' | 'club-owner' | 'balance-staff' | 'admin';
 
 export interface AuthenticatedMember {
   memberId: string;
+  goldMembershipExpiresOn?: string | null;
   name: string;
   age: number | null;
   birthday?: string;

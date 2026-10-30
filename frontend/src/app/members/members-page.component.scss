@@ -109,6 +109,25 @@ input:focus-visible {
   box-shadow: 0 20px 44px rgba(76, 51, 31, 0.14);
 }
 
+.member-icon.gold-member {
+  border: 2px solid #b8860b;
+  background: linear-gradient(145deg, #fff8df, #fffdf6);
+  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.2), 0 16px 36px rgba(76, 51, 31, 0.08);
+}
+
+.member-icon.gold-member img,
+.member-icon.gold-member .member-initials {
+  border-color: #d4af37;
+}
+
+.member-icon .gold-badge {
+  padding: 3px 8px;
+  color: #684800;
+  font-weight: 700;
+  background: #fae7a0;
+  border-radius: 6px;
+}
+
 .member-icon:focus-visible {
   outline: 3px solid rgba(203, 93, 51, 0.22);
   outline-offset: 3px;

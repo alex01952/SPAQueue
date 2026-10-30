@@ -879,6 +879,28 @@ export class AppController {
     return this.appService.getMemberAccount(session.member.memberId);
   }
 
+  @Get('admin/gold-membership/email-templates')
+  @Header('Cache-Control', 'private, no-store')
+  getGoldMembershipEmailTemplates(@Headers('cookie') cookieHeader = '') {
+    return this.appService.getGoldMembershipEmailTemplates(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+  }
+
+  @Patch('members/:memberId/gold-membership')
+  @Header('Cache-Control', 'private, no-store')
+  updateMemberGoldMembership(
+    @Param('memberId') memberId: string,
+    @Body() input: unknown,
+    @Headers('cookie') cookieHeader = '',
+  ) {
+    return this.appService.updateMemberGoldMembership(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      memberId,
+      input,
+    );
+  }
+
   @Patch('members/:memberId/role')
   updateMemberRole(
     @Param('memberId') memberId: string,

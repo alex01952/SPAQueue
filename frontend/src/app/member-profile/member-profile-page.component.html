@@ -8,7 +8,7 @@
     </div>
   } @else if (member(); as member) {
     <section class="profile-layout" aria-labelledby="member-profile-title">
-      <aside class="photo-panel">
+      <aside class="photo-panel" [class.gold-member]="isGoldMembershipActive(member.goldMembershipExpiresOn)">
         @if (member.profileImageUrl) {
           <img [src]="member.profileImageUrl" [alt]="member.name + ' profile photo'" />
         } @else {
@@ -17,6 +17,9 @@
         <div class="member-card">
           <p class="eyebrow">Member profile</p>
           <h1 id="member-profile-title">{{ member.name }}</h1>
+          @if (isGoldMembershipActive(member.goldMembershipExpiresOn)) {
+            <span class="gold-badge">Gold member</span>
+          }
           <p>Sorsogon Pickleball Club</p>
         </div>
       </aside>
@@ -45,6 +48,58 @@
       </section>
 
       <section class="details-panel" aria-label="Member details and skills">
+        @if (isAdmin() || member.goldMembershipExpiresOn) {
+          <section class="membership-panel" aria-labelledby="membership-title">
+            <h2 id="membership-title">Gold membership</h2>
+            @if (member.goldMembershipExpiresOn) {
+              <p>{{ isGoldMembershipActive(member.goldMembershipExpiresOn) ? 'Active through' : 'Expired on' }}
+                <time [attr.datetime]="member.goldMembershipExpiresOn">{{ member.goldMembershipExpiresOn + 'T00:00:00Z' | date: 'mediumDate' : 'UTC' }}</time> (UTC)</p>
+            } @else {
+              <p>No Gold membership.</p>
+            }
+            @if (isAdmin()) {
+              <form (submit)="$event.preventDefault(); saveGoldMembership()">
+                <label>Membership term
+                  <select [value]="membershipTerm()" (change)="membershipTerm.set($any($event.target).value)" [disabled]="isSavingMembership()">
+                    <option value="year">1 year from today</option>
+                    <option value="custom">Custom expiry date</option>
+                  </select>
+                </label>
+                @if (membershipTerm() === 'custom') {
+                  <label>Expiry date (inclusive, UTC)
+                    <input type="date" [value]="customExpiry()" [min]="today" required [disabled]="isSavingMembership()" (input)="customExpiry.set($any($event.target).value)" />
+                  </label>
+                }
+                <p class="membership-hint">The one-year term starts today, not from an existing expiry. Membership stays active through the selected expiry date.</p>
+                <label>Email template
+                  <select [value]="selectedEmailTemplate()" (change)="selectedEmailTemplate.set($any($event.target).value)" [disabled]="isSavingMembership() || isLoadingEmailTemplates()">
+                    <option value="">Do not send an email</option>
+                    @for (template of emailTemplates(); track template.name) {
+                      <option [value]="template.name">{{ template.displayName }}</option>
+                    }
+                  </select>
+                </label>
+                @if (isLoadingEmailTemplates()) {
+                  <p role="status">Loading email templates...</p>
+                } @else if (emailTemplatesError()) {
+                  <p class="validation-error" role="alert">{{ emailTemplatesError() }}</p>
+                } @else if (!emailTemplates().length) {
+                  <p class="membership-hint">No HTML templates found in email-templates/.</p>
+                }
+                <button type="button" [disabled]="isSavingMembership() || isLoadingEmailTemplates()" (click)="loadEmailTemplates()">Reload email templates</button>
+                <p class="membership-hint">Selecting a template sends an email when you save membership. Removing membership never sends an email.</p>
+                <div class="membership-actions">
+                  <button type="submit" [disabled]="isSavingMembership()">{{ isSavingMembership() ? 'Saving...' : 'Save Gold membership' }}</button>
+                  @if (member.goldMembershipExpiresOn) {
+                    <button type="button" [disabled]="isSavingMembership()" (click)="saveGoldMembership(true)">Remove Gold membership</button>
+                  }
+                </div>
+              </form>
+              @if (membershipError()) { <p class="validation-error" role="alert">{{ membershipError() }}</p> }
+              @if (membershipMessage()) { <p role="status">{{ membershipMessage() }}</p> }
+            }
+          </section>
+        }
         @if (isOwnProfile()) {
           <div class="profile-actions">
             <a routerLink="/member-profile/edit">Edit profile</a>

@@ -15,6 +15,7 @@ import { DefaultAzureCredential } from '@azure/identity';
 import { TableClient } from '@azure/data-tables';
 import type { TableEntityResult } from '@azure/data-tables';
 import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
+import { convert } from 'html-to-text';
 import {
   createHash,
   randomBytes,
@@ -217,6 +218,7 @@ export interface MemberRegistrationApprovalResult {
 
 export interface AuthenticatedMember {
   memberId: string;
+  goldMembershipExpiresOn?: string | null;
   name: string;
   age: number | null;
   birthday?: string;
@@ -246,6 +248,7 @@ export interface MemberSessionResult {
 
 export interface MemberDirectoryEntry {
   memberId: string;
+  goldMembershipExpiresOn?: string | null;
   name: string;
   role: string;
   clubName: string;
@@ -1458,6 +1461,7 @@ export class AppService {
             'Location',
             'Status',
             'EmailValidated',
+            'GoldMembershipExpiresOn',
           ],
         },
       });
@@ -1492,6 +1496,9 @@ export class AppService {
           role: String(entity.Role ?? 'Club Member'),
           clubName: String(entity.ClubName ?? 'Sorsogon Pickleball Club'),
           profileImageUrl: String(entity.ProfileImageUrl ?? ''),
+          ...(entity.GoldMembershipExpiresOn !== undefined
+            ? { goldMembershipExpiresOn: String(entity.GoldMembershipExpiresOn) || null }
+            : {}),
           ...(memberLocation ? { location: memberLocation } : {}),
         });
       }
@@ -3921,6 +3928,184 @@ export class AppService {
     }
   }
 
+  private getEmailTemplateContainerClient() {
+    if (!this.azureStorageAccount || !this.azureContainerName) {
+      throw new BadRequestException('OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT and OP_PARTICIPATION_AZURE_CONTAINER are required for email templates.');
+    }
+    return new BlobServiceClient(
+      `https://${this.azureStorageAccount}.blob.core.windows.net`,
+      new DefaultAzureCredential(),
+      { retryOptions: { maxTries: 2, tryTimeoutInMs: this.azureUploadTimeoutMs } },
+    ).getContainerClient(this.azureContainerName);
+  }
+
+  async getGoldMembershipEmailTemplates(sessionToken: string) {
+    await this.requireAdminSession(sessionToken);
+    const container = this.getEmailTemplateContainerClient();
+    try {
+      const templates: { name: string; displayName: string }[] = [];
+      for await (const blob of container.listBlobsFlat({ prefix: 'email-templates/' })) {
+        if (!this.isEmailTemplateName(blob.name)) continue;
+        templates.push({
+          name: blob.name,
+          displayName: blob.name.slice('email-templates/'.length),
+        });
+      }
+      return templates.sort((a, b) => a.name.localeCompare(b.name));
+    } catch (error) {
+      this.logger.error('Unable to list Gold membership email templates.', error);
+      throw new BadGatewayException('Unable to load email templates from storage. Please try again.');
+    }
+  }
+
+  private isEmailTemplateName(name: string): boolean {
+    return name.startsWith('email-templates/') &&
+      /\.html$/i.test(name) &&
+      !/[\\\u0000-\u001f\u007f]/.test(name) &&
+      name.split('/').every((part) => !!part && part !== '.' && part !== '..');
+  }
+
+  private async prepareGoldMembershipEmail(
+    memberId: string,
+    templateName: string,
+    expiresOn: string,
+  ) {
+    if (!process.env.MAILGUN_API_KEY || !process.env.MAILGUN_DOMAIN || !process.env.EMAIL_FROM) {
+      throw new BadRequestException('Email delivery is not configured.');
+    }
+    let member: TableEntityResult<Record<string, unknown>>;
+    try {
+      member = await this.getMembersTableClient().getEntity('members', memberId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Member account was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    const email = String(member.Email ?? '').trim();
+    if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email) || member.EmailValidated !== true) {
+      throw new BadRequestException('The member needs a verified email address before a membership email can be sent.');
+    }
+    const blob = this.getEmailTemplateContainerClient().getBlockBlobClient(templateName);
+    let html: string;
+    let subject: string;
+    try {
+      const properties = await blob.getProperties();
+      const length = properties.contentLength ?? 0;
+      if (!length || length > 60_000) {
+        throw new BadRequestException('Email templates must contain 1 to 60,000 UTF-8 bytes.');
+      }
+      subject = properties.metadata?.subject ?? 'Welcome to Gold Membership!';
+      if (!subject.trim() || subject.length > 200 || /[\r\n]/.test(subject)) {
+        throw new BadRequestException('The template subject must contain 1 to 200 characters without line breaks.');
+      }
+      const content = await blob.downloadToBuffer(0, length, {
+        conditions: { ifMatch: properties.etag },
+        abortSignal: AbortSignal.timeout(30_000),
+      });
+      html = content.toString('utf8');
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      if (this.isAzureNotFound(error)) throw new NotFoundException('The selected email template no longer exists. Reload the template list.');
+      this.logger.error('Unable to read Gold membership email template.', error);
+      throw new BadGatewayException('Unable to read the selected email template. Membership has not been changed.');
+    }
+    const values: Record<string, string> = {
+      expiresOn,
+      memberName: String(member.Name ?? ''),
+    };
+    html = html.replace(/\{\{([\s\S]*?)\}\}/g, (_match: string, key: string) => {
+      if (!Object.prototype.hasOwnProperty.call(values, key.trim())) {
+        throw new BadRequestException(`Unsupported email template placeholder: {{${key}}}. Use {{expiresOn}} or {{memberName}}.`);
+      }
+      return this.escapeHtml(values[key.trim()]);
+    });
+    const text = convert(html, { wordwrap: 100 });
+    if (!text.trim()) throw new BadRequestException('The email template must contain visible text.');
+    return { email, subject: subject.trim(), html, text };
+  }
+
+  async updateMemberGoldMembership(
+    sessionToken: string,
+    memberId: string,
+    input: unknown,
+  ): Promise<{
+    memberId: string;
+    goldMembershipExpiresOn: string | null;
+    emailStatus?: 'accepted' | 'unconfirmed';
+  }> {
+    await this.requireAdminSession(sessionToken);
+    this.validateMemberId(memberId);
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      throw new BadRequestException('A membership settings object is required.');
+    }
+
+    const settings = input as Record<string, unknown>;
+    const expiresOn = settings.expiresOn;
+    const templateName = settings.emailTemplate;
+    if (templateName !== undefined && (
+      typeof templateName !== 'string' || !this.isEmailTemplateName(templateName)
+    )) {
+      throw new BadRequestException('Select a valid HTML template from email-templates/.');
+    }
+    if (templateName !== undefined && expiresOn === null) {
+      throw new BadRequestException('Membership removal cannot send a Gold membership email.');
+    }
+    let goldMembershipExpiresOn: string | null;
+    if (expiresOn === undefined) {
+      const anniversary = new Date(Date.now());
+      const month = anniversary.getUTCMonth();
+      anniversary.setUTCFullYear(anniversary.getUTCFullYear() + 1);
+      if (anniversary.getUTCMonth() !== month) {
+        anniversary.setUTCDate(0);
+      }
+      goldMembershipExpiresOn = anniversary.toISOString().slice(0, 10);
+    } else if (expiresOn === null) {
+      goldMembershipExpiresOn = null;
+    } else {
+      const date = typeof expiresOn === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(expiresOn)
+        ? new Date(`${expiresOn}T00:00:00Z`)
+        : null;
+      if (
+        !date ||
+        !Number.isFinite(date.getTime()) ||
+        date.toISOString().slice(0, 10) !== expiresOn ||
+        expiresOn < new Date(Date.now()).toISOString().slice(0, 10)
+      ) {
+        throw new BadRequestException('Expiry must be a valid date today or later (YYYY-MM-DD, UTC).');
+      }
+      goldMembershipExpiresOn = expiresOn;
+    }
+
+    const email = typeof templateName === 'string' && goldMembershipExpiresOn
+      ? await this.prepareGoldMembershipEmail(memberId, templateName, goldMembershipExpiresOn)
+      : null;
+
+    try {
+      await this.getMembersTableClient().updateEntity(
+        {
+          partitionKey: 'members',
+          rowKey: memberId,
+          GoldMembershipExpiresOn: goldMembershipExpiresOn ?? '',
+        },
+        'Merge',
+      );
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new NotFoundException('Member account was not found.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    if (email) {
+      try {
+        await this.sendEmail(email.email, email.subject, email.text, email.html, 30_000);
+      } catch (error) {
+        this.logger.error('Gold membership saved, but email submission failed or is unconfirmed.', error);
+        return { memberId, goldMembershipExpiresOn, emailStatus: 'unconfirmed' };
+      }
+      return { memberId, goldMembershipExpiresOn, emailStatus: 'accepted' };
+    }
+    return { memberId, goldMembershipExpiresOn };
+  }
+
   async updateMemberRole(
     actorSessionToken: string,
     memberId: string,
@@ -4575,6 +4760,9 @@ export class AppService {
     return {
       memberId,
       name: String(entity.Name ?? ''),
+      ...(entity.GoldMembershipExpiresOn !== undefined
+        ? { goldMembershipExpiresOn: String(entity.GoldMembershipExpiresOn) || null }
+        : {}),
       age:
         showAge && storedAge !== null && Number.isFinite(storedAge)
           ? storedAge

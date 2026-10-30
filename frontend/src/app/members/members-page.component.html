@@ -34,13 +34,16 @@
     } @else if (filteredMembers().length) {
       <div class="members-grid" aria-live="polite">
         @for (member of filteredMembers(); track member.memberId) {
-          <a class="member-icon" [routerLink]="['/member-profile', member.memberId]" [attr.aria-label]="'View ' + member.name + ' profile'">
+          <a class="member-icon" [class.gold-member]="isGoldMembershipActive(member.goldMembershipExpiresOn)" [routerLink]="['/member-profile', member.memberId]" [attr.aria-label]="'View ' + member.name + ' profile' + (isGoldMembershipActive(member.goldMembershipExpiresOn) ? ' (Gold member)' : '')">
             @if (member.profileImageUrl) {
               <img [src]="member.profileImageUrl" [alt]="member.name" />
             } @else {
               <span class="member-initials" aria-hidden="true">{{ memberInitials(member.name) }}</span>
             }
             <strong>{{ member.name }}</strong>
+            @if (isGoldMembershipActive(member.goldMembershipExpiresOn)) {
+              <span class="gold-badge">Gold member</span>
+            }
             <span>{{ member.role }}</span>
           </a>
         }
