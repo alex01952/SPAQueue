@@ -9,6 +9,7 @@ import {
 } from 'ngx-image-cropper';
 import { getApiBaseUrl } from '../api-base-url';
 import { isValidPhilippineMobile, normalizePhilippineMobile, toPhilippineMobile } from '../philippine-mobile';
+import { ReclubNameValidatorDirective } from '../reclub-name-validator.directive';
 import {
   MemberAccountDetails,
   MemberAuthService,
@@ -30,7 +31,7 @@ interface EditableMemberProfile {
 
 @Component({
   selector: 'app-edit-profile-page',
-  imports: [FormsModule, ImageCropperComponent],
+  imports: [FormsModule, ImageCropperComponent, ReclubNameValidatorDirective],
   templateUrl: './edit-profile-page.component.html',
   styleUrl: './edit-profile-page.component.scss',
 })

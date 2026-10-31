@@ -13,7 +13,7 @@
       <button type="button" (click)="loadAccount()">Try again</button>
     </div>
   } @else {
-    <form #editForm="ngForm" class="edit-form" (ngSubmit)="saveProfile()">
+    <form #editForm="ngForm" class="edit-form" (ngSubmit)="!editForm.pending && editForm.valid && saveProfile()">
       <section class="form-panel">
         <div class="panel-heading">
           <p class="eyebrow">Account</p>
@@ -35,7 +35,16 @@
           }
           <label [class.field-invalid]="editForm.submitted && gender.invalid"><span>Gender</span><select #gender="ngModel" name="gender" [(ngModel)]="profile.gender" required><option value="" disabled>Select</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select><small>Select a gender.</small></label>
           <label><span>DUPR ID</span><input name="duprId" [(ngModel)]="profile.duprId" /></label>
-          <label><span>Reclub ID</span><input name="reClubId" [(ngModel)]="profile.reClubId" /></label>
+          <label [class.field-invalid]="reClubId.invalid">
+            <span>Reclub Name</span>
+            <input #reClubId="ngModel" name="reClubId" [(ngModel)]="profile.reClubId" appReclubNameValidator="profile" aria-describedby="profile-reclub-help profile-reclub-status" [attr.aria-invalid]="reClubId.invalid ? 'true' : null" />
+            <small id="profile-reclub-help" class="field-help">Enter your name as it appears in Reclub. If another player here already uses it, update your name in Reclub to a unique name first. Capitalization matters; surrounding spaces are ignored.</small>
+            <small id="profile-reclub-status" class="field-help" aria-live="polite">
+              @if (reClubId.pending) { Checking Reclub Name... }
+              @else if (reClubId.hasError('reclubNameTaken')) { This Reclub Name is already used. Update your name in Reclub to a unique name, then enter it here. }
+              @else if (reClubId.hasError('reclubNameCheckFailed')) { Unable to check this Reclub Name. Change the field to retry, or try again later. }
+            </small>
+          </label>
           <div class="image-upload full-width">
             <div class="current-image">
               <span>Profile image</span>
@@ -92,7 +101,7 @@
       }
 
       <div class="form-actions">
-        <button type="submit" class="primary" [disabled]="editForm.invalid || isSaving() || (sourceProfileImage() && !selectedProfileImage())">{{ isSaving() ? 'Saving...' : 'Save changes' }}</button>
+        <button type="submit" class="primary" [disabled]="editForm.invalid || editForm.pending || isSaving() || (sourceProfileImage() && !selectedProfileImage())">{{ isSaving() ? 'Saving...' : 'Save changes' }}</button>
         <button type="button" class="secondary" (click)="viewProfile()">View profile</button>
       </div>
     </form>

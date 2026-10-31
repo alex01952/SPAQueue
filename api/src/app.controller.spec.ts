@@ -683,6 +683,7 @@ describe('AppController', () => {
       const updateEntity = jest.fn().mockResolvedValue(undefined);
       jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
         updateEntity,
+        listEntities: jest.fn(() => (async function* () {})()),
         getEntity: jest.fn().mockResolvedValue({
           Name: 'Updated Member',
           Email: 'original@example.com',

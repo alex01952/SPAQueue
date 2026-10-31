@@ -1,0 +1,15 @@
+:host { display: block; color: var(--text-primary); }
+.points-shell { max-width: 1000px; margin: auto; padding: 28px 20px; }
+section { margin-top: 20px; padding: 20px; background: #fff9f0; border: 1px solid #d8cbb7; border-radius: 8px; }
+label { display: grid; gap: 6px; margin: 12px 0; }
+input, select, textarea, button { font: inherit; padding: 10px; border: 1px solid #b7a78e; border-radius: 6px; }
+input, select, textarea { min-width: 0; max-width: 100%; }
+button { cursor: pointer; background: #fae7a0; color: #493300; }
+button:disabled { cursor: not-allowed; opacity: .6; }
+fieldset { border: 0; padding: 0; min-width: 0; }
+.error { color: #9e3e2b; }
+.success { color: #356b3e; }
+.balance { font-size: 1.25rem; }
+.history-scroll { overflow-x: auto; margin: 16px 0; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+td, th { padding: 10px; border-bottom: 1px solid #d8cbb7; vertical-align: top; overflow-wrap: anywhere; }

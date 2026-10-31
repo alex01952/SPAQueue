@@ -127,6 +127,24 @@ export class AppController {
     return this.appService.validateDashboardPassword(password ?? '');
   }
 
+  @Get('members/reclub-name-availability')
+  @Header('Cache-Control', 'private, no-store')
+  getReclubNameAvailability(@Query('name') name: unknown) {
+    return this.appService.getReclubNameAvailability(name);
+  }
+
+  @Get('members/me/reclub-name-availability')
+  @Header('Cache-Control', 'private, no-store')
+  async getMyReclubNameAvailability(
+    @Query('name') name: unknown,
+    @Headers('cookie') cookieHeader = '',
+  ) {
+    const session = await this.appService.getMemberSession(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+    return this.appService.getReclubNameAvailability(name, session.member.memberId);
+  }
+
   @Post('members/register')
   @UseInterceptors(
     FileInterceptor('profileImage', {

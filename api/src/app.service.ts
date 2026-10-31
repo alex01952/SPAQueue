@@ -1185,6 +1185,7 @@ export class AppService {
     profileImage?: MemberProfileImageUploadInput,
   ): Promise<MemberRegistrationResult> {
     const member = this.validateMemberRegistration(input);
+    await this.requireAvailableReclubName(member.reClubId);
     const tableClient = this.getMembersTableClient();
     const emailKey = Buffer.from(member.email).toString('base64url');
     const passwordHash = member.password
@@ -4676,6 +4677,8 @@ export class AppService {
       throw this.createMemberAuthenticationStorageException(error);
     }
 
+    await this.requireAvailableReclubName(member.reClubId, memberId);
+
     const playerStatsChanged = this.hasPlayerStatsChanged(
       existingMember,
       member,
@@ -6432,6 +6435,42 @@ export class AppService {
       profileImageUrl: input.profileImageUrl?.trim() ?? '',
       skills,
     };
+  }
+
+  async getReclubNameAvailability(name: unknown, excludedMemberId?: string) {
+    if (typeof name !== 'string') {
+      throw new BadRequestException('Enter a Reclub Name.');
+    }
+    const normalizedName = name.trim();
+    if (!normalizedName) return { available: true };
+    try {
+      const members = this.getMembersTableClient().listEntities({
+        queryOptions: {
+          filter: "PartitionKey eq 'members'",
+          select: ['RowKey', 'ReclubId'],
+        },
+      });
+      for await (const member of members) {
+        if (
+          member.rowKey !== excludedMemberId &&
+          typeof member.ReclubId === 'string' &&
+          member.ReclubId.trim() === normalizedName
+        ) {
+          return { available: false };
+        }
+      }
+      return { available: true };
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+  }
+
+  private async requireAvailableReclubName(name = '', excludedMemberId?: string) {
+    if (!(await this.getReclubNameAvailability(name, excludedMemberId)).available) {
+      throw new ConflictException(
+        'This Reclub Name is already used by another player. Update your name in Reclub to a unique name, then enter it here.',
+      );
+    }
   }
 
   private validateMemberProfileUpdate(input: MemberProfileUpdateInput) {

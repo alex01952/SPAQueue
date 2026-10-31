@@ -1,0 +1,97 @@
+<main class="points-shell">
+  <h1>Member points</h1>
+  <p>Manually award points to active Gold members. Activity dates and rental slots use Philippine time.</p>
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (message()) { <p class="success" role="status">{{ message() }}</p> }
+  <button type="button" (click)="load()" [disabled]="loading() || saving()">Reload members and settings</button>
+  @if (loading()) { <p role="status">Loading members and settings...</p> }
+  @if (config()) {
+    <section aria-label="Select member">
+      <label>Search members <input [ngModel]="search()" (ngModelChange)="search.set($event)" [disabled]="saving()" /></label>
+      <label>Member
+        <select [ngModel]="selected()?.memberId ?? ''" (ngModelChange)="selectMember($event)" [disabled]="saving()">
+          <option value="">Select a member</option>
+          @for (member of filteredMembers(); track member.memberId) {
+            <option [value]="member.memberId">{{ member.name }}{{ isGoldMembershipActive(member.goldMembershipExpiresOn) ? ' (Gold)' : '' }}</option>
+          }
+        </select>
+      </label>
+    </section>
+  }
+  @if (selected(); as member) {
+    <section>
+      <h2>{{ member.name }}</h2>
+      @if (history(); as data) { <p class="balance">Total points: <strong>{{ data.balance }}</strong></p> }
+      @if (!isGoldMembershipActive(member.goldMembershipExpiresOn)) {
+        <p>Only members with an active Gold membership can receive new points. Existing history is retained.</p>
+      } @else {
+        <form #awardForm="ngForm" (ngSubmit)="awardForm.valid && save()">
+          <fieldset [disabled]="saving()">
+            <legend>Award points</legend>
+            <label>Source
+              <select name="source" [(ngModel)]="form.source" required>
+                <option value="OpenPlayParticipation">Open Play Participation</option>
+                <option value="CourtRental">Court Rental</option>
+                <option value="CustomAward">Custom Award</option>
+              </select>
+            </label>
+            <label>Date earned <input type="date" name="activityDate" [(ngModel)]="form.activityDate" [max]="today" required /></label>
+            @if (form.source === 'OpenPlayParticipation') {
+              <label>Open Play schedule name <input name="scheduleName" [(ngModel)]="form.scheduleName" maxlength="200" required /></label>
+              <p>Use a distinct schedule name for each session on the same day. The same date and schedule cannot be awarded twice to one member.</p>
+              <p>Points: {{ config()?.openPlayPoints ?? 'Not configured: set Open_Play_Point' }}</p>
+            } @else if (form.source === 'CourtRental') {
+              <label>Hourly time slot
+                <select name="startHour" [(ngModel)]="form.startHour" required>
+                  @for (slot of slots; track slot.hour) { <option [ngValue]="slot.hour">{{ slot.label }}</option> }
+                </select>
+              </label>
+              <label>Court number <input type="number" name="courtNumber" [(ngModel)]="form.courtNumber" min="1" step="1" required /></label>
+              <p>One award per member, date, hourly slot, and court. Enter each hour of a multi-hour rental separately.</p>
+              <p>Points: {{ config()?.courtRentalPoints ?? 'Not configured: set Court_Rental_Point' }}</p>
+            } @else {
+              <label>Custom points <input type="number" name="points" [(ngModel)]="form.points" min="1" step="1" required /></label>
+              <label>Reason <textarea name="reason" [(ngModel)]="form.reason" maxlength="1000" required></textarea></label>
+              <p>A Custom Award is a separate earning source. Check history first; its date and reason do not identify a unique activity.</p>
+            }
+            <button type="submit" [disabled]="awardForm.invalid || saving() || loadingHistory() || (form.source === 'OpenPlayParticipation' && !config()?.openPlayPoints) || (form.source === 'CourtRental' && !config()?.courtRentalPoints)">
+              {{ saving() ? 'Awarding...' : 'Award points' }}
+            </button>
+          </fieldset>
+        </form>
+      }
+    </section>
+    <section aria-labelledby="history-title">
+      <h2 id="history-title">Award history</h2>
+      <button type="button" (click)="loadHistory()" [disabled]="loadingHistory() || saving()">Reload history</button>
+      @if (loadingHistory()) { <p role="status">Loading history...</p> }
+      @if (historyError()) { <p class="error" role="alert">{{ historyError() }}</p> }
+      @if (history(); as data) {
+        @if (!data.awards.length) { <p>No points awarded yet.</p> }
+        <p>History is listed by date earned, newest first. Activities on the same date have no time-based ordering.</p>
+        <div class="history-scroll">
+          <table>
+            <thead><tr><th>Date earned</th><th>Activity</th><th>Points</th><th>Awarded by</th><th>Recorded (Philippine time)</th></tr></thead>
+            <tbody>
+              @for (award of data.awards; track award.awardId) {
+                <tr>
+                  <td>{{ award.activityDate }}</td>
+                  <td>{{ sources[award.source] }}
+                    @if (award.scheduleName) { <div>{{ award.scheduleName }}</div> }
+                    @if (award.startHour !== null) { <div>Court {{ award.courtNumber }}: {{ slotLabel(award.startHour) }}</div> }
+                    @if (award.reason) { <div>{{ award.reason }}</div> }
+                  </td>
+                  <td>+{{ award.points }}</td><td>{{ award.createdByName }}</td>
+                  <td>{{ award.createdAt | date:'medium':'+0800' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        @if (data.continuationToken) {
+          <button type="button" (click)="loadHistory(true)" [disabled]="loadingHistory() || saving()">Load more history</button>
+        }
+      }
+    </section>
+  }
+</main>

@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ImageCroppedEvent, ImageCropperComponent, ImageTransform } from 'ngx-image-cropper';
 import { getApiBaseUrl } from '../api-base-url';
 import { isValidPhilippineMobile, toPhilippineMobile } from '../philippine-mobile';
+import { ReclubNameValidatorDirective } from '../reclub-name-validator.directive';
 
 declare const TERMS_AND_CONDITIONS_URL: string;
 
@@ -27,7 +28,7 @@ interface MemberRegistration {
 
 @Component({
   selector: 'app-member-registration-page',
-  imports: [FormsModule, ImageCropperComponent],
+  imports: [FormsModule, ImageCropperComponent, ReclubNameValidatorDirective],
   templateUrl: './member-registration-page.component.html',
   styleUrl: './member-registration-page.component.scss',
 })

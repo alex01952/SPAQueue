@@ -30,9 +30,10 @@ describe('Balance staff route permissions', () => {
     const result = TestBed.runInInjectionContext(() => memberRoleGuard(snapshot, state));
     return isObservable(result) ? firstValueFrom(result) : result;
   }
-  it('allows balance staff only on the balance-management role-protected route', async () => {
+  it('allows balance staff on balance and points management but not admin-only routes', async () => {
     expect(await evaluate('member-balances')).toBe(true);
-    const others = routes.filter((route) => route.path !== 'member-balances' && route.canActivate?.includes(memberRoleGuard));
+    expect(await evaluate('member-points')).toBe(true);
+    const others = routes.filter((route) => !['member-balances', 'member-points'].includes(route.path ?? '') && route.canActivate?.includes(memberRoleGuard));
     expect(others.length).toBeGreaterThan(0);
     for (const route of others) {
       const result = await evaluate(route.path!);
@@ -43,12 +44,15 @@ describe('Balance staff route permissions', () => {
   it('keeps admins authorized and denies normal members, club owners and unauthenticated users', async () => {
     role.set('admin');
     expect(await evaluate('member-balances')).toBe(true);
+    expect(await evaluate('member-points')).toBe(true);
     for (const denied of ['member', 'club-owner'] as const) {
       role.set(denied);
       expect(await evaluate('member-balances')).not.toBe(true);
+      expect(await evaluate('member-points')).not.toBe(true);
     }
     role.set('balance-staff');
     authenticated.set(false);
     expect(await evaluate('member-balances')).not.toBe(true);
+    expect(await evaluate('member-points')).not.toBe(true);
   });
 });

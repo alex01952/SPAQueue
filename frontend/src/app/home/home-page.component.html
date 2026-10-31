@@ -78,6 +78,14 @@
     </a>
 
     @if (member()?.role === 'admin' || member()?.role === 'balance-staff') {
+      <a routerLink="/member-points" class="menu-item">
+        <span class="menu-index">16</span>
+        <span class="menu-copy">
+          <strong>Member points</strong>
+          <small>Award Gold member points and review activity history.</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
       <a routerLink="/member-balances" class="menu-item">
         <span class="menu-index">10</span>
         <span class="menu-copy">

@@ -33,6 +33,13 @@ import { TournamentLiveDrawPageComponent } from './tournaments/tournament-live-d
 
 export const routes: Routes = [
   {
+    path: 'member-points',
+    loadComponent: () => import('./member-points/member-points-page.component').then((module) => module.MemberPointsPageComponent),
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin', 'balance-staff'] },
+    title: 'Member Points',
+  },
+  {
     path: '',
     pathMatch: 'full',
     component: LandingPageComponent,

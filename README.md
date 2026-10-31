@@ -19,6 +19,16 @@ This keeps the first version easy to change while preserving an API shape you ca
 - Shows a suggested next game from the ready, non-playing players
 - Tracks recent completed games
 
+## Reclub Names
+
+Registration and profile editing display **Reclub Name**, while API payloads still use `reClubId` and existing Azure Table member entities still store `ReclubId`. Enter the name used in Reclub, not an identifier. If another account here already uses that name, players must update their name in Reclub to a unique name and use it here. The application does not change or verify names on Reclub itself.
+
+Both forms check availability as the name is entered and block submission while the check is pending, fails, or finds a duplicate. Registration retains its required field; the edit form still allows an empty name. Comparisons are **case-sensitive** and ignore surrounding whitespace: `Alex` and `alex` are different, but ` Alex ` and `Alex` are the same. Profile checks exclude the signed-in member's own record, so keeping your name is allowed unless another account also has it.
+
+`GET /members/reclub-name-availability?name=...` returns only `{ available }` for registration. `GET /members/me/reclub-name-availability?name=...` requires a member session and excludes only that session's member ID. Both disable caching. The registration and profile-save APIs repeat the check and return `409 Conflict` for duplicate names; storage failures block saving rather than treating the name as available. Checks include all member statuses, not only approved accounts.
+
+This uses the existing table without schema changes, reservation entities, or database uniqueness constraints. Each nonempty-name check reads `RowKey` and `ReclubId` from the `members` partition and trims existing values for compatibility. It is not an atomic uniqueness guarantee: simultaneous submissions or direct storage edits can still introduce duplicates. Existing duplicates are not migrated automatically.
+
 ## Balance staff and email reminders
 
 The `balance-staff` account role can open **Member balances** (`/member-balances`) and list, add, edit and delete member balances, and send balance reminder emails. It does not grant other administrator pages or APIs; normal member features remain available. Administrators retain all balance permissions. To assign/revoke access, sign in as an admin, open **Member balances**, select the staff member and choose **Grant balance staff access** or **Remove balance staff access**. These controls are only shown for regular member/balance-staff accounts, not admins or club owners. Roles are mutually exclusive, and only admins can change them through `PATCH /members/:memberId/role`.
@@ -26,6 +36,37 @@ The `balance-staff` account role can open **Member balances** (`/member-balances
 Select a member and click **Remind by email** to email all current unpaid balance records, dates, types, amounts and the total in PHP. Existing balances have no paid flag: settled records should be removed or adjusted using the existing controls. Credits/negative adjustments are included in the total; reminders require a positive outstanding total. The email uses the member's stored email address and existing Mailgun configuration (`MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `EMAIL_FROM`, optional `MAILGUN_BASE_URL`), and links to **My balances** using the existing public application URL.
 
 Each member can receive at most one reminder trigger in any **24-hour period**, shared across all admins, staff, tabs and API instances. The next allowed time is displayed in the staff member's local time. `GET /members/:memberId/balance-reminder` reads the cooldown; `POST /members/:memberId/balance-reminder` triggers delivery. Both require admin/balance-staff access. Reminder reservations are stored in the existing members table, partition `balance-reminders`, row key equal to the member ID; no new table or credentials are needed. Atomic creation/ETag updates prevent simultaneous triggers. The reservation is saved **before** contacting Mailgun, so a failed or uncertain delivery attempt also consumes the 24-hour window to prevent accidental duplicate emails. Delivery errors are surfaced explicitly and never reported as successful. Reload reminder status after an interrupted request to check its cooldown.
+
+## Manual member points
+
+Admins and `balance-staff` can open **Member points** from Member Home (`/member-points`). Select a member to review their balance and paginated award history. Only members with currently active Gold membership can receive new awards; history remains accessible to staff after expiry. This first release has no member self-service points page, automatic awards, redemption, editing, deletion, or reversals.
+
+The existing storage account setting `MEMBERS_AZURE_STORAGE_ACCOUNT` is used with `DefaultAzureCredential`. Set `MEMBER_POINTS_AZURE_TABLE=MemberPoints` (also the default); create the table before use and grant the API identity **Storage Table Data Contributor** access. No changes are made to member entities. Configure these case-sensitive environment variables as positive whole numbers, then restart/redeploy the API:
+
+```dotenv
+Open_Play_Point=10
+Court_Rental_Point=5
+```
+
+These are illustrative values, not application defaults. Missing values disable that standard award type; invalid configured values are reported explicitly. A Custom Award still works with absent standard settings. Standard amounts come only from the server configuration; the actual awarded amount is stored permanently in the ledger, so subsequent configuration changes do not alter history.
+
+Three manual sources are supported:
+
+- **Open Play Participation:** date earned and schedule name, using `Open_Play_Point`. Each member can earn once per date + schedule name. Leading/trailing spaces, repeated whitespace, and capitalization are normalized for duplicate detection. Different sessions on one date must have distinct names. Renaming a session creates a different identity, so staff must use consistent names.
+- **Court Rental:** date earned, start hour (`0`–`23`), and positive whole-number court number, using `Court_Rental_Point`. Each slot is exactly one hour; `16` means 4–5 PM, and `23` means 11 PM–midnight the next day. Enter each hour of a multi-hour rental separately. Duplicate detection uses member + date + hour + court.
+- **Custom Award:** date earned, a positive whole-number amount and a required reason (up to 1,000 characters). This is a separate source, not a way to override a standard activity's duplicate check. Its request ID prevents retry duplicates; staff must check history to avoid entering the same discretionary award again as a new request.
+
+Activity dates are `YYYY-MM-DD` dates in **Asia/Manila**, with no future dates. They must be on or before Gold expiry. Current Gold eligibility follows the application's existing inclusive UTC expiry-date rule. A membership start date is not stored, so historical awards are not validated against when Gold membership began. Separate UTC audit timestamps record when staff entered the award, along with their member ID and name.
+
+API endpoints (admin/balance-staff session required):
+
+- `GET /member-points/config` returns `{ openPlayPoints, courtRentalPoints }`.
+- `GET /member-points/:memberId?continuation=...` returns `{ memberId, memberName, goldMembershipExpiresOn, balance, awards, continuationToken }`, with up to 50 awards per page, newest activity date first. Same-day activities have deterministic key ordering, not entry-time ordering.
+- `POST /member-points/:memberId` accepts `{ requestId, source, activityDate, scheduleName? , startHour?, courtNumber?, points?, reason? }`. Use a UUID request ID. Retry the same request with unchanged details after an uncertain response; do not generate a new ID. Reusing an ID with different details or awarding a duplicate standard activity returns `409 Conflict`. Successful retries return the original award, including its original amount.
+
+`MemberPoints` uses the member ID as `PartitionKey`. Each immutable `award:...` ledger entity stores `TransactionType=Earn`, the source, activity details, points, reason, request ID and actor audit fields. A `request:...` entity tracks idempotency, and a `balance` entity maintains the total. These three writes occur in a single Azure Table transaction; ETag checks and bounded conflict retries prevent lost balance updates. A duplicate award never increments the balance. Missing-table and permission failures are surfaced, not treated as an empty history.
+
+The UI prevents double submission and reuses an unconfirmed request ID while the page remains open. Check history before reloading or leaving after an uncertain submission, especially for Custom Awards: a new page session generates a new request ID. Staff should verify all details before awarding because correction and redemption workflows are intentionally deferred.
 
 ## Gold (paid) memberships
 

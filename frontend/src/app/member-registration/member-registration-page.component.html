@@ -5,7 +5,7 @@
     <p>Complete your member profile and rate each part of your game.</p>
   </header>
 
-  <form #registrationForm="ngForm" class="registration-form" (ngSubmit)="submitRegistration()">
+  <form #registrationForm="ngForm" class="registration-form" (ngSubmit)="!registrationForm.pending && registrationForm.valid && submitRegistration()">
     <section class="form-panel">
       <div class="panel-heading">
         <div>
@@ -29,7 +29,17 @@
         }
         <label [class.field-invalid]="registrationForm.submitted && gender.invalid"><span>Biological gender <b aria-hidden="true">*</b></span><select #gender="ngModel" name="gender" [(ngModel)]="member.gender" required><option value="" disabled>Select</option><option>Female</option><option>Male</option></select><small>Select Male or Female.</small></label>
         <label [class.field-invalid]="registrationForm.submitted && duprId.invalid"><span>DUPR ID <b aria-hidden="true">*</b></span><input #duprId="ngModel" name="duprId" [(ngModel)]="member.duprId" required /><small>DUPR ID is required.</small></label>
-        <label [class.field-invalid]="registrationForm.submitted && reClubId.invalid"><span>Reclub ID <b aria-hidden="true">*</b></span><input #reClubId="ngModel" name="reClubId" [(ngModel)]="member.reClubId" required /><small>Reclub ID is required.</small></label>
+        <label [class.field-invalid]="(registrationForm.submitted || reClubId.dirty || reClubId.touched) && reClubId.invalid">
+          <span>Reclub Name <b aria-hidden="true">*</b></span>
+          <input #reClubId="ngModel" name="reClubId" [(ngModel)]="member.reClubId" appReclubNameValidator="registration" required aria-describedby="registration-reclub-help registration-reclub-status" [attr.aria-invalid]="reClubId.invalid ? 'true' : null" />
+          <small id="registration-reclub-help" class="field-help">Enter your name as it appears in Reclub. If another player here already uses it, update your name in Reclub to a unique name first. Capitalization matters; surrounding spaces are ignored.</small>
+          <small id="registration-reclub-status" class="field-help" aria-live="polite">
+            @if (reClubId.pending) { Checking Reclub Name... }
+            @else if (reClubId.hasError('reclubNameTaken')) { This Reclub Name is already used. Update your name in Reclub to a unique name, then enter it here. }
+            @else if (reClubId.hasError('reclubNameCheckFailed')) { Unable to check this Reclub Name. Change the field to retry, or try again later. }
+            @else if ((registrationForm.submitted || reClubId.touched) && reClubId.hasError('required')) { Reclub Name is required. }
+          </small>
+        </label>
         <div class="image-upload full-width">
           <label>
             <span>Profile image</span>
@@ -121,7 +131,7 @@
       <small>You must agree before registering.</small>
     </label>
 
-    <button type="submit" class="submit-button" [disabled]="registrationForm.invalid || !passwordsMatch() || isSubmitting() || (sourceProfileImage() && !selectedProfileImage())">{{ isSubmitting() ? 'Registering...' : 'Register' }}</button>
+    <button type="submit" class="submit-button" [disabled]="registrationForm.invalid || registrationForm.pending || !passwordsMatch() || isSubmitting() || (sourceProfileImage() && !selectedProfileImage())">{{ isSubmitting() ? 'Registering...' : 'Register' }}</button>
     @if (registrationMessage()) {
       <p class="status-banner">{{ registrationMessage() }}</p>
     }
