@@ -45,14 +45,17 @@ describe('Balance staff route permissions', () => {
     role.set('admin');
     expect(await evaluate('member-balances')).toBe(true);
     expect(await evaluate('member-points')).toBe(true);
+    expect(await evaluate('admin')).toBe(true);
     for (const denied of ['member', 'club-owner'] as const) {
       role.set(denied);
       expect(await evaluate('member-balances')).not.toBe(true);
       expect(await evaluate('member-points')).not.toBe(true);
+      expect(await evaluate('admin')).not.toBe(true);
     }
     role.set('balance-staff');
     authenticated.set(false);
     expect(await evaluate('member-balances')).not.toBe(true);
     expect(await evaluate('member-points')).not.toBe(true);
+    expect(await evaluate('admin')).not.toBe(true);
   });
 });

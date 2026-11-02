@@ -29,6 +29,12 @@ Both forms check availability as the name is entered and block submission while 
 
 This uses the existing table without schema changes, reservation entities, or database uniqueness constraints. Each nonempty-name check reads `RowKey` and `ReclubId` from the `members` partition and trims existing values for compatibility. It is not an atomic uniqueness guarantee: simultaneous submissions or direct storage edits can still introduce duplicates. Existing duplicates are not migrated automatically.
 
+## Member and admin menus
+
+Member Home groups administrator-only destinations under **Admin** (`/admin`): **Rewards store**, **Email announcements**, **Queueing**, **Upload participation**, **Registration approvals**, **Manage clubs**, and **Manage tournaments**. Open **Member Home → Admin → Rewards store** to configure rewards/merchant emails and view all redemptions. The Admin page and its destinations require an authenticated `admin` account; other roles cannot open them directly.
+
+**Member points** and **Member balances** remain on Member Home for both admins and balance staff. **My points & rewards** remains on Member Home for all members. Existing destination URLs continue to work, and admin destinations include an **Admin** breadcrumb for returning to the grouped menu.
+
 ## Balance staff and email reminders
 
 The `balance-staff` account role can open **Member balances** (`/member-balances`) and list, add, edit and delete member balances, and send balance reminder emails. It does not grant other administrator pages or APIs; normal member features remain available. Administrators retain all balance permissions. To assign/revoke access, sign in as an admin, open **Member balances**, select the staff member and choose **Grant balance staff access** or **Remove balance staff access**. These controls are only shown for regular member/balance-staff accounts, not admins or club owners. Roles are mutually exclusive, and only admins can change them through `PATCH /members/:memberId/role`.
@@ -39,7 +45,7 @@ Each member can receive at most one reminder trigger in any **24-hour period**, 
 
 ## Manual member points
 
-Admins and `balance-staff` can open **Member points** from Member Home (`/member-points`). Select a member to review their balance and paginated award history. Only members with currently active Gold membership can receive new awards; history remains accessible to staff after expiry. This first release has no member self-service points page, automatic awards, redemption, editing, deletion, or reversals.
+Admins and `balance-staff` can open **Member points** from Member Home (`/member-points`). Select a member to review available points, tokens, and paginated award history, including converted/fully-used amounts. Only members with currently active Gold membership can receive new awards; history remains accessible to staff after expiry. Member self-service conversion and redemption are described below. Automatic awards, award editing/deletion, and reversals are not implemented.
 
 The existing storage account setting `MEMBERS_AZURE_STORAGE_ACCOUNT` is used with `DefaultAzureCredential`. Set `MEMBER_POINTS_AZURE_TABLE=MemberPoints` (also the default); create the table before use and grant the API identity **Storage Table Data Contributor** access. No changes are made to member entities. Configure these case-sensitive environment variables as positive whole numbers, then restart/redeploy the API:
 
@@ -61,12 +67,81 @@ Activity dates are `YYYY-MM-DD` dates in **Asia/Manila**, with no future dates. 
 API endpoints (admin/balance-staff session required):
 
 - `GET /member-points/config` returns `{ openPlayPoints, courtRentalPoints }`.
-- `GET /member-points/:memberId?continuation=...` returns `{ memberId, memberName, goldMembershipExpiresOn, balance, awards, continuationToken }`, with up to 50 awards per page, newest activity date first. Same-day activities have deterministic key ordering, not entry-time ordering.
+- `GET /member-points/:memberId?continuation=...` returns `{ memberId, memberName, goldMembershipExpiresOn, balance, tokens, awards, continuationToken }`, with up to 50 awards per page, newest activity date first. `balance` is the available, unconverted points. Each award includes `convertedPoints` and `used`. Same-day activities have deterministic key ordering, not entry-time ordering.
 - `POST /member-points/:memberId` accepts `{ requestId, source, activityDate, scheduleName? , startHour?, courtNumber?, points?, reason? }`. Use a UUID request ID. Retry the same request with unchanged details after an uncertain response; do not generate a new ID. Reusing an ID with different details or awarding a duplicate standard activity returns `409 Conflict`. Successful retries return the original award, including its original amount.
 
 `MemberPoints` uses the member ID as `PartitionKey`. Each immutable `award:...` ledger entity stores `TransactionType=Earn`, the source, activity details, points, reason, request ID and actor audit fields. A `request:...` entity tracks idempotency, and a `balance` entity maintains the total. These three writes occur in a single Azure Table transaction; ETag checks and bounded conflict retries prevent lost balance updates. A duplicate award never increments the balance. Missing-table and permission failures are surfaced, not treated as an empty history.
 
-The UI prevents double submission and reuses an unconfirmed request ID while the page remains open. Check history before reloading or leaving after an uncertain submission, especially for Custom Awards: a new page session generates a new request ID. Staff should verify all details before awarding because correction and redemption workflows are intentionally deferred.
+Missing request markers and balances are normal for a member's first award. The API recognizes Azure's `404 ResourceNotFound` in either the top-level error code or the SDK's `details.odataError.code`; these missing entities must not cause a 502. A `TableNotFound`, permission failure, or unrecognized storage error still fails explicitly and is logged by the API.
+
+The staff UI prevents double submission and reuses an unconfirmed award request ID while the page remains open. Check history before reloading or leaving after an uncertain award submission, especially for Custom Awards: a new page session generates a new award request ID. Staff should verify all details before awarding because correction workflows are intentionally deferred.
+
+## Member tokens and rewards store
+
+Every signed-in member can open **My points & rewards** (`/my-rewards`) from Member Home to see their own available points, tokens, earning records, token conversions, and reward redemptions. **Active Gold membership is required for new conversions and redemptions.** Expiry does not delete balances or history; they become usable again after Gold renewal.
+
+- **Conversion:** 1 point = 1 token. Members choose a positive whole-number amount, up to their available points. The chosen points are deducted and the same number of tokens credited atomically. Partial conversions leave the rest available.
+- **Redemption:** members select an enabled store item and explicitly confirm spending its token cost for **one** item. Tokens are deducted atomically and an immutable transaction snapshot records the item name, image, price, member, merchant email, and timestamp. There are no refunds, reversals, stock limits, or merchant fulfillment tracking in this release.
+- **History:** each history type is paginated (50 records). Conversions/redemptions are newest first; earning history retains activity-date ordering. New operations cannot overspend even across concurrent tabs or API instances. UUID request IDs make uncertain financial requests safe to replay; changed details with the same request ID are rejected.
+
+### Storage and used earning records
+
+Token balances and transactions live in **MemberPoints**, in the same member partition as points, rather than a separate table. Azure Table transactions cannot atomically move balances across tables or partitions. The **Store** table contains only the catalog, with `PartitionKey=items`; set `STORE_AZURE_TABLE=Store` (the default) and create it before use. The API identity needs **Storage Table Data Contributor** access to both tables.
+
+The existing `balance` entity retains `Balance` (available points) and adds `Tokens`, `ConvertedPoints`, `TokensSpent`, and `LifetimePoints`. Financial operations atomically write the balance, a `conversion:...` or `redemption:...` transaction, and a `wallet-request:...` idempotency marker, protected by the balance ETag. Awarding new points preserves token balances.
+
+An earning record's original points/activity are never overwritten. New awards receive stable `EarnedStart`/`EarnedEnd` ranges in the lifetime point sequence. Conversion transactions store the consumed `PointRangeStart`/`PointRangeEnd`. An award's converted amount and fully-used status are calculated from these ranges and the converted total; `used=true` means **all** points in that award were converted into tokens, not that those tokens were already spent. This supports partial use and histories larger than Azure's 100-operation transaction limit without unsafe multi-batch updates.
+
+Pre-existing awards without ranges are assigned a stable virtual sequence by their recorded timestamp, then row key, before newer ranged awards. They remain unchanged in storage; legacy awards may require a partition scan when calculating use. Existing balances must match their awarded points, as in the original manual-award feature. Do not edit financial entities directly or run older API versions concurrently with the updated wallet API.
+
+### Admin catalog and images
+
+Only admins can open **Rewards store** (`/store-admin`) to add or edit:
+
+- Item name (up to 150 characters).
+- Image uploaded through the page (PNG, JPEG, GIF, or WebP, up to 5 MB).
+- Merchant **To emails** (at least one), plus optional **CC emails** and **BCC emails** for the merchant receipt. Enter plain addresses separated by commas or semicolons; each field supports up to 10,000 characters, with at most 254 per address. Whitespace is trimmed and case-insensitive duplicates within each field are removed. Invalid addresses or line breaks block saving.
+- Positive whole-number token cost.
+- Enabled/disabled setting. Disable an item instead of deleting its history.
+
+Images use the existing `OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT` and `OP_PARTICIPATION_AZURE_CONTAINER`, under `store-images/`. The API identity needs **Storage Blob Data Contributor** access, and image URLs need the same public-read setup as existing profile images. Replaced and unused uploaded images are retained; they are not automatically deleted.
+
+Catalog edits use ETags to prevent overwriting concurrent admin changes. Checkout verifies the catalog version selected by the member and uses the server price, never a submitted token amount. A changed/disabled item requires refreshing before starting a new redemption. The saved transaction uses the catalog snapshot read during checkout; edits made after that read do not retroactively change it. Items have no stock limit.
+
+The same admin page includes **All redemptions**, with the member's name/email and ID, reward name, merchant To/CC/BCC emails, token cost, Philippine-time timestamp, transaction reference, and both notification statuses. Merchant configuration remains per reward (its receipt recipients), not a separate merchant-account directory. Redemption details come from the original transaction snapshot, so changing a merchant or disabling a reward does not change historical receipts.
+
+Existing rewards with one `MerchantEmail` continue working. Recipient lists remain strings in Azure Table Storage: `MerchantEmail` holds the normalized To list, with `MerchantCc` and `MerchantBcc` added on save and copied into new redemption snapshots. Missing copy fields on older rewards/redemptions mean no copies; no migration is required. Merchant recipient fields, including BCC, are available only in admin catalog/history responses, not member catalog/history responses.
+
+The list reads all member partitions in `MemberPoints` using bounded pages of up to 50 records. Use **Load more redemptions** to continue, and **Refresh redemptions** to restart. Azure orders these records by member partition, then newest redemption within that member; this is **not** a global newest-first feed. Cross-partition filtering can scan nonmatching entities and return an empty page with a continuation token; continue loading when offered. No new table/index or migration is required. Only admins can access this cross-member view; balance staff and regular members cannot.
+
+### Redemption emails and recovery
+
+Existing Mailgun settings (`MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `EMAIL_FROM`, optional `MAILGUN_BASE_URL`) send **separate emails to the member and merchant** containing the same redemption reference, item, token cost, member contact email, and UTC timestamp. Configure these before redemption; missing settings reject checkout before tokens are deducted.
+
+The member confirmation goes only to the member. The separate merchant notification sends one message to all configured To recipients, with CC/BCC applied **only to that merchant message**. BCC is sent via Mailgun's BCC field and never added to receipt text/HTML. Retries use the original redemption's recipient snapshot, not the current reward configuration.
+
+The redemption and token deduction are saved **before** sending email. Email failure never rolls back the purchase or spends tokens again. Each notification (member and merchant) has an audited delivery state: `pending`, `sending`, `accepted`, or `unconfirmed`. The merchant state covers the entire To/CC/BCC message, not individual mailbox delivery. `accepted` means Mailgun accepted the request, not guaranteed inbox delivery. Per-notification ETag claims prevent concurrent automatic attempts. An interrupted `sending` attempt may be retried explicitly after two minutes.
+
+The member page saves a pending conversion/redemption request in browser **session storage**, scoped to the signed-in member, before submitting. Reloading the same tab recovers the original request. After a network/5xx/concurrency error, retry the saved request instead of creating a new one. Check history before clearing recovery data or starting a new request in another tab/device.
+
+Replaying a committed redemption resumes only `pending` notifications; accepted or unconfirmed attempts are not automatically repeated. The history provides an explicit **Retry notifications** action for incomplete emails. It never spends additional tokens, and warns that an unconfirmed email may be delivered twice. A crash or uncertain provider response cannot provide exactly-once email delivery. There is no background delivery worker; use the saved transaction retry or notification action to recover interrupted delivery.
+
+Member-session APIs (the member ID always comes from the session):
+
+- `GET /my-rewards` returns `{ memberId, activeGold, points, tokens, convertedPoints, tokensSpent }`.
+- `GET /my-rewards/history?kind=award|conversion|redemption&continuation=...` returns `{ records, continuationToken }`.
+- `POST /my-rewards/convert` accepts `{ requestId, points }`.
+- `POST /my-rewards/redeem` accepts `{ requestId, itemId, version }`.
+- `POST /my-rewards/redemptions/:transactionId/email` accepts `{ confirmResend: true }` to explicitly retry incomplete notifications, even after Gold expiry.
+- `GET /store` lists enabled catalog entries without exposing merchant addresses.
+
+Admin-session APIs:
+
+- `GET /admin/redemptions?continuation=...` returns `{ records, continuationToken }` across all members, including original merchant/member details and notification states.
+- `GET /admin/store` lists all items.
+- `POST /admin/store` creates `{ name, imageUrl, merchantEmail, merchantCc?, merchantBcc?, tokenCost, enabled }`; recipient fields are comma- or semicolon-separated strings. Omit or clear optional CC/BCC fields to send no copies.
+- `PATCH /admin/store/:itemId` updates the same fields plus the current `version`.
+- `POST /admin/store-images` uploads multipart field `image` and returns `{ imageUrl }`.
 
 ## Gold (paid) memberships
 
@@ -88,7 +163,7 @@ Configuration, recipient and template validation happens before membership chang
 
 ## Email announcements
 
-Administrators can open **Email announcements** from Member Home (`/email-announcements`). The page and all announcement APIs require the `admin` role; club owners, balance staff, and regular members cannot send announcements or read the announcement recipient directory.
+Administrators can open **Email announcements** from Member Home → Admin (`/email-announcements`). The page and all announcement APIs require the `admin` role; club owners, balance staff, and regular members cannot send announcements or read the announcement recipient directory.
 
 Choose **All members**, **Members of a specific club**, or **Specific users**. Recipients must be approved members with verified, valid email addresses. Club targeting uses current club assignments, not the profile's club display name. Selected users who become ineligible are rejected rather than silently omitted. Each distinct email address receives one private copy, even when several members share that address.
 

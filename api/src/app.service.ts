@@ -44,6 +44,7 @@ import type {
   AnnouncementStatus,
 } from './email-announcements';
 import { buildTeams } from './matching-selection';
+import { normalizeRewardEmailList } from './reward-email-recipients';
 import {
   generateTournamentSchedule,
   randomizeTournamentPools,
@@ -4912,12 +4913,46 @@ export class AppService {
     );
   }
 
+  async sendRewardRedemptionEmail(details: {
+    email: string;
+    cc?: string;
+    bcc?: string;
+    memberName: string;
+    memberEmail: string;
+    itemName: string;
+    tokens: number;
+    reference: string;
+    createdAt: string;
+  }) {
+    const text = [
+      'Sorsogon Pickleball Arena reward redemption',
+      `Reference: ${details.reference}`,
+      `Member: ${details.memberName} (${details.memberEmail})`,
+      `Item: ${details.itemName}`,
+      `Tokens spent: ${details.tokens}`,
+      `Date (UTC): ${details.createdAt}`,
+      'The tokens have been deducted. Present this reference to the merchant to arrange collection.',
+    ].join('\n');
+    await this.sendEmail(
+      normalizeRewardEmailList(details.email, 'Reward To', true),
+      'Sorsogon Pickleball Arena reward redemption',
+      text,
+      `<div style="white-space:pre-wrap">${this.escapeHtml(text)}</div>`,
+      30_000,
+      {
+        cc: normalizeRewardEmailList(details.cc, 'Reward CC'),
+        bcc: normalizeRewardEmailList(details.bcc, 'Reward BCC'),
+      },
+    );
+  }
+
   private async sendEmail(
     email: string,
     subject: string,
     text: string,
     html: string,
     timeoutMs?: number,
+    copies: { cc?: string; bcc?: string } = {},
   ) {
     const apiKey = process.env.MAILGUN_API_KEY;
     const domain = process.env.MAILGUN_DOMAIN;
@@ -4931,6 +4966,8 @@ export class AppService {
     }
 
     const body = new URLSearchParams({ from, to: email, subject, text, html });
+    if (copies.cc) body.set('cc', copies.cc);
+    if (copies.bcc) body.set('bcc', copies.bcc);
     const response = await fetch(`${baseUrl}/v3/${domain}/messages`, {
       method: 'POST',
       headers: {

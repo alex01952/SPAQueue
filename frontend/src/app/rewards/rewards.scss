@@ -1,0 +1,20 @@
+.rewards-shell { max-width: 1050px; margin: 0 auto; padding: 2rem 1rem; color: #173c2c; }
+section { margin: 1.5rem 0; padding: 1rem; border: 1px solid #d5e0da; border-radius: .75rem; background: #fff; }
+.summary, .catalog { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
+.summary strong { display: block; font-size: 1.8rem; }
+.catalog article, .history-entry { padding: 1rem; border: 1px solid #d5e0da; border-radius: .5rem; }
+.catalog img, .preview { width: 100%; max-width: 280px; height: 180px; object-fit: contain; }
+.history-entry { margin-top: .75rem; }
+label { display: grid; gap: .4rem; margin-bottom: 1rem; }
+input { padding: .65rem; max-width: 100%; box-sizing: border-box; }
+input[type=checkbox] { justify-self: start; }
+fieldset { border: 0; padding: 0; min-width: 0; }
+button { padding: .65rem 1rem; margin: .25rem .4rem .25rem 0; cursor: pointer; border: 1px solid #476f5b; border-radius: .35rem; background: #eaf3ed; color: #173c2c; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+.error { color: #a32020; }
+.success { color: #17613c; }
+.reference { overflow-wrap: anywhere; font-size: .85rem; }
+.redemption-details { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(0, 3fr); gap: .5rem 1rem; }
+.redemption-details dt { font-weight: 600; }
+.redemption-details dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 500px) { .redemption-details { grid-template-columns: 1fr; } }

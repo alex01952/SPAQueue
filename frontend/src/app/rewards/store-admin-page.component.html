@@ -1,0 +1,90 @@
+<main class="rewards-shell">
+  <a routerLink="/admin">Back to Admin</a>
+  <h1>Rewards store administration</h1>
+  <p>Configure rewards and their merchant contact emails, and review all members' redemptions. Members convert points into tokens before redeeming rewards.</p>
+  <nav aria-label="Rewards administration sections">
+    <a href="#reward-configuration">Configure rewards &amp; merchants</a> ·
+    <a href="#all-redemptions">All redemptions</a>
+  </nav>
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (message()) { <p class="success" role="status">{{ message() }}</p> }
+  <button type="button" (click)="load()" [disabled]="busy() || loading()">Refresh catalog</button>
+  @if (loading()) { <p role="status">Loading catalog...</p> }
+  <section id="reward-configuration">
+    <h2>{{ editing() ? 'Edit reward' : 'Add reward' }}</h2>
+    <form #itemForm="ngForm" (ngSubmit)="itemForm.valid && save()">
+      <fieldset [disabled]="busy() || loading()">
+        <label>Item name <input name="name" [(ngModel)]="form.name" maxlength="150" required /></label>
+        <label>Token cost <input name="tokenCost" type="number" [(ngModel)]="form.tokenCost" min="1" step="1" required /></label>
+        <label>Merchant To emails <input name="merchantEmail" type="text" [(ngModel)]="form.merchantEmail" maxlength="10000" aria-describedby="merchant-recipients-help" required /></label>
+        <label>Merchant CC emails (optional) <input name="merchantCc" type="text" [(ngModel)]="form.merchantCc" maxlength="10000" aria-describedby="merchant-recipients-help" /></label>
+        <label>Merchant BCC emails (optional) <input name="merchantBcc" type="text" [(ngModel)]="form.merchantBcc" maxlength="10000" aria-describedby="merchant-recipients-help" /></label>
+        <p id="merchant-recipients-help">Separate addresses with commas or semicolons (up to 10,000 characters per field; 254 per address). To requires at least one address. CC and BCC apply only to the merchant receipt, not the member's confirmation. BCC addresses are hidden from other recipients.</p>
+        @if (itemForm.dirty && recipientListError()) { <p class="error" role="alert">{{ recipientListError() }}</p> }
+        <label>Item image (up to 5 MB)
+          <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" (change)="upload($event)" />
+        </label>
+        @if (form.imageUrl) { <img class="preview" [src]="form.imageUrl" [alt]="form.name || 'Item preview'" /> }
+        <label>Available for redemption <input name="enabled" type="checkbox" [(ngModel)]="form.enabled" /></label>
+        <button type="submit" [disabled]="itemForm.invalid || !form.imageUrl || !!recipientListError()">Save reward</button>
+        <button type="button" (click)="reset()">Clear / add another</button>
+      </fieldset>
+    </form>
+    @if (busy()) { <p role="status">Saving or uploading...</p> }
+  </section>
+  <section>
+    <h2>Store catalog</h2>
+    <p>Items have no stock limit. Edit an item to update its merchant or token price, or disable it to stop new redemptions. Existing receipts retain the original details.</p>
+    @if (!items().length && !loading()) { <p>No store items yet.</p> }
+    <div class="catalog">
+      @for (item of items(); track item.itemId) {
+        <article>
+          <img [src]="item.imageUrl" [alt]="item.name" loading="lazy" />
+          <h3>{{ item.name }}</h3>
+          <p>{{ item.tokenCost }} tokens · {{ item.enabled ? 'Enabled' : 'Disabled' }}</p>
+          <p>To: {{ item.merchantEmail }}</p>
+          @if (item.merchantCc) { <p>CC: {{ item.merchantCc }}</p> }
+          @if (item.merchantBcc) { <p>BCC: {{ item.merchantBcc }}</p> }
+          <button type="button" (click)="edit(item)" [disabled]="busy() || loading()">Edit reward</button>
+        </article>
+      }
+    </div>
+  </section>
+  <section id="all-redemptions" aria-labelledby="redemptions-title">
+    <h2 id="redemptions-title">All redemptions</h2>
+    <p>View recorded exchanges across all members, including disabled rewards. Records are grouped by member ID, newest first within each member, not by date across the entire list.</p>
+    <button type="button" (click)="loadRedemptions()" [disabled]="loadingRedemptions()">Refresh redemptions</button>
+    @if (loadingRedemptions()) { <p role="status">Loading redemptions...</p> }
+    @if (redemptionsError()) { <p class="error" role="alert">{{ redemptionsError() }}</p> }
+    @if (redemptions(); as history) {
+      <p>{{ history.records.length }} redemptions loaded.</p>
+      @if (!history.records.length && !history.continuationToken && !loadingRedemptions()) {
+        <p>No redemptions recorded.</p>
+      }
+      @if (!history.records.length && history.continuationToken) {
+        <p>No redemptions in this storage page. Load more to continue checking.</p>
+      }
+      @for (record of history.records; track record.memberId + ':' + record.transactionId) {
+        <article class="history-entry">
+          <h3>{{ record.itemName }}</h3>
+          <dl class="redemption-details">
+            <dt>Member</dt><dd>{{ record.memberName }} ({{ record.memberEmail }})</dd>
+            <dt>Member ID</dt><dd>{{ record.memberId }}</dd>
+            <dt>Merchant To emails</dt><dd>{{ record.merchantEmail }}</dd>
+            @if (record.merchantCc) { <dt>Merchant CC emails</dt><dd>{{ record.merchantCc }}</dd> }
+            @if (record.merchantBcc) { <dt>Merchant BCC emails</dt><dd>{{ record.merchantBcc }}</dd> }
+            <dt>Tokens spent</dt><dd>{{ record.tokens }}</dd>
+            <dt>Redeemed</dt><dd>{{ record.createdAt | date:'medium':'+0800' }} (Philippine time)</dd>
+            <dt>Reference</dt><dd>{{ record.transactionId }}</dd>
+            <dt>Member email status</dt><dd>{{ record.memberEmailStatus }}</dd>
+            <dt>Merchant email status</dt><dd>{{ record.merchantEmailStatus }}</dd>
+          </dl>
+        </article>
+      }
+      <p>Email status shows notification delivery attempts, not item collection. Accepted means the email provider accepted the message.</p>
+      @if (history.continuationToken) {
+        <button type="button" (click)="loadRedemptions(true)" [disabled]="loadingRedemptions()">Load more redemptions</button>
+      }
+    }
+  </section>
+</main>

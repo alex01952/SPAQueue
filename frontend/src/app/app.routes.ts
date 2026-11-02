@@ -33,6 +33,26 @@ import { TournamentLiveDrawPageComponent } from './tournaments/tournament-live-d
 
 export const routes: Routes = [
   {
+    path: 'admin',
+    loadComponent: () => import('./admin/admin-page.component').then((module) => module.AdminPageComponent),
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'] },
+    title: 'Admin',
+  },
+  {
+    path: 'my-rewards',
+    loadComponent: () => import('./rewards/my-rewards-page.component').then((module) => module.MyRewardsPageComponent),
+    canActivate: [memberAuthGuard],
+    title: 'My Points & Rewards',
+  },
+  {
+    path: 'store-admin',
+    loadComponent: () => import('./rewards/store-admin-page.component').then((module) => module.StoreAdminPageComponent),
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'], breadcrumbParent: { label: 'Admin', route: '/admin' } },
+    title: 'Rewards Store Administration',
+  },
+  {
     path: 'member-points',
     loadComponent: () => import('./member-points/member-points-page.component').then((module) => module.MemberPointsPageComponent),
     canActivate: [memberAuthGuard, memberRoleGuard],
@@ -55,7 +75,7 @@ export const routes: Routes = [
     path: 'queue-dashboard',
     component: App,
     canActivate: [memberAuthGuard, memberRoleGuard, dashboardAuthGuard],
-    data: { allowedRoles: ['admin'] },
+    data: { allowedRoles: ['admin'], breadcrumbParent: { label: 'Admin', route: '/admin' } },
     title: 'Pickleball Queue',
   },
   {
@@ -74,7 +94,7 @@ export const routes: Routes = [
     path: 'open-play-participation/upload',
     component: ParticipationUploadPageComponent,
     canActivate: [memberAuthGuard, memberRoleGuard],
-    data: { allowedRoles: ['admin'] },
+    data: { allowedRoles: ['admin'], breadcrumbParent: { label: 'Admin', route: '/admin' } },
     title: 'Upload Participation Files',
   },
   {
@@ -146,14 +166,14 @@ export const routes: Routes = [
       (module) => module.EmailAnnouncementsPageComponent,
     ),
     canActivate: [memberAuthGuard, memberRoleGuard],
-    data: { allowedRoles: ['admin'] },
+    data: { allowedRoles: ['admin'], breadcrumbParent: { label: 'Admin', route: '/admin' } },
     title: 'Email Announcements',
   },
   {
     path: 'member-registration-approvals',
     component: MemberRegistrationApprovalsPageComponent,
     canActivate: [memberAuthGuard, memberRoleGuard],
-    data: { allowedRoles: ['admin'] },
+    data: { allowedRoles: ['admin'], breadcrumbParent: { label: 'Admin', route: '/admin' } },
     title: 'Registration Approvals',
   },
   {
@@ -166,7 +186,7 @@ export const routes: Routes = [
     path: 'club-management',
     component: ClubAdminPageComponent,
     canActivate: [memberAuthGuard, memberRoleGuard],
-    data: { allowedRoles: ['admin'] },
+    data: { allowedRoles: ['admin'], breadcrumbParent: { label: 'Admin', route: '/admin' } },
     title: 'Manage Clubs',
   },
   {
@@ -203,7 +223,7 @@ export const routes: Routes = [
     path: 'tournament-management',
     component: TournamentManagementPageComponent,
     canActivate: [memberAuthGuard, memberRoleGuard],
-    data: { allowedRoles: ['admin'] },
+    data: { allowedRoles: ['admin'], breadcrumbParent: { label: 'Admin', route: '/admin' } },
     title: 'Tournament Management',
   },
   {

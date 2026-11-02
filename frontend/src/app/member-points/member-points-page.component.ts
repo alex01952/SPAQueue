@@ -24,9 +24,12 @@ interface PointAward {
   reason: string;
   createdByName: string;
   createdAt: string;
+  convertedPoints: number;
+  used: boolean;
 }
 interface History {
   balance: number;
+  tokens: number;
   awards: PointAward[];
   continuationToken: string | null;
 }

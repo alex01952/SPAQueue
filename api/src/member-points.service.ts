@@ -7,9 +7,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import { DefaultAzureCredential } from '@azure/identity';
-import { TableClient } from '@azure/data-tables';
+import { TableClient, type TransactionAction } from '@azure/data-tables';
 import { createHash } from 'node:crypto';
 import { AppService } from './app.service';
+import { StoreService } from './store.service';
+import { isMissingTableEntity } from './azure-table-errors';
+import { normalizeRewardEmailList } from './reward-email-recipients';
 
 export type PointSource =
   | 'OpenPlayParticipation'
@@ -36,7 +39,10 @@ export class MemberPointsService {
   private readonly logger = new Logger(MemberPointsService.name);
   private table?: TableClient;
 
-  constructor(private readonly app: AppService) {}
+  constructor(
+    private readonly app: AppService,
+    private readonly store: StoreService,
+  ) {}
 
   private getTable() {
     if (!this.table) {
@@ -255,14 +261,7 @@ export class MemberPointsService {
         rowKey,
       );
     } catch (error: unknown) {
-      if (
-        this.code(error) === 404 &&
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        error.code === 'ResourceNotFound'
-      )
-        return null;
+      if (isMissingTableEntity(error)) return null;
       this.storageError(error);
     }
   }
@@ -335,13 +334,24 @@ export class MemberPointsService {
     for (let attempt = 0; attempt < 4; attempt++) {
       const summary = await this.getOptional('balance', memberId);
       const balance = Number(summary?.Balance ?? 0) + award.points;
-      if (!Number.isSafeInteger(balance))
+      const lifetime = Number(summary?.LifetimePoints ?? summary?.Balance ?? 0);
+      if (
+        !Number.isSafeInteger(balance) ||
+        !Number.isSafeInteger(lifetime + award.points)
+      )
         throw new BadRequestException(
           'The resulting points balance exceeds the supported whole-number range.',
         );
       try {
         await this.getTable().submitTransaction([
-          ['create', entity],
+          [
+            'create',
+            {
+              ...entity,
+              EarnedStart: lifetime,
+              EarnedEnd: lifetime + award.points,
+            },
+          ],
           [
             'create',
             {
@@ -354,13 +364,23 @@ export class MemberPointsService {
           summary
             ? [
                 'update',
-                { partitionKey: memberId, rowKey: 'balance', Balance: balance },
+                {
+                  partitionKey: memberId,
+                  rowKey: 'balance',
+                  Balance: balance,
+                  LifetimePoints: lifetime + award.points,
+                },
                 'Merge',
                 { etag: summary.etag },
               ]
             : [
                 'create',
-                { partitionKey: memberId, rowKey: 'balance', Balance: balance },
+                {
+                  partitionKey: memberId,
+                  rowKey: 'balance',
+                  Balance: balance,
+                  LifetimePoints: lifetime + award.points,
+                },
               ],
         ]);
         return this.toAward(entity);
@@ -421,15 +441,473 @@ export class MemberPointsService {
         memberName: member.name,
         goldMembershipExpiresOn: member.goldMembershipExpiresOn ?? null,
         balance: Number(summary?.Balance ?? 0),
+        tokens: Number(summary?.Tokens ?? 0),
         awards: page.done
           ? []
-          : page.value.map((entity) => this.toAward(entity)),
+          : await this.usedAwards(
+              page.value,
+              memberId,
+              Number(summary?.ConvertedPoints ?? 0),
+            ),
         continuationToken: page.done
           ? null
           : (page.value.continuationToken ?? null),
       };
     } catch (error) {
       this.storageError(error);
+    }
+  }
+  private async self(token: string) {
+    const { member } = await this.app.getMemberSession(token);
+    this.validateMemberId(member.memberId);
+    const account = await this.app.getMemberAccount(member.memberId);
+    const activeGold =
+      !!account.goldMembershipExpiresOn &&
+      account.goldMembershipExpiresOn >= new Date().toISOString().slice(0, 10);
+    return { member, account, activeGold };
+  }
+
+  async wallet(token: string) {
+    const { member, activeGold } = await this.self(token);
+    const summary = await this.getOptional('balance', member.memberId);
+    return {
+      memberId: member.memberId,
+      activeGold,
+      points: Number(summary?.Balance ?? 0),
+      tokens: Number(summary?.Tokens ?? 0),
+      convertedPoints: Number(summary?.ConvertedPoints ?? 0),
+      tokensSpent: Number(summary?.TokensSpent ?? 0),
+    };
+  }
+
+  private async usedAwards(
+    entities: Record<string, unknown>[],
+    memberId: string,
+    converted: number,
+  ) {
+    const legacyStarts = new Map<string, number>();
+    if (
+      converted > 0 &&
+      entities.some((entity) => entity.EarnedStart === undefined)
+    ) {
+      const legacy: Record<string, unknown>[] = [];
+      try {
+        for await (const entity of this.getTable().listEntities({
+          queryOptions: {
+            filter: `PartitionKey eq '${memberId}' and RowKey ge 'award:' and RowKey lt 'award;'`,
+          },
+        })) {
+          if (entity.EarnedStart === undefined) legacy.push(entity);
+        }
+      } catch (error) {
+        this.storageError(error);
+      }
+      let start = 0;
+      for (const entity of legacy.sort(
+        (a, b) =>
+          (typeof a.CreatedAt === 'string' ? a.CreatedAt : '').localeCompare(
+            typeof b.CreatedAt === 'string' ? b.CreatedAt : '',
+          ) || String(a.rowKey).localeCompare(String(b.rowKey)),
+      )) {
+        legacyStarts.set(String(entity.rowKey), start);
+        start += Number(entity.Points);
+      }
+    }
+    return entities.map((entity) => {
+      const points = Number(entity.Points);
+      const start = Number(
+        entity.EarnedStart ?? legacyStarts.get(String(entity.rowKey)) ?? 0,
+      );
+      const convertedPoints = Math.max(0, Math.min(points, converted - start));
+      return {
+        ...this.toAward(entity),
+        convertedPoints,
+        used: convertedPoints === points,
+      };
+    });
+  }
+
+  private transactionView(entity: Record<string, unknown>) {
+    return {
+      transactionId: String(entity.rowKey),
+      type: String(entity.Type),
+      points: Number(entity.Points ?? 0),
+      tokens: Number(entity.Tokens),
+      itemName: typeof entity.ItemName === 'string' ? entity.ItemName : '',
+      createdAt: String(entity.CreatedAt),
+      memberEmailStatus:
+        typeof entity.MemberEmailStatus === 'string'
+          ? entity.MemberEmailStatus
+          : '',
+      merchantEmailStatus:
+        typeof entity.MerchantEmailStatus === 'string'
+          ? entity.MerchantEmailStatus
+          : '',
+    };
+  }
+
+  async myHistory(token: string, kind: string, continuation?: string) {
+    const { member } = await this.self(token);
+    if (
+      !['award', 'conversion', 'redemption'].includes(kind) ||
+      (continuation !== undefined &&
+        (typeof continuation !== 'string' || continuation.length > 10_000))
+    )
+      throw new BadRequestException('Invalid history request.');
+    try {
+      const summary = await this.getOptional('balance', member.memberId);
+      const page = await this.getTable()
+        .listEntities<Record<string, unknown>>({
+          queryOptions: {
+            filter: `PartitionKey eq '${member.memberId}' and RowKey ge '${kind}:' and RowKey lt '${kind};'`,
+          },
+        })
+        .byPage({ maxPageSize: 50, continuationToken: continuation })
+        .next();
+      const entities = page.done ? [] : page.value;
+      return {
+        records:
+          kind === 'award'
+            ? await this.usedAwards(
+                entities,
+                member.memberId,
+                Number(summary?.ConvertedPoints ?? 0),
+              )
+            : entities.map((entity) => this.transactionView(entity)),
+        continuationToken: page.done
+          ? null
+          : (page.value.continuationToken ?? null),
+      };
+    } catch (error) {
+      this.storageError(error);
+    }
+  }
+
+  async adminRedemptions(token: string, continuation?: string) {
+    const { member } = await this.app.getMemberSession(token);
+    if (member.role !== 'admin')
+      throw new ForbiddenException('Only admins can view all redemptions.');
+    if (
+      continuation !== undefined &&
+      (typeof continuation !== 'string' || continuation.length > 10_000)
+    )
+      throw new BadRequestException('Invalid redemption continuation token.');
+    try {
+      const page = await this.getTable()
+        .listEntities<Record<string, unknown>>({
+          queryOptions: {
+            filter:
+              "RowKey ge 'redemption:' and RowKey lt 'redemption;' and Type eq 'redemption'",
+          },
+        })
+        .byPage({ maxPageSize: 50, continuationToken: continuation })
+        .next();
+      return {
+        records: page.done
+          ? []
+          : page.value.map((entity) => ({
+              ...this.transactionView(entity),
+              memberId: String(entity.partitionKey),
+              memberName: String(entity.MemberName),
+              memberEmail: String(entity.MemberEmail),
+              merchantEmail: String(entity.MerchantEmail),
+              merchantCc: normalizeRewardEmailList(
+                entity.MerchantCc,
+                'Merchant CC',
+              ),
+              merchantBcc: normalizeRewardEmailList(
+                entity.MerchantBcc,
+                'Merchant BCC',
+              ),
+              itemId: String(entity.ItemId),
+              imageUrl: String(entity.ImageUrl),
+            })),
+        continuationToken: page.done
+          ? null
+          : (page.value.continuationToken ?? null),
+      };
+    } catch (error) {
+      this.storageError(error);
+    }
+  }
+
+  private rewardInput(
+    input: unknown,
+  ): Record<string, unknown> & { requestId: string } {
+    if (!input || typeof input !== 'object' || Array.isArray(input))
+      throw new BadRequestException('Transaction details are required.');
+    const data = input as Record<string, unknown>;
+    if (
+      typeof data.requestId !== 'string' ||
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(
+        data.requestId,
+      )
+    )
+      throw new BadRequestException(
+        'A valid transaction request ID is required.',
+      );
+    return { ...data, requestId: data.requestId };
+  }
+
+  private positive(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1)
+      throw new BadRequestException('Enter a positive whole-number amount.');
+    return value;
+  }
+
+  async convert(token: string, input: unknown) {
+    const data = this.rewardInput(input);
+    const amount = this.positive(data.points);
+    return this.transact(token, data.requestId, 'conversion', {
+      points: amount,
+    });
+  }
+
+  async redeem(token: string, input: unknown) {
+    const data = this.rewardInput(input);
+    if (typeof data.itemId !== 'string' || typeof data.version !== 'string')
+      throw new BadRequestException('Choose a store item.');
+    const result = await this.transact(token, data.requestId, 'redemption', {
+      itemId: data.itemId,
+      version: data.version,
+    });
+    await this.deliverEmails(token, result.transactionId, false);
+    return this.redemptionStatus(token, result.transactionId);
+  }
+
+  private async transact(
+    token: string,
+    requestId: string,
+    kind: 'conversion' | 'redemption',
+    details: { points: number } | { itemId: string; version: string },
+  ) {
+    const { member, account, activeGold } = await this.self(token);
+    const fingerprint = createHash('sha256')
+      .update(JSON.stringify({ kind, ...details }))
+      .digest('hex');
+    const requestKey = `wallet-request:${requestId}`;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const replay = await this.getOptional(requestKey, member.memberId);
+      if (replay) {
+        if (replay.Fingerprint !== fingerprint)
+          throw new ConflictException(
+            'This request ID was used for different transaction details.',
+          );
+        const existing = await this.getOptional(
+          String(replay.TransactionId),
+          member.memberId,
+        );
+        if (!existing)
+          throw new ConflictException(
+            'Transaction history is inconsistent. Contact an administrator.',
+          );
+        return this.transactionView(existing);
+      }
+      if (!activeGold)
+        throw new ForbiddenException(
+          'Active Gold membership is required to convert points or redeem tokens.',
+        );
+      const item =
+        'itemId' in details ? await this.store.get(details.itemId) : null;
+      if (
+        item &&
+        (!item.enabled ||
+          ('version' in details && details.version !== item.version))
+      )
+        throw new ConflictException(
+          'The store item changed or is disabled. Refresh the store before redeeming.',
+        );
+      if (
+        item &&
+        (!process.env.MAILGUN_API_KEY ||
+          !process.env.MAILGUN_DOMAIN ||
+          !process.env.EMAIL_FROM)
+      )
+        throw new BadRequestException(
+          'Redemption email delivery is not configured.',
+        );
+      if (item && !account.email)
+        throw new BadRequestException(
+          'Your member email is required for redemption.',
+        );
+      const summary = await this.getOptional('balance', member.memberId);
+      const points = Number(summary?.Balance ?? 0);
+      const tokens = Number(summary?.Tokens ?? 0);
+      const amount =
+        'points' in details ? details.points : this.positive(item?.tokenCost);
+      if ((kind === 'conversion' ? points : tokens) < amount)
+        throw new BadRequestException(
+          kind === 'conversion'
+            ? 'Not enough available points.'
+            : 'Not enough tokens.',
+        );
+      const converted = Number(summary?.ConvertedPoints ?? 0);
+      const spent = Number(summary?.TokensSpent ?? 0);
+      const updated = {
+        partitionKey: member.memberId,
+        rowKey: 'balance',
+        Balance: kind === 'conversion' ? points - amount : points,
+        Tokens: kind === 'conversion' ? tokens + amount : tokens - amount,
+        ConvertedPoints: kind === 'conversion' ? converted + amount : converted,
+        TokensSpent: kind === 'redemption' ? spent + amount : spent,
+        LifetimePoints: Number(summary?.LifetimePoints ?? points),
+      };
+      if (
+        Object.values(updated).some(
+          (value) =>
+            typeof value === 'number' &&
+            (!Number.isSafeInteger(value) || value < 0),
+        )
+      )
+        throw new BadRequestException(
+          'The wallet balance exceeds the supported range.',
+        );
+      const transaction = {
+        partitionKey: member.memberId,
+        rowKey: `${kind}:${String(9_999_999_999_999 - Date.now()).padStart(13, '0')}:${requestId}`,
+        Type: kind,
+        Points: kind === 'conversion' ? amount : 0,
+        Tokens: amount,
+        CreatedAt: new Date().toISOString(),
+        ...(item
+          ? {
+              ItemId: item.itemId,
+              ItemName: item.name,
+              ImageUrl: item.imageUrl,
+              MemberName: member.name,
+              MemberEmail: account.email,
+              MerchantEmail: item.merchantEmail,
+              MerchantCc: item.merchantCc,
+              MerchantBcc: item.merchantBcc,
+              MemberEmailStatus: 'pending',
+              MerchantEmailStatus: 'pending',
+            }
+          : { PointRangeStart: converted, PointRangeEnd: converted + amount }),
+      };
+      const actions: TransactionAction[] = [
+        ['create', transaction],
+        [
+          'create',
+          {
+            partitionKey: member.memberId,
+            rowKey: requestKey,
+            Fingerprint: fingerprint,
+            TransactionId: transaction.rowKey,
+          },
+        ],
+        summary
+          ? ['update', updated, 'Merge', { etag: summary.etag }]
+          : ['create', updated],
+      ];
+      try {
+        await this.getTable().submitTransaction(actions);
+        return this.transactionView(transaction);
+      } catch (error) {
+        if (![409, 412].includes(this.code(error) ?? 0))
+          this.storageError(error);
+      }
+    }
+    throw new ConflictException(
+      'Your wallet changed concurrently. Retry the same request.',
+    );
+  }
+
+  private async redemptionStatus(token: string, transactionId: string) {
+    const { member } = await this.self(token);
+    const entity = await this.getOptional(transactionId, member.memberId);
+    if (!entity || entity.Type !== 'redemption')
+      throw new BadRequestException('Redemption not found.');
+    return this.transactionView(entity);
+  }
+
+  async retryEmails(token: string, transactionId: string, input: unknown) {
+    if (
+      !input ||
+      typeof input !== 'object' ||
+      !('confirmResend' in input) ||
+      input.confirmResend !== true
+    )
+      throw new BadRequestException(
+        'Confirm that retrying an unconfirmed email may send a duplicate notification.',
+      );
+    await this.deliverEmails(token, transactionId, true);
+    return this.redemptionStatus(token, transactionId);
+  }
+
+  private async deliverEmails(
+    token: string,
+    transactionId: string,
+    retry: boolean,
+  ) {
+    const { member } = await this.self(token);
+    if (!/^redemption:\d{13}:[a-f0-9-]{36}$/i.test(transactionId))
+      throw new BadRequestException('Invalid redemption reference.');
+    for (const recipient of ['Member', 'Merchant'] as const) {
+      const field = `${recipient}EmailStatus`;
+      const row = await this.getOptional(transactionId, member.memberId);
+      if (!row || row.Type !== 'redemption')
+        throw new BadRequestException('Redemption not found.');
+      const status = row[field];
+      const timestamp = row[`${recipient}EmailAttemptAt`];
+      const lastAttempt =
+        typeof timestamp === 'string' ? Date.parse(timestamp) : NaN;
+      if (
+        status === 'accepted' ||
+        (status === 'sending' && Date.now() - lastAttempt < 120_000) ||
+        (status !== 'pending' && !retry)
+      )
+        continue;
+      try {
+        await this.getTable().updateEntity(
+          {
+            partitionKey: member.memberId,
+            rowKey: transactionId,
+            [field]: 'sending',
+            [`${recipient}EmailAttemptAt`]: new Date().toISOString(),
+          },
+          'Merge',
+          { etag: row.etag },
+        );
+      } catch (error) {
+        if (this.code(error) === 412) continue;
+        this.storageError(error);
+      }
+      let result = 'accepted';
+      try {
+        await this.app.sendRewardRedemptionEmail({
+          email: String(row[`${recipient}Email`]),
+          ...(recipient === 'Merchant'
+            ? {
+                cc: normalizeRewardEmailList(row.MerchantCc, 'Merchant CC'),
+                bcc: normalizeRewardEmailList(row.MerchantBcc, 'Merchant BCC'),
+              }
+            : {}),
+          memberName: String(row.MemberName),
+          memberEmail: String(row.MemberEmail),
+          itemName: String(row.ItemName),
+          tokens: Number(row.Tokens),
+          reference: transactionId,
+          createdAt: String(row.CreatedAt),
+        });
+      } catch (error) {
+        result = 'unconfirmed';
+        this.logger.error(
+          `Redemption ${transactionId} ${recipient} email delivery is unconfirmed.`,
+          error,
+        );
+      }
+      try {
+        await this.getTable().updateEntity(
+          {
+            partitionKey: member.memberId,
+            rowKey: transactionId,
+            [field]: result,
+          },
+          'Merge',
+        );
+      } catch (error) {
+        this.storageError(error);
+      }
     }
   }
 }

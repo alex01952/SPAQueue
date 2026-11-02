@@ -21,7 +21,7 @@
   @if (selected(); as member) {
     <section>
       <h2>{{ member.name }}</h2>
-      @if (history(); as data) { <p class="balance">Total points: <strong>{{ data.balance }}</strong></p> }
+      @if (history(); as data) { <p class="balance">Available points: <strong>{{ data.balance }}</strong> · Tokens: <strong>{{ data.tokens }}</strong></p> }
       @if (!isGoldMembershipActive(member.goldMembershipExpiresOn)) {
         <p>Only members with an active Gold membership can receive new points. Existing history is retained.</p>
       } @else {
@@ -81,7 +81,7 @@
                     @if (award.startHour !== null) { <div>Court {{ award.courtNumber }}: {{ slotLabel(award.startHour) }}</div> }
                     @if (award.reason) { <div>{{ award.reason }}</div> }
                   </td>
-                  <td>+{{ award.points }}</td><td>{{ award.createdByName }}</td>
+                  <td>+{{ award.points }}<div>{{ award.convertedPoints }} converted{{ award.used ? ' (fully used)' : '' }}</div></td><td>{{ award.createdByName }}</td>
                   <td>{{ award.createdAt | date:'medium':'+0800' }}</td>
                 </tr>
               }

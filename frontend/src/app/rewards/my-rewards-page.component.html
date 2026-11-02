@@ -1,0 +1,113 @@
+<main class="rewards-shell">
+  <a routerLink="/home">Back to Member Home</a>
+  <h1>My points &amp; rewards</h1>
+  <p>Convert your points to tokens, then exchange tokens for rewards.</p>
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (message()) { <p class="success" role="status">{{ message() }}</p> }
+  @if (recoveryMessage()) { <p class="error" role="alert">{{ recoveryMessage() }}</p> }
+  <button type="button" (click)="load()" [disabled]="loading() || busy()">Refresh rewards</button>
+  @if (loading()) { <p role="status">Loading rewards...</p> }
+  @if (wallet(); as data) {
+    <section class="summary" aria-label="Your balances">
+      <p>Available points <strong>{{ data.points }}</strong></p>
+      <p>Available tokens <strong>{{ data.tokens }}</strong></p>
+      <p>Points converted <strong>{{ data.convertedPoints }}</strong></p>
+      <p>Tokens spent <strong>{{ data.tokensSpent }}</strong></p>
+    </section>
+    @if (!data.activeGold) {
+      <p>Active Gold membership is required to convert points and redeem rewards. Your balances and history are retained.</p>
+    }
+    @if (pending(); as saved) {
+      <section aria-label="Unconfirmed transaction">
+        <h2>Saved transaction to check</h2>
+        <p>{{ saved.kind === 'convert' ? 'Point conversion' : 'Reward redemption' }}: {{ saved.requestId }}</p>
+        <p>Retry uses the same reference, even after reloading this page, and will not spend twice.</p>
+        <button type="button" (click)="retry()" [disabled]="busy() || loading()">Retry saved transaction</button>
+        <p>If the request is no longer applicable, check your history below before clearing it. A new request is a separate transaction.</p>
+        <button type="button" (click)="abandonPending()" [disabled]="busy() || loading()">I checked history; clear saved retry</button>
+      </section>
+    }
+    @if (recoveryBlocked()) {
+      <p>Saved recovery data could not be read. Check your history before resetting it.</p>
+      <button type="button" (click)="abandonPending()" [disabled]="busy()">I checked history; reset recovery data</button>
+    }
+    <section>
+      <h2>Convert points to tokens</h2>
+      <p>1 point = 1 token. Choose how many points to convert. Partial conversions leave the rest available.</p>
+      <form #convertForm="ngForm" (ngSubmit)="convertForm.valid && convert()">
+        <fieldset [disabled]="busy() || loading() || !!pending() || recoveryBlocked() || !data.activeGold">
+          <label>Points to convert
+            <input name="points" type="number" [(ngModel)]="points" min="1" [max]="data.points" step="1" required />
+          </label>
+          <button type="submit" [disabled]="convertForm.invalid || data.points < 1">Convert to tokens</button>
+        </fieldset>
+      </form>
+    </section>
+    <section>
+      <h2>Rewards store</h2>
+      <p>Each redemption exchanges tokens for one item. Coordinate collection with the merchant using your emailed reference.</p>
+      @if (!items().length) { <p>No rewards are currently available.</p> }
+      <div class="catalog">
+        @for (item of items(); track item.itemId) {
+          <article>
+            <img [src]="item.imageUrl" [alt]="item.name" loading="lazy" />
+            <h3>{{ item.name }}</h3>
+            <p>{{ item.tokenCost }} tokens</p>
+            <button type="button" (click)="selectedItem.set(item)"
+              [disabled]="busy() || loading() || !!pending() || recoveryBlocked() || !data.activeGold || data.tokens < item.tokenCost">Redeem</button>
+          </article>
+        }
+      </div>
+      @if (selectedItem(); as item) {
+        <section role="region" aria-label="Confirm reward redemption">
+          <h3>Confirm redemption</h3>
+          <p>Spend {{ item.tokenCost }} tokens for one {{ item.name }}? This cannot be undone. Confirmation will be emailed to you and the merchant.</p>
+          <button type="button" (click)="confirmRedemption()" [disabled]="busy() || loading() || !!pending()">Confirm and spend {{ item.tokenCost }} tokens</button>
+          <button type="button" (click)="selectedItem.set(null)">Cancel</button>
+        </section>
+      }
+    </section>
+    <section>
+      <h2>My history</h2>
+      <div class="actions">
+        <button type="button" (click)="selectKind('award')" [attr.aria-pressed]="kind() === 'award'">Points earned</button>
+        <button type="button" (click)="selectKind('conversion')" [attr.aria-pressed]="kind() === 'conversion'">Token conversions</button>
+        <button type="button" (click)="selectKind('redemption')" [attr.aria-pressed]="kind() === 'redemption'">Reward redemptions</button>
+      </div>
+      @if (historyLoading()) { <p role="status">Loading history...</p> }
+      @if (historyError()) { <p class="error" role="alert">{{ historyError() }}</p> }
+      @if (history(); as entries) {
+        @if (!entries.records.length) { <p>No records yet.</p> }
+        @for (record of entries.records; track record.awardId ?? record.transactionId) {
+          <article class="history-entry">
+            @if (kind() === 'award') {
+              <h3>{{ sourceLabels[record.source ?? ''] }}</h3>
+              <p>{{ record.activityDate }} {{ record.scheduleName }}</p>
+              @if (record.startHour !== null && record.startHour !== undefined) {
+                <p>Court {{ record.courtNumber }}; {{ record.startHour }}:00 - {{ (record.startHour + 1) % 24 }}:00 (Philippine time)</p>
+              }
+              @if (record.reason) { <p>{{ record.reason }}</p> }
+              <p>{{ record.points }} points earned; {{ record.convertedPoints }} converted.
+                {{ record.used ? 'Fully used for tokens' : record.convertedPoints ? 'Partially converted' : 'Available' }}</p>
+            } @else {
+              <h3>{{ kind() === 'conversion' ? 'Points converted' : record.itemName }}</h3>
+              <p>{{ record.createdAt | date:'medium':'+0800' }} (Philippine time)</p>
+              <p>{{ kind() === 'conversion' ? record.points + ' points → ' + record.tokens + ' tokens' : record.tokens + ' tokens spent' }}</p>
+              <p class="reference">Reference: {{ record.transactionId }}</p>
+              @if (kind() === 'redemption') {
+                <p>Email delivery: member {{ record.memberEmailStatus }}; merchant {{ record.merchantEmailStatus }}.</p>
+                @if (record.memberEmailStatus !== 'accepted' || record.merchantEmailStatus !== 'accepted') {
+                  <p>Your redemption is saved. Retrying emails spends no tokens, but an unconfirmed email may be delivered twice. A sending attempt needs two minutes before retry.</p>
+                  <button type="button" (click)="retryEmail(record)" [disabled]="busy() || loading()">Retry notifications (may duplicate email)</button>
+                }
+              }
+            }
+          </article>
+        }
+        @if (entries.continuationToken) {
+          <button type="button" (click)="loadHistory(true)" [disabled]="historyLoading()">Load more history</button>
+        }
+      }
+    </section>
+  }
+</main>

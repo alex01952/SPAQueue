@@ -51,6 +51,8 @@ describe('MemberPointsPageComponent', () => {
       fixture.detectChanges();
       const link = (fixture.nativeElement as HTMLElement).querySelector('a[href="/member-points"]');
       expect(!!link).toBe(role === 'admin' || role === 'balance-staff');
+      expect((fixture.nativeElement as HTMLElement).querySelector('a[href="/my-rewards"]')).not.toBeNull();
+      expect(!!(fixture.nativeElement as HTMLElement).querySelector('a[href="/store-admin"]')).toBe(role === 'admin');
       http.verify();
     });
   });
@@ -63,7 +65,7 @@ describe('MemberPointsPageComponent', () => {
     request.flush({ balance: 10, awards: [recorded], continuationToken: null });
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
-    expect(element.textContent).toContain('Total points: 10');
+    expect(element.textContent).toContain('Available points: 10');
     expect(element.textContent).toContain('Morning');
     expect(element.textContent).toContain('Staff');
     expect(element.textContent).toContain('Points: 10');

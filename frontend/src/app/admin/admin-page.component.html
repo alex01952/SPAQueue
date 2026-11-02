@@ -1,0 +1,22 @@
+<main class="home-shell">
+  <a routerLink="/home">Back to Member Home</a>
+
+  <section class="home-intro" aria-labelledby="admin-title">
+    <p class="eyebrow">Administration</p>
+    <h1 id="admin-title">Admin</h1>
+    <p>Manage rewards, members, club operations, and tournaments.</p>
+  </section>
+
+  <nav class="home-menu" aria-label="Admin menu">
+    @for (item of menuItems; track item.route; let index = $index) {
+      <a [routerLink]="item.route" class="menu-item">
+        <span class="menu-index">0{{ index + 1 }}</span>
+        <span class="menu-copy">
+          <strong>{{ item.label }}</strong>
+          <small>{{ item.description }}</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
+    }
+  </nav>
+</main>

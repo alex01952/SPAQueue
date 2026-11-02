@@ -1,8 +1,10 @@
 import { signal } from '@angular/core';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { of } from 'rxjs';
-import { MemberAuthService } from '../member-auth.service';
+import { AuthenticatedMember, MemberAuthService } from '../member-auth.service';
 import { HomePageComponent } from './home-page.component';
 
 describe('HomePageComponent', () => {
@@ -12,7 +14,7 @@ describe('HomePageComponent', () => {
   const requestEmailVerification = vi.fn(() =>
     of({ sent: true as const, email: 'al**@example.com' }),
   );
-  const member = signal({
+  const member = signal<AuthenticatedMember>({
     memberId: 'member-1',
     name: 'Alex Member',
     age: 30,
@@ -27,10 +29,14 @@ describe('HomePageComponent', () => {
 
   beforeEach(async () => {
     logout.mockClear();
+    requestEmailVerification.mockClear();
+    member.update((value) => ({ ...value, role: 'member', emailValidated: false }));
     await TestBed.configureTestingModule({
       imports: [HomePageComponent],
       providers: [
         provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
         {
           provide: MemberAuthService,
           useValue: {
@@ -45,7 +51,13 @@ describe('HomePageComponent', () => {
     fixture = TestBed.createComponent(HomePageComponent);
     router = TestBed.inject(Router);
     fixture.detectChanges();
+    TestBed.inject(HttpTestingController).expectOne(
+      (request) => request.url.endsWith('/members/me/balances'),
+    ).flush([]);
+    fixture.detectChanges();
   });
+
+  afterEach(() => TestBed.inject(HttpTestingController).verify());
 
   it('should expose every requested member destination', () => {
     const compiled = fixture.nativeElement as HTMLElement;
@@ -61,7 +73,10 @@ describe('HomePageComponent', () => {
       'Members',
       'Clubs',
       'Masters of the Arena',
-      'Queueing',
+      'Tournaments',
+      'Player validations',
+      'My balances',
+      'My points & rewards',
       'Logout',
     ]);
     expect(routes).toEqual([
@@ -69,9 +84,46 @@ describe('HomePageComponent', () => {
       '/members',
       '/clubs',
       '/masters-of-the-arena',
-      '/queue-dashboard',
+      '/tournaments',
+      '/club-player-validations',
+      '/my-balances',
+      '/my-rewards',
     ]);
   });
+
+  it('groups admin-only destinations under one Admin link while preserving shared staff tools', () => {
+    member.update((value) => ({ ...value, role: 'admin' }));
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const links = Array.from(compiled.querySelectorAll<HTMLAnchorElement>('.home-menu a'));
+    const hrefs = links.map((link) => link.getAttribute('href'));
+
+    expect(links.find((link) => link.getAttribute('href') === '/admin')?.textContent).toContain('Admin');
+    expect(hrefs).toContain('/member-points');
+    expect(hrefs).toContain('/member-balances');
+    for (const route of [
+      '/store-admin', '/email-announcements', '/queue-dashboard',
+      '/open-play-participation/upload', '/member-registration-approvals',
+      '/club-management', '/tournament-management',
+    ]) {
+      expect(hrefs).not.toContain(route);
+    }
+    expect(Array.from(compiled.querySelectorAll('.menu-index')).map(
+      (item) => item.textContent?.trim(),
+    )).toEqual(Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0')));
+  });
+
+  it.each(['member', 'club-owner', 'balance-staff'] as const)(
+    'does not show Admin for %s accounts',
+    (role) => {
+      member.update((value) => ({ ...value, role }));
+      fixture.detectChanges();
+      const compiled = fixture.nativeElement as HTMLElement;
+      expect(compiled.querySelector('a[href="/admin"]')).toBeNull();
+      expect(!!compiled.querySelector('a[href="/member-points"]')).toBe(role === 'balance-staff');
+      expect(!!compiled.querySelector('a[href="/member-balances"]')).toBe(role === 'balance-staff');
+    },
+  );
 
   it('should end the session and return to login', () => {
     const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
