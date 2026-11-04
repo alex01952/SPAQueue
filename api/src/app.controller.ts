@@ -358,6 +358,17 @@ export class AppController {
     );
   }
 
+  @Patch('admin/tournaments/:tournamentId/pricing')
+  setTournamentPricing(
+    @Param('tournamentId') tournamentId: string,
+    @Body('pricing') pricing: unknown,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<Tournament> {
+    return this.appService.setTournamentPricing(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, pricing,
+    );
+  }
+
   @Patch('admin/tournaments/:tournamentId/tshirt-sizes')
   setTournamentTshirtSizes(
     @Param('tournamentId') tournamentId: string,

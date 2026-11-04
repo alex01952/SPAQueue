@@ -24,6 +24,7 @@
   @if (details(); as data) {
     <section class="events-section" aria-label="Archived tournament details">
       <h2>{{ data.tournament.name }}</h2>
+      <app-tournament-pricing [pricing]="data.tournament.pricing" />
       <p>{{ data.tournament.category }} · {{ data.tournament.level }} · {{ data.tournament.location }}</p>
       <p>{{ data.tournament.date ? (data.tournament.date | date: 'mediumDate') : 'Date not set' }} · {{ data.tournament.maxSlots }} maximum teams</p>
       @if (data.tournament.tshirtSizes?.length) { <p>Available T-shirt sizes: {{ data.tournament.tshirtSizes?.join(', ') }}</p> }

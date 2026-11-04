@@ -48,6 +48,7 @@ describe('Tournament archive and deletion', () => {
       Level: 'Beginner', MaxSlots: 8, CreatedAt: '2026-10-01', etag: 'v1',
       TermsBlobName: `tournament-terms/${id}/terms.pdf`,
       TshirtSizes: '["XXS","M","XXXL"]',
+      RegistrationPricing: '{"regularPrice":500,"earlyBirdPrice":400,"earlyBirdEndDate":"2026-10-31"}',
     });
     registrations.rows.set(key(id, 'team-1'), {
       partitionKey: id, rowKey: 'team-1', TournamentId: id, TournamentName: 'Club Open',
@@ -118,6 +119,7 @@ describe('Tournament archive and deletion', () => {
     expect(await service.getTournamentProtestsForAdmin('session')).toEqual([]);
     expect(await service.getArchivedTournaments('session')).toHaveLength(1);
     const details = await service.getTournamentArchiveDetails('session', id);
+    expect(details.tournament.pricing).toEqual({ regularPrice: 500, earlyBirdPrice: 400, earlyBirdEndDate: '2026-10-31' });
     expect(details.tournament).toMatchObject({
       name: 'Club Open', archivedBy: 'Administrator', registrationCount: 1, tshirtSizes: ['XXS', 'M', 'XXXL'],
     });

@@ -47,6 +47,12 @@ export interface TournamentTeamMember {
   termsAcceptedAt?: string;
 }
 
+export interface TournamentPricing {
+  regularPrice: number;
+  earlyBirdPrice?: number;
+  earlyBirdEndDate?: string;
+}
+
 export interface Tournament {
   tournamentId: string;
   name: string;
@@ -56,6 +62,7 @@ export interface Tournament {
   date: string;
   location: string;
   tshirtSizes?: TournamentTshirtSize[];
+  pricing?: TournamentPricing;
   registrationCount: number;
   pendingRegistrationCount: number;
   termsUrl?: string;

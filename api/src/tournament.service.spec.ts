@@ -286,9 +286,80 @@ describe('AppService tournament registration', () => {
       expect((service as any).toTournament(stored)).toMatchObject({ termsUrl: result.termsUrl, termsFileName: 'terms.pdf' });
     });
 
+    it.each([
+      { regularPrice: 0 },
+      { regularPrice: 500.25 },
+      { regularPrice: 1000000, earlyBirdPrice: 0, earlyBirdEndDate: '2028-02-29' },
+      { regularPrice: 500, earlyBirdPrice: 400, earlyBirdEndDate: '2026-10-31' },
+    ])('round-trips fee configuration for JSON and multipart creation: %p', async (pricing) => {
+      for (const value of [pricing, JSON.stringify(pricing)]) {
+        createEntity.mockClear();
+        const result = await service.createTournament('session', { ...input, pricing: value });
+        expect(result.pricing).toEqual(pricing);
+        const stored = createEntity.mock.calls[0][0];
+        expect(JSON.parse(stored.RegistrationPricing)).toEqual(pricing);
+        expect(service['toTournament'](stored)?.pricing).toEqual(pricing);
+      }
+    });
+
+    it.each([
+      'not JSON', '[]', '1', '{}', '{"regularPrice":-1}', '{"regularPrice":1.001}',
+      '{"regularPrice":"500"}', '{"regularPrice":1000001}', '{"regularPrice":null}',
+      '{"earlyBirdPrice":100}', '{"regularPrice":500,"earlyBirdPrice":400}',
+      '{"regularPrice":500,"earlyBirdEndDate":"2026-10-31"}',
+      '{"regularPrice":500,"earlyBirdPrice":501,"earlyBirdEndDate":"2026-10-31"}',
+      '{"regularPrice":500,"earlyBirdPrice":400,"earlyBirdEndDate":"2026-02-29"}',
+      '{"regularPrice":500,"earlyBirdPrice":400,"earlyBirdEndDate":"2026-04-31"}',
+      '{"regularPrice":500,"earlyBirdPrice":400,"earlyBirdEndDate":"2026-13-01"}',
+      '{"regularPrice":500,"earlyBirdPrice":400,"earlyBirdEndDate":"2026-10-31T00:00:00Z"}',
+    ])('rejects invalid pricing before any document or entity writes: %s', async (pricing) => {
+      await expect(service.createTournament('session', { ...input, pricing }, file)).rejects.toBeInstanceOf(BadRequestException);
+      expect(createEntity).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+    });
+
+    it('requires finite prices and distinguishes unannounced pricing from free', () => {
+      for (const regularPrice of [NaN, Infinity, -Infinity]) {
+        expect(() => service['validateTournamentPricing']({ regularPrice })).toThrow(BadRequestException);
+      }
+      expect(service['validateTournamentPricing'](null)).toBeUndefined();
+      expect(service['validateTournamentPricing'](undefined)).toBeUndefined();
+      expect(service['validateTournamentPricing']({ regularPrice: 0 })).toEqual({ regularPrice: 0 });
+    });
+
+    it('updates and removes fees only as an administrator without changing registrations', async () => {
+      const updateEntity = jest.fn().mockResolvedValue(undefined);
+      service['getTournamentsTableClient'] = jest.fn().mockReturnValue({ updateEntity });
+      const pricing = { regularPrice: 500, earlyBirdPrice: 400, earlyBirdEndDate: '2026-10-31' };
+      await expect(service.setTournamentPricing('session', tournament.tournamentId, pricing))
+        .resolves.toMatchObject({ pricing });
+      expect(updateEntity).toHaveBeenLastCalledWith({
+        partitionKey: 'tournaments', rowKey: tournament.tournamentId, RegistrationPricing: JSON.stringify(pricing),
+      }, 'Merge');
+      service['getTournament'] = jest.fn().mockResolvedValue({ ...tournament, pricing });
+      expect((await service.setTournamentPricing('session', tournament.tournamentId, null)).pricing).toBeUndefined();
+      expect(updateEntity).toHaveBeenLastCalledWith({
+        partitionKey: 'tournaments', rowKey: tournament.tournamentId, RegistrationPricing: 'null',
+      }, 'Merge');
+      await expect(service.setTournamentPricing('session', tournament.tournamentId, undefined)).rejects.toBeInstanceOf(BadRequestException);
+      service['getMemberSession'] = jest.fn().mockResolvedValue(memberSession('member'));
+      await expect(service.setTournamentPricing('session', tournament.tournamentId, pricing)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(updateEntity).toHaveBeenCalledTimes(2);
+    });
+
+    it('reports pricing storage errors without returning success', async () => {
+      const updateEntity = jest.fn().mockRejectedValue({ statusCode: 404 });
+      service['getTournamentsTableClient'] = jest.fn().mockReturnValue({ updateEntity });
+      await expect(service.setTournamentPricing('session', tournament.tournamentId, { regularPrice: 500 }))
+        .rejects.toBeInstanceOf(NotFoundException);
+      updateEntity.mockRejectedValue(new Error('Storage down'));
+      await expect(service.setTournamentPricing('session', tournament.tournamentId, { regularPrice: 500 })).rejects.toThrow();
+    });
+
     it('keeps terms optional', async () => {
       const result = await service.createTournament('session', input);
       expect(result.termsUrl).toBeUndefined();
+      expect(result.pricing).toBeUndefined();
       expect(upload).not.toHaveBeenCalled();
     });
 

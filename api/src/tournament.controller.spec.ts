@@ -14,6 +14,7 @@ describe('Tournament payment HTTP endpoints', () => {
     removeTournamentRegistration: jest.fn(),
     createTournament: jest.fn(),
     setTournamentTshirtSizes: jest.fn(),
+    setTournamentPricing: jest.fn(),
     getTournamentTerms: jest.fn(),
     registerTournamentTeam: jest.fn(),
     respondToTournamentInvitation: jest.fn(),
@@ -66,6 +67,17 @@ describe('Tournament payment HTTP endpoints', () => {
         .send({ exportedForPrinting, players }).expect('Cache-Control', 'private, no-store').expect(200, { updated: true });
       expect(service.setTournamentPrintingTags).toHaveBeenLastCalledWith('member-session', 'event-1', exportedForPrinting, players);
     }
+  });
+
+  it('forwards registration pricing and removal with the authenticated admin session', async () => {
+    const pricing = { regularPrice: 500, earlyBirdPrice: 400, earlyBirdEndDate: '2026-10-31' };
+    service.setTournamentPricing.mockResolvedValue({ pricing });
+    await request(app.getHttpServer()).patch('/admin/tournaments/event-1/pricing').set('Cookie', cookie)
+      .send({ pricing }).expect(200, { pricing });
+    expect(service.setTournamentPricing).toHaveBeenLastCalledWith('member-session', 'event-1', pricing);
+    await request(app.getHttpServer()).patch('/admin/tournaments/event-1/pricing').set('Cookie', cookie)
+      .send({ pricing: null }).expect(200);
+    expect(service.setTournamentPricing).toHaveBeenLastCalledWith('member-session', 'event-1', null);
   });
 
   it('forwards available T-shirt sizes with the authenticated admin session', async () => {
@@ -131,11 +143,13 @@ describe('Tournament payment HTTP endpoints', () => {
     service.createTournament.mockResolvedValue({ termsUrl: '/tournaments/event-1/terms' });
     await request(app.getHttpServer()).post('/admin/tournaments').set('Cookie', cookie)
       .field('name', 'Club Open').field('maxSlots', '8')
+      .field('pricing', '{"regularPrice":500,"earlyBirdPrice":400,"earlyBirdEndDate":"2026-10-31"}')
       .field('tshirtSizes', '["XS","S","M","L","XL","XXL"]')
       .attach('termsFile', Buffer.from('%PDF-1.7'), { filename: 'terms.pdf', contentType: 'application/pdf' })
       .expect(201);
     expect(service.createTournament).toHaveBeenCalledWith('member-session',
-      expect.objectContaining({ name: 'Club Open', maxSlots: '8', tshirtSizes: '["XS","S","M","L","XL","XXL"]' }),
+      expect.objectContaining({ name: 'Club Open', maxSlots: '8', tshirtSizes: '["XS","S","M","L","XL","XXL"]',
+        pricing: '{"regularPrice":500,"earlyBirdPrice":400,"earlyBirdEndDate":"2026-10-31"}' }),
       expect.objectContaining({ originalname: 'terms.pdf', buffer: Buffer.from('%PDF-1.7') }),
     );
   });

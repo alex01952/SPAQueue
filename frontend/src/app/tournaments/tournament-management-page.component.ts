@@ -5,6 +5,8 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { getApiBaseUrl } from '../api-base-url';
 import { downloadTournamentCsv } from './tournament-csv';
+import { TournamentPricingComponent } from './tournament-pricing.component';
+import { pricingFromForm, tournamentPricingForm, TournamentPricingEditorComponent } from './tournament-pricing-editor.component';
 import {
   tournamentCategories,
   tournamentLevels,
@@ -17,7 +19,7 @@ import {
 
 @Component({
   selector: 'app-tournament-management-page',
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink, TournamentPricingComponent, TournamentPricingEditorComponent],
   templateUrl: './tournament-management-page.component.html',
   styleUrl: './tournament-management-page.component.scss',
 })
@@ -30,6 +32,9 @@ export class TournamentManagementPageComponent implements OnInit {
   protected readonly tshirtSizes = tournamentTshirtSizes;
   protected readonly tshirtSizeDrafts = signal<Partial<Record<string, TournamentTshirtSize[]>>>({});
   protected selectedTshirtSizes: TournamentTshirtSize[] = [];
+  protected pricingForm = tournamentPricingForm();
+  protected pricingDraft = tournamentPricingForm();
+  protected readonly editingPricingId = signal<string | null>(null);
   protected readonly tournaments = signal<Tournament[]>([]);
   protected readonly registrations = signal<TournamentRegistration[]>([]);
   protected readonly isSaving = signal(false);
@@ -66,11 +71,19 @@ export class TournamentManagementPageComponent implements OnInit {
     if (this.isSaving()) return;
     this.errorMessage.set('');
     this.feedbackMessage.set('');
+    let pricing;
+    try {
+      pricing = pricingFromForm(this.pricingForm);
+    } catch (error) {
+      this.errorMessage.set(error instanceof Error ? error.message : 'Invalid registration pricing.');
+      return;
+    }
     this.isSaving.set(true);
     const file = this.termsFile();
     const body = new FormData();
     Object.entries(this.form).forEach(([key, value]) => body.append(key, String(value)));
     body.append('tshirtSizes', JSON.stringify(this.selectedTshirtSizes));
+    body.append('pricing', JSON.stringify(pricing));
     if (file) body.append('termsFile', file);
     this.http.post<Tournament>(`${this.apiUrl}/admin/tournaments`, body, { withCredentials: true }).subscribe({
       next: () => {
@@ -78,6 +91,7 @@ export class TournamentManagementPageComponent implements OnInit {
         this.form.date = '';
         this.form.location = '';
         this.selectedTshirtSizes = [];
+        this.pricingForm = tournamentPricingForm();
         this.termsFile.set(null);
         termsInput.value = '';
         this.feedbackMessage.set('Tournament created.');
@@ -86,6 +100,43 @@ export class TournamentManagementPageComponent implements OnInit {
       },
       error: (error: HttpErrorResponse) => {
         this.errorMessage.set(error.error?.message ?? 'Unable to create tournament.');
+        this.isSaving.set(false);
+      },
+    });
+  }
+
+  protected editPricing(tournament: Tournament) {
+    if (this.isSaving()) return;
+    this.pricingDraft = tournamentPricingForm(tournament.pricing);
+    this.editingPricingId.set(tournament.tournamentId);
+  }
+
+  protected savePricing(tournament: Tournament) {
+    if (this.isSaving()) return;
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    let pricing;
+    try {
+      pricing = pricingFromForm(this.pricingDraft);
+    } catch (error) {
+      this.errorMessage.set(error instanceof Error ? error.message : 'Invalid registration pricing.');
+      return;
+    }
+    this.isSaving.set(true);
+    this.http.patch<Tournament>(
+      `${this.apiUrl}/admin/tournaments/${encodeURIComponent(tournament.tournamentId)}/pricing`,
+      { pricing }, { withCredentials: true },
+    ).subscribe({
+      next: (updated) => {
+        this.tournaments.update((items) => items.map((item) =>
+          item.tournamentId === updated.tournamentId ? { ...item, pricing: updated.pricing } : item,
+        ));
+        this.editingPricingId.set(null);
+        this.feedbackMessage.set('Registration pricing saved.');
+        this.isSaving.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.showError(error, 'Unable to save registration pricing.');
         this.isSaving.set(false);
       },
     });

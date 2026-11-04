@@ -182,6 +182,10 @@ Admin endpoints (cookie-authenticated, private/no-store responses):
 
 ## Tournament registrations
 
+Administrators can configure a **Registration fee (PHP per player)** when creating a tournament or use **Edit registration pricing** on a published event. Set a regular price and optionally an early-bird price with an end date. Prices allow up to two decimal places, from PHP 0 to 1,000,000; the early-bird price cannot exceed the regular price. Early bird is valid through the entire selected calendar date in **Asia/Manila (UTC+8)**, including 11:59 PM; regular pricing applies from midnight the next day. Players see the current fee, both configured prices, and the Philippine-time deadline when browsing, registering, and accepting invitations. The display updates while the page remains open.
+
+Leave all pricing fields blank to show **not yet announced**, not free; enter 0 explicitly for free registration. Clearing all fields on an existing event removes its advertised pricing. Creation accepts `pricing` as a JSON object (JSON-encoded for multipart requests), e.g. `{ "regularPrice": 500, "earlyBirdPrice": 400, "earlyBirdEndDate": "2026-10-31" }`. Administrators can update it with `PATCH /admin/tournaments/:tournamentId/pricing` and `{ "pricing": { ... } }`, or `{ "pricing": null }` to clear. Pricing is stored with the tournament and retained in archives. These are advertised fee details only: this feature does not charge players, calculate payment balances, lock in individual rates, or change existing payment-status workflows.
+
 Roster gender requirements include the member sending the invitations:
 
 - Mens Doubles: two male players.

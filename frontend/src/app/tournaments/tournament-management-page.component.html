@@ -19,6 +19,7 @@
       <label><span>Maximum team slots</span><input name="maxSlots" type="number" [(ngModel)]="form.maxSlots" min="1" max="10000" required /></label>
       <label><span>Date</span><input name="date" type="date" [(ngModel)]="form.date" /></label>
       <label class="wide"><span>Location</span><input name="location" [(ngModel)]="form.location" maxlength="160" /></label>
+      <app-tournament-pricing-editor class="wide" [form]="pricingForm" [disabled]="isSaving()" />
       <fieldset class="wide tshirt-options">
         <legend>Available T-shirt sizes</legend>
         <p>Select sizes to require each participant to choose one, or leave all unchecked to skip T-shirts.</p>
@@ -74,6 +75,14 @@
       @for (tournament of tournaments(); track tournament.tournamentId) {
         <article class="event-row"><div><strong>{{ tournament.name }}</strong><span>{{ tournament.category }} · {{ tournament.level }}</span></div><span>{{ tournament.date ? (tournament.date | date: 'mediumDate') : 'Date not set' }}</span><div><strong>{{ tournament.registrationCount }} / {{ tournament.maxSlots }} approved teams</strong><span>{{ tournament.pendingRegistrationCount }} pending approval</span></div>
           <div class="event-actions">
+            <app-tournament-pricing [pricing]="tournament.pricing" />
+            @if (editingPricingId() === tournament.tournamentId) {
+              <app-tournament-pricing-editor [form]="pricingDraft" [disabled]="isSaving()" />
+              <button type="button" class="action-button" [disabled]="isSaving() || !!tournament.lifecycleState" (click)="savePricing(tournament)">Save registration pricing</button>
+              <button type="button" class="action-button" [disabled]="isSaving()" (click)="editingPricingId.set(null)">Cancel pricing changes</button>
+            } @else {
+              <button type="button" class="action-button" [disabled]="isSaving() || !!tournament.lifecycleState" (click)="editPricing(tournament)">Edit registration pricing</button>
+            }
             <fieldset class="tshirt-options">
               <legend>Available T-shirt sizes</legend>
               @for (size of tshirtSizes; track size) {

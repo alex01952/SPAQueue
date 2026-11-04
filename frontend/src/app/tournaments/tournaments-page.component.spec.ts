@@ -51,6 +51,28 @@ describe('TournamentsPageComponent', () => {
     teamMembers: [{ memberId: 'invited-member', name: 'Invitee', gender: 'Male', accepted: false }],
   };
 
+  it('shows prices and the Philippine deadline while browsing, registering, and accepting invitations', () => {
+    const component = fixture.componentInstance;
+    const tournament = {
+      tournamentId: 'event-1', name: 'Club Open', category: 'Team Tournament' as const, level: 'Beginner' as const,
+      maxSlots: 5, registrationCount: 0, pendingRegistrationCount: 0, date: '', location: '', createdAt: '',
+      pricing: { regularPrice: 500, earlyBirdPrice: 400, earlyBirdEndDate: '9999-10-31' },
+    };
+    component['tournaments'].set([tournament]);
+    component['openRegistration'](tournament);
+    component['registrations'].set([registration]);
+    component['beginAccepting'](registration);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const displays = root.querySelectorAll('app-tournament-pricing');
+    expect(displays).toHaveLength(3);
+    for (const display of displays) {
+      expect(display.textContent).toContain('Registration fee: ₱400.00 per player (early bird)');
+      expect(display.textContent).toContain('Regular price: ₱500.00 per player');
+      expect(display.textContent).toContain('October 31, 9999 at 11:59 PM Philippine time');
+    }
+  });
+
   it('offers only configured sizes and requires the sender to select one before submitting', async () => {
     const component = fixture.componentInstance;
     const tournament = {

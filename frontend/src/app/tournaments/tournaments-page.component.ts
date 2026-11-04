@@ -8,6 +8,7 @@ import { catchError, distinctUntilChanged, finalize, of, Subject, switchMap, tim
 import { getApiBaseUrl } from '../api-base-url';
 import { MemberAuthService } from '../member-auth.service';
 import { tournamentLevels } from './tournament.types';
+import { TournamentPricingComponent } from './tournament-pricing.component';
 import type {
   Tournament,
   TournamentExperienceDetails,
@@ -35,11 +36,15 @@ const emptyTournamentExperienceForm = (): TournamentExperienceForm => ({
 
 @Component({
   selector: 'app-tournaments-page',
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink, TournamentPricingComponent],
   templateUrl: './tournaments-page.component.html',
   styleUrl: './tournaments-page.component.scss',
 })
 export class TournamentsPageComponent implements OnInit {
+  protected tournamentPricing(tournamentId: string) {
+    return this.tournaments().find((item) => item.tournamentId === tournamentId)?.pricing;
+  }
+
   private readonly http = inject(HttpClient);
   private readonly auth = inject(MemberAuthService);
   protected readonly apiUrl = getApiBaseUrl();

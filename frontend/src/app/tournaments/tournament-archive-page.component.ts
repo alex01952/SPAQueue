@@ -3,11 +3,12 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { getApiBaseUrl } from '../api-base-url';
+import { TournamentPricingComponent } from './tournament-pricing.component';
 import { ArchivedTournament, TournamentArchiveDetails, TournamentRegistration } from './tournament.types';
 
 @Component({
   selector: 'app-tournament-archive-page',
-  imports: [DatePipe, RouterLink],
+  imports: [DatePipe, RouterLink, TournamentPricingComponent],
   templateUrl: './tournament-archive-page.component.html',
   styleUrl: './tournament-management-page.component.scss',
 })

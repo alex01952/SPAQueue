@@ -323,6 +323,12 @@ export type TournamentRegistrationStatus =
   | "Payment Submitted"
   | "Paid";
 
+export interface TournamentPricing {
+  regularPrice: number;
+  earlyBirdPrice?: number;
+  earlyBirdEndDate?: string;
+}
+
 export interface Tournament {
   tournamentId: string;
   name: string;
@@ -332,6 +338,7 @@ export interface Tournament {
   date: string;
   location: string;
   tshirtSizes?: TournamentTshirtSize[];
+  pricing?: TournamentPricing;
   registrationCount: number;
   pendingRegistrationCount: number;
   termsUrl?: string;
@@ -448,6 +455,7 @@ export interface TournamentCreateInput {
   date?: string;
   location?: string;
   tshirtSizes?: TournamentTshirtSize[] | string;
+  pricing?: TournamentPricing | string | null;
 }
 
 export interface TournamentRegistration {
@@ -2072,6 +2080,7 @@ export class AppService {
     const date = String(input?.date ?? '').trim();
     const location = String(input?.location ?? '').trim();
     const tshirtSizes = this.validateTournamentTshirtSizes(input?.tshirtSizes);
+    const pricing = this.validateTournamentPricing(input?.pricing);
     if (!name || name.length > 120) {
       throw new BadRequestException('Tournament name is required and must be 120 characters or fewer.');
     }
@@ -2117,6 +2126,7 @@ export class AppService {
       date,
       location,
       tshirtSizes,
+      ...(pricing ? { pricing } : {}),
       registrationCount: 0,
       pendingRegistrationCount: 0,
       registrationClosed: false,
@@ -2836,6 +2846,67 @@ export class AppService {
       if (this.isAzureNotFound(error)) throw new NotFoundException('Payment-proof file was not found.');
       throw this.createMemberAuthenticationStorageException(error);
     }
+  }
+
+  async setTournamentPricing(
+    sessionToken: string,
+    tournamentId: string,
+    input: unknown,
+  ): Promise<Tournament> {
+    await this.requireAdminSession(sessionToken);
+    if (input === undefined) throw new BadRequestException('Specify registration pricing, or null to remove it.');
+    const pricing = this.validateTournamentPricing(input);
+    const tournament = await this.getTournament(tournamentId);
+    try {
+      await this.getTournamentsTableClient().updateEntity({
+        partitionKey: 'tournaments',
+        rowKey: tournamentId,
+        RegistrationPricing: JSON.stringify(pricing ?? null),
+      }, 'Merge');
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    const { pricing: previousPricing, ...rest } = tournament;
+    return { ...rest, ...(pricing ? { pricing } : {}) };
+  }
+
+  private validateTournamentPricing(input: unknown): TournamentPricing | undefined {
+    let value: unknown = input;
+    if (typeof value === 'string') {
+      try {
+        value = JSON.parse(value);
+      } catch {
+        throw new BadRequestException('Registration pricing must be a valid pricing object.');
+      }
+    }
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== 'object' || Array.isArray(value)) {
+      throw new BadRequestException('Registration pricing must be a valid pricing object.');
+    }
+    const amount = (value: unknown): number => {
+      if (typeof value !== 'number' || !Number.isFinite(value) ||
+        value < 0 || value > 1000000 || !/^\d+(\.\d{1,2})?$/.test(String(value))) {
+        throw new BadRequestException('Registration prices must be PHP amounts from 0 to 1,000,000 with at most two decimal places.');
+      }
+      return value;
+    };
+    if (!('regularPrice' in value)) throw new BadRequestException('A regular registration price is required.');
+    const regularPrice = amount(value.regularPrice);
+    const earlyBirdPrice = 'earlyBirdPrice' in value ? value.earlyBirdPrice : undefined;
+    const earlyBirdEndDate = 'earlyBirdEndDate' in value ? value.earlyBirdEndDate : undefined;
+    if (earlyBirdPrice === undefined && earlyBirdEndDate === undefined) return { regularPrice };
+    if (earlyBirdPrice === undefined || typeof earlyBirdEndDate !== 'string' ||
+      !/^[1-9]\d{3}-\d{2}-\d{2}$/.test(earlyBirdEndDate)) {
+      throw new BadRequestException('Provide both an early-bird price and a valid end date (YYYY-MM-DD).');
+    }
+    const parsedDate = new Date(`${earlyBirdEndDate}T00:00:00.000Z`);
+    if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== earlyBirdEndDate) {
+      throw new BadRequestException('Enter a valid early-bird end date.');
+    }
+    const earlyPrice = amount(earlyBirdPrice);
+    if (earlyPrice > regularPrice) throw new BadRequestException('The early-bird price cannot exceed the regular price.');
+    return { regularPrice, earlyBirdPrice: earlyPrice, earlyBirdEndDate };
   }
 
   async setTournamentTshirtSizes(
@@ -5525,6 +5596,8 @@ export class AppService {
       date: String(entity.Date ?? ''),
       location: String(entity.Location ?? ''),
       tshirtSizes: this.validateTournamentTshirtSizes(entity.TshirtSizes),
+      ...(entity.RegistrationPricing !== undefined
+        ? { pricing: this.validateTournamentPricing(entity.RegistrationPricing) } : {}),
       registrationCount: Number(entity.ArchivedRegistrationCount ?? 0),
       pendingRegistrationCount: Number(entity.ArchivedPendingRegistrationCount ?? 0),
       registrationClosed: entity.RegistrationClosed === true,
@@ -5550,6 +5623,7 @@ export class AppService {
       Date: tournament.date,
       Location: tournament.location,
       TshirtSizes: JSON.stringify(tournament.tshirtSizes ?? []),
+      RegistrationPricing: JSON.stringify(tournament.pricing ?? null),
       RegistrationClosed: tournament.registrationClosed,
       CreatedAt: tournament.createdAt,
     };

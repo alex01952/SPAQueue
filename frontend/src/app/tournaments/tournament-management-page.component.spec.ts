@@ -76,6 +76,25 @@ describe('TournamentManagementPageComponent terms upload', () => {
     expect(component.feedbackMessage()).toBe('Tournament created.');
   });
 
+  it('submits per-player PHP pricing during creation and clears it after success', () => {
+    const component = fixture.componentInstance;
+    component['pricingForm'] = { regularPrice: 500, earlyBirdPrice: 400, earlyBirdEndDate: '2026-10-31' };
+    component['createTournament']((fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input[type="file"]')!);
+    expect(JSON.parse((http.post.mock.calls[0][1] as FormData).get('pricing') as string))
+      .toEqual({ regularPrice: 500, earlyBirdPrice: 400, earlyBirdEndDate: '2026-10-31' });
+    expect(component['pricingForm']).toEqual({ regularPrice: null, earlyBirdPrice: null, earlyBirdEndDate: '' });
+  });
+
+  it('shows incomplete pricing errors without publishing the tournament or clearing the draft', () => {
+    const component = fixture.componentInstance;
+    component['pricingForm'] = { regularPrice: 500, earlyBirdPrice: 400, earlyBirdEndDate: '' };
+    component['createTournament']((fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input[type="file"]')!);
+    expect(http.post).not.toHaveBeenCalled();
+    expect(component['isSaving']()).toBe(false);
+    expect(component['errorMessage']()).toContain('both the early-bird price and its end date');
+    expect(component['pricingForm'].earlyBirdPrice).toBe(400);
+  });
+
   it('allows creation without a document', () => {
     const component = fixture.componentInstance as any;
     component.createTournament((fixture.nativeElement as HTMLElement).querySelector('input[type="file"]'));
@@ -231,6 +250,39 @@ describe('TournamentManagementPageComponent approved teams CSV', () => {
       fixture.componentInstance['exportApprovedTeams'](tournament);
       return http.expectOne((item) => item.url.endsWith('/admin/tournament-registrations'));
     }
+
+    it('edits, retries, saves, and removes pricing on published events', async () => {
+      const component = fixture.componentInstance;
+      component['editPricing']({ ...tournament, pricing: { regularPrice: 500 } });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const root = fixture.nativeElement as HTMLElement;
+      const field = root.querySelector<HTMLInputElement>('.event-actions input[name="regularPrice"]')!;
+      expect(field.value).toBe('500');
+      field.value = '650.25';
+      field.dispatchEvent(new Event('input'));
+      await fixture.whenStable();
+      component['savePricing'](tournament);
+      let request = http.expectOne((item) => item.url.endsWith('/event-1/pricing'));
+      expect(request.request.method).toBe('PATCH');
+      expect(request.request.withCredentials).toBe(true);
+      expect(request.request.body).toEqual({ pricing: { regularPrice: 650.25 } });
+      request.flush({ message: 'Pricing storage unavailable.' }, { status: 502, statusText: 'Bad Gateway' });
+      expect(component['errorMessage']()).toBe('Pricing storage unavailable.');
+      expect(component['editingPricingId']()).toBe('event-1');
+      expect(component['pricingDraft'].regularPrice).toBe(650.25);
+      component['savePricing'](tournament);
+      http.expectOne((item) => item.url.endsWith('/event-1/pricing')).flush({ ...tournament, pricing: { regularPrice: 650.25 } });
+      expect(component['tournaments']()[0].pricing).toEqual({ regularPrice: 650.25 });
+      expect(component['editingPricingId']()).toBeNull();
+      component['editPricing'](component['tournaments']()[0]);
+      component['pricingDraft'].regularPrice = null;
+      component['savePricing'](tournament);
+      request = http.expectOne((item) => item.url.endsWith('/event-1/pricing'));
+      expect(request.request.body).toEqual({ pricing: null });
+      request.flush(tournament);
+      expect(component['tournaments']()[0].pricing).toBeUndefined();
+    });
 
     it('saves edited sizes for an existing event and retains draft options on failure', () => {
       const component = fixture.componentInstance;

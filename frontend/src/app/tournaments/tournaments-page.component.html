@@ -29,6 +29,7 @@
               <h3>{{ tournament.name }}</h3>
               <p>{{ tournament.category }} <span aria-hidden="true">/</span> {{ tournament.level }}</p>
               @if (tournament.location) { <small>{{ tournament.location }}</small> }
+              <app-tournament-pricing [pricing]="tournament.pricing" />
             </div>
             <div class="event-slots">
               <strong>{{ tournament.registrationCount }} / {{ tournament.maxSlots }}</strong>
@@ -44,6 +45,7 @@
             <form #registrationForm="ngForm" class="registration-panel" (ngSubmit)="register()">
               <div>
                 <h3>{{ tournament.category === 'Team Tournament' ? 'Build your four-player team' : 'Choose your partner' }}</h3>
+                <app-tournament-pricing [pricing]="tournament.pricing" />
                 <p>{{ tournament.category === 'Team Tournament' ? 'Select three teammates. Each player must accept before the team can be reviewed.' : tournament.category + ' eligibility is applied to this list.' }}</p>
               </div>
               <label>
@@ -271,6 +273,7 @@
                   }
                   <div class="row-actions">
                     <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="respondingInvitationId.set('')">Cancel</button>
+                    <app-tournament-pricing [pricing]="tournamentPricing(registration.tournamentId)" />
                     <button type="submit" class="action-button" [disabled]="!isTshirtSizeComplete(registration.tournamentId, partnerTshirtSize) || !partnerIdFile() || (registration.termsUrl && !partnerTermsAccepted) || !isExperienceFormComplete(partnerExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : 'Accept invitation' }}</button>
                   </div>
                 </form>
