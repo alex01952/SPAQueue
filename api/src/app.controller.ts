@@ -53,6 +53,7 @@ import type {
   TournamentCreateInput,
   Tournament,
   TournamentRegistration,
+  TournamentPrintingState,
   TournamentExperienceDetails,
   TournamentPaymentProofUploadInput,
   TournamentDocumentUploadInput,
@@ -289,6 +290,7 @@ export class AppController {
     @Body('termsAccepted') termsAccepted?: boolean,
     @UploadedFile() idFile?: TournamentDocumentUploadInput,
     @Body('clubDetails') clubDetails?: string,
+    @Body('tshirtSize') tshirtSize?: string,
   ): Promise<TournamentRegistration> {
     return this.appService.registerTournamentTeam(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
@@ -299,6 +301,7 @@ export class AppController {
       this.parseTournamentFormValue(termsAccepted),
       idFile,
       clubDetails,
+      tshirtSize,
     );
   }
 
@@ -326,6 +329,7 @@ export class AppController {
     @Body('termsAccepted') termsAccepted?: boolean,
     @UploadedFile() idFile?: TournamentDocumentUploadInput,
     @Body('clubDetails') clubDetails?: string,
+    @Body('tshirtSize') tshirtSize?: string,
   ): Promise<TournamentRegistration> {
     return this.appService.respondToTournamentInvitation(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
@@ -336,6 +340,7 @@ export class AppController {
       this.parseTournamentFormValue(termsAccepted),
       idFile,
       clubDetails,
+      tshirtSize,
     );
   }
 
@@ -350,6 +355,43 @@ export class AppController {
       this.readCookie(cookieHeader, this.memberSessionCookieName),
       body,
       termsFile,
+    );
+  }
+
+  @Patch('admin/tournaments/:tournamentId/tshirt-sizes')
+  setTournamentTshirtSizes(
+    @Param('tournamentId') tournamentId: string,
+    @Body('tshirtSizes') tshirtSizes: unknown,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<Tournament> {
+    return this.appService.setTournamentTshirtSizes(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      tournamentId,
+      tshirtSizes,
+    );
+  }
+
+  @Get('admin/tournaments/:tournamentId/printing-players')
+  @Header('Cache-Control', 'private, no-store')
+  getTournamentPrintingPlayers(
+    @Param('tournamentId') tournamentId: string,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentPrintingState> {
+    return this.appService.getTournamentPrintingPlayers(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId,
+    );
+  }
+
+  @Patch('admin/tournaments/:tournamentId/printing-tags')
+  @Header('Cache-Control', 'private, no-store')
+  setTournamentPrintingTags(
+    @Param('tournamentId') tournamentId: string,
+    @Body('exportedForPrinting') exportedForPrinting: unknown,
+    @Body('players') players: unknown,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<{ updated: true }> {
+    return this.appService.setTournamentPrintingTags(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, exportedForPrinting, players,
     );
   }
 

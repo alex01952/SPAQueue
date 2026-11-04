@@ -26,6 +26,7 @@
       <h2>{{ data.tournament.name }}</h2>
       <p>{{ data.tournament.category }} · {{ data.tournament.level }} · {{ data.tournament.location }}</p>
       <p>{{ data.tournament.date ? (data.tournament.date | date: 'mediumDate') : 'Date not set' }} · {{ data.tournament.maxSlots }} maximum teams</p>
+      @if (data.tournament.tshirtSizes?.length) { <p>Available T-shirt sizes: {{ data.tournament.tshirtSizes?.join(', ') }}</p> }
       @if (data.tournament.termsUrl; as url) {
         <a class="registrations-link" [href]="assetUrl(url)" target="_blank" rel="noopener">View terms and conditions</a>
       }
@@ -43,10 +44,15 @@
             @if (registration.paidAt) { <span>Paid {{ registration.paidAt | date: 'medium' }} · {{ registration.paidBy }}</span> }
             @for (member of registration.teamMembers ?? []; track member.memberId) {
               <span>{{ member.name }} · {{ member.gender }} · {{ member.accepted ? 'Accepted' : 'Invitation pending' }}</span>
+              @if (member.tshirtSize) { <small>T-shirt: {{ member.tshirtSize }}</small> }
               @if (member.experience; as experience) {
                 <small>Previous tournaments: {{ experience.hasJoinedTournaments ? 'Yes' : 'No' }} {{ experience.highestTournamentLevel }}.
                   Wins/podiums: {{ experience.hasWonTournaments ? 'Yes' : 'No' }} {{ experience.winsOrPodiums }} {{ experience.highestWinningLevel }}.</small>
               }
+            }
+            @if (!registration.teamMembers?.length) {
+              @if (registration.memberTshirtSize) { <small>{{ registration.memberName }} · T-shirt: {{ registration.memberTshirtSize }}</small> }
+              @if (registration.partnerTshirtSize) { <small>{{ registration.partnerName }} · T-shirt: {{ registration.partnerTshirtSize }}</small> }
             }
             @if (registration.memberExperience; as experience) {
               <small>{{ registration.memberName }}: Previous tournaments: {{ experience.hasJoinedTournaments ? 'Yes' : 'No' }} {{ experience.highestTournamentLevel }}.

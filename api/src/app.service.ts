@@ -312,6 +312,9 @@ export const TOURNAMENT_LEVELS = [
 ] as const;
 export type TournamentLevel = (typeof TOURNAMENT_LEVELS)[number];
 
+export const TOURNAMENT_TSHIRT_SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] as const;
+export type TournamentTshirtSize = (typeof TOURNAMENT_TSHIRT_SIZES)[number];
+
 export type TournamentRegistrationStatus =
   | "Invitation Pending"
   | "Invitation Declined"
@@ -328,6 +331,7 @@ export interface Tournament {
   maxSlots: number;
   date: string;
   location: string;
+  tshirtSizes?: TournamentTshirtSize[];
   registrationCount: number;
   pendingRegistrationCount: number;
   termsUrl?: string;
@@ -443,6 +447,7 @@ export interface TournamentCreateInput {
   maxSlots: number;
   date?: string;
   location?: string;
+  tshirtSizes?: TournamentTshirtSize[] | string;
 }
 
 export interface TournamentRegistration {
@@ -455,6 +460,8 @@ export interface TournamentRegistration {
   memberName: string;
   partnerId: string;
   partnerName: string;
+  memberTshirtSize?: TournamentTshirtSize;
+  partnerTshirtSize?: TournamentTshirtSize;
   memberExperience?: TournamentExperienceDetails;
   partnerExperience?: TournamentExperienceDetails;
   termsUrl?: string;
@@ -478,6 +485,24 @@ export interface TournamentPaymentProof {
   fileName: string;
   uploadedAt: string;
   url: string;
+}
+
+export interface TournamentPrintingPlayerRef {
+  registrationId: string;
+  memberId: string;
+  version: string;
+}
+
+export interface TournamentPrintingPlayer extends TournamentPrintingPlayerRef {
+  name: string;
+  tshirtSize?: TournamentTshirtSize;
+  status: TournamentRegistrationStatus;
+  exportedForPrinting: boolean;
+}
+
+export interface TournamentPrintingState {
+  tournament: Tournament;
+  players: TournamentPrintingPlayer[];
 }
 
 export interface TournamentEligibilityDetails {
@@ -504,6 +529,7 @@ export interface TournamentTeamMember {
   name: string;
   gender: string;
   accepted: boolean;
+  tshirtSize?: TournamentTshirtSize;
   experience?: TournamentExperienceDetails;
   termsAcceptedAt?: string;
 }
@@ -2045,6 +2071,7 @@ export class AppService {
     const maxSlots = Number(input?.maxSlots);
     const date = String(input?.date ?? '').trim();
     const location = String(input?.location ?? '').trim();
+    const tshirtSizes = this.validateTournamentTshirtSizes(input?.tshirtSizes);
     if (!name || name.length > 120) {
       throw new BadRequestException('Tournament name is required and must be 120 characters or fewer.');
     }
@@ -2089,6 +2116,7 @@ export class AppService {
       maxSlots,
       date,
       location,
+      tshirtSizes,
       registrationCount: 0,
       pendingRegistrationCount: 0,
       registrationClosed: false,
@@ -2233,10 +2261,12 @@ export class AppService {
     termsAccepted?: unknown,
     idFile?: TournamentDocumentUploadInput,
     clubDetails?: unknown,
+    tshirtSizeInput?: unknown,
   ): Promise<TournamentRegistration> {
     const session = await this.getMemberSession(sessionToken);
     const tournament = await this.getTournament(tournamentId);
     this.requireOpenTournamentRegistration(tournament);
+    const tshirtSize = this.validateTournamentTshirtSize(tournament, tshirtSizeInput);
     this.requireTournamentTermsAgreement(tournament, termsAccepted);
     const termsAcceptedAt = tournament.termsUrl ? new Date().toISOString() : undefined;
     const memberExperience = this.validateTournamentExperience(memberExperienceInput);
@@ -2269,6 +2299,7 @@ export class AppService {
           gender: session.member.gender,
           accepted: true,
           experience: memberExperience,
+          ...(tshirtSize ? { tshirtSize } : {}),
           ...(termsAcceptedAt ? { termsAcceptedAt } : {}),
         },
         ...selectedMembers.map((member, index) => ({
@@ -2312,6 +2343,7 @@ export class AppService {
       partnerId,
       partnerName: partner.name,
       memberExperience,
+      ...(tshirtSize ? { memberTshirtSize: tshirtSize } : {}),
       ...(termsAcceptedAt ? { termsUrl: tournament.termsUrl, memberTermsAcceptedAt: termsAcceptedAt } : {}),
       ...(teamMembers ? { teamMembers } : {}),
       status: 'Invitation Pending',
@@ -2383,6 +2415,7 @@ export class AppService {
     termsAccepted?: unknown,
     idFile?: TournamentDocumentUploadInput,
     clubDetails?: unknown,
+    tshirtSizeInput?: unknown,
   ): Promise<TournamentRegistration> {
     const session = await this.getMemberSession(sessionToken);
     if (decision !== 'Accepted' && decision !== 'Declined') {
@@ -2407,6 +2440,7 @@ export class AppService {
     }
     if (decision === 'Accepted') {
       this.requireOpenTournamentRegistration(tournament);
+      const tshirtSize = this.validateTournamentTshirtSize(tournament, tshirtSizeInput);
       this.requireTournamentTermsAgreement(tournament, termsAccepted);
       const termsAcceptedAt = tournament.termsUrl ? new Date().toISOString() : undefined;
       const partnerExperience = this.validateTournamentExperience(partnerExperienceInput);
@@ -2433,7 +2467,7 @@ export class AppService {
       };
       if (teamMembers.length) {
         const updatedTeamMembers = teamMembers.map((member) => member.memberId === session.member.memberId
-          ? { ...member, accepted: true, experience: partnerExperience, ...(termsAcceptedAt ? { termsAcceptedAt } : {}) }
+          ? { ...member, accepted: true, experience: partnerExperience, ...(tshirtSize ? { tshirtSize } : {}), ...(termsAcceptedAt ? { termsAcceptedAt } : {}) }
           : member);
         const allAccepted = updatedTeamMembers.every((member) => member.accepted);
         const status = allAccepted ? 'Pending Approval' : 'Invitation Pending';
@@ -2457,6 +2491,7 @@ export class AppService {
         partitionKey: tournamentId,
         rowKey: registrationId,
         PartnerAccepted: true,
+        ...(tshirtSize ? { PartnerTshirtSize: tshirtSize } : {}),
         ...this.toTournamentExperienceEntity('Partner', partnerExperience),
         ...(termsAcceptedAt ? { PartnerTermsAcceptedAt: termsAcceptedAt } : {}),
         Status: 'Pending Approval',
@@ -2464,6 +2499,7 @@ export class AppService {
       });
       return this.toTournamentRegistration({
         ...entity,
+        ...(tshirtSize ? { PartnerTshirtSize: tshirtSize } : {}),
         ...this.toTournamentExperienceEntity('Partner', partnerExperience),
         ...(termsAcceptedAt ? { PartnerTermsAcceptedAt: termsAcceptedAt } : {}),
         Status: 'Pending Approval',
@@ -2493,6 +2529,113 @@ export class AppService {
       throw this.createMemberAuthenticationStorageException(error);
     }
     return registrations.sort((left, right) => left.registeredAt.localeCompare(right.registeredAt));
+  }
+
+  async getTournamentPrintingPlayers(
+    sessionToken: string,
+    tournamentId: string,
+  ): Promise<TournamentPrintingState> {
+    await this.requireAdminSession(sessionToken);
+    const tournament = await this.getTournament(tournamentId);
+    const players = (await this.getTournamentRegistrationEntities(tournamentId))
+      .flatMap((entity) => this.toTournamentPrintingPlayers(entity))
+      .sort((left, right) => left.name.localeCompare(right.name) || left.memberId.localeCompare(right.memberId));
+    return { tournament, players };
+  }
+
+  async setTournamentPrintingTags(
+    sessionToken: string,
+    tournamentId: string,
+    exportedInput: unknown,
+    playersInput: unknown,
+  ): Promise<{ updated: true }> {
+    await this.requireAdminSession(sessionToken);
+    await this.getTournament(tournamentId);
+    if (typeof exportedInput !== 'boolean' || !Array.isArray(playersInput) || !playersInput.length) {
+      throw new BadRequestException('Specify players and whether they are exported for printing.');
+    }
+    const groups = new Map<string, TournamentPrintingPlayerRef[]>();
+    const seen = new Set<string>();
+    for (const player of playersInput) {
+      if (!player || typeof player !== 'object' ||
+        typeof player.registrationId !== 'string' || !player.registrationId.trim() ||
+        typeof player.memberId !== 'string' || !player.memberId.trim() ||
+        typeof player.version !== 'string' || !player.version.trim() || player.version === '*') {
+        throw new BadRequestException('Each printing player needs a registration ID, member ID, and current version.');
+      }
+      const key = JSON.stringify([player.registrationId, player.memberId]);
+      if (seen.has(key)) throw new BadRequestException('Specify each printing player only once.');
+      seen.add(key);
+      const group = groups.get(player.registrationId) ?? [];
+      group.push({ registrationId: player.registrationId, memberId: player.memberId, version: player.version });
+      groups.set(player.registrationId, group);
+    }
+    const updates: { entity: Record<string, unknown>; memberIds: string[]; version: string }[] = [];
+    for (const [registrationId, players] of groups) {
+      const entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
+      const current = this.toTournamentPrintingPlayers(entity);
+      if (players.some((player) => player.version !== entity.etag ||
+        !current.some((candidate) => candidate.memberId === player.memberId))) {
+        throw new ConflictException('The printing list changed. Reload before updating printing tags.');
+      }
+      const tagged = new Set(this.readTournamentPrintingTags(entity));
+      for (const player of players) {
+        if (exportedInput) tagged.add(player.memberId);
+        else tagged.delete(player.memberId);
+      }
+      updates.push({ entity, memberIds: [...tagged], version: players[0].version });
+    }
+    const table = this.getTournamentRegistrationsTableClient();
+    for (const { entity, memberIds, version } of updates) {
+      try {
+        await table.updateEntity({
+          partitionKey: tournamentId,
+          rowKey: String(entity.rowKey),
+          PrintingExportedPlayers: JSON.stringify(memberIds),
+        }, 'Merge', { etag: version });
+      } catch (error) {
+        if (this.isTournamentRegistrationVersionConflict(error) || this.isAzureNotFound(error)) {
+          throw new ConflictException('The printing list changed. Some tags may have been saved; reload to review them.');
+        }
+        throw this.createMemberAuthenticationStorageException(error);
+      }
+    }
+    return { updated: true };
+  }
+
+  private toTournamentPrintingPlayers(entity: Record<string, unknown>): TournamentPrintingPlayer[] {
+    const registration = this.toTournamentRegistration(entity);
+    if (!registration || !this.isApprovedTournamentRegistration(registration.status)) return [];
+    if (typeof entity.etag !== 'string' || !entity.etag || entity.etag === '*') {
+      throw new ConflictException('The printing list has no current version. Reload before updating printing tags.');
+    }
+    const exported = this.readTournamentPrintingTags(entity);
+    const players = registration.teamMembers?.length ? registration.teamMembers : [
+      { memberId: registration.memberId, name: registration.memberName, tshirtSize: registration.memberTshirtSize },
+      { memberId: registration.partnerId, name: registration.partnerName, tshirtSize: registration.partnerTshirtSize },
+    ];
+    return players.map((player) => ({
+      registrationId: registration.registrationId,
+      memberId: player.memberId,
+      name: player.name,
+      ...(player.tshirtSize ? { tshirtSize: player.tshirtSize } : {}),
+      status: registration.status,
+      version: String(entity.etag),
+      exportedForPrinting: exported.includes(player.memberId),
+    }));
+  }
+
+  private readTournamentPrintingTags(entity: Record<string, unknown>): string[] {
+    if (entity.PrintingExportedPlayers === undefined) return [];
+    try {
+      const parsed: unknown = JSON.parse(String(entity.PrintingExportedPlayers));
+      if (Array.isArray(parsed) && parsed.every((id): id is string => typeof id === 'string')) return parsed;
+    } catch (error) {
+      this.logger.error('Unable to read tournament printing tags.', error);
+      throw new BadGatewayException('Unable to read printing tags. Contact an administrator before exporting.');
+    }
+    this.logger.error('Invalid tournament printing tags.');
+    throw new BadGatewayException('Unable to read printing tags. Contact an administrator before exporting.');
   }
 
   async approveTournamentRegistration(
@@ -2693,6 +2836,30 @@ export class AppService {
       if (this.isAzureNotFound(error)) throw new NotFoundException('Payment-proof file was not found.');
       throw this.createMemberAuthenticationStorageException(error);
     }
+  }
+
+  async setTournamentTshirtSizes(
+    sessionToken: string,
+    tournamentId: string,
+    sizesInput: unknown,
+  ): Promise<Tournament> {
+    await this.requireAdminSession(sessionToken);
+    if (sizesInput === undefined) {
+      throw new BadRequestException('Specify the available T-shirt sizes.');
+    }
+    const tshirtSizes = this.validateTournamentTshirtSizes(sizesInput);
+    const tournament = await this.getTournament(tournamentId);
+    try {
+      await this.getTournamentsTableClient().updateEntity({
+        partitionKey: 'tournaments',
+        rowKey: tournamentId,
+        TshirtSizes: JSON.stringify(tshirtSizes),
+      }, 'Merge');
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return { ...tournament, tshirtSizes };
   }
 
   async setTournamentRegistrationClosed(
@@ -3199,6 +3366,7 @@ export class AppService {
       rowKey: registrationId,
       RosterUpdatedAt: new Date().toISOString(),
       RosterUpdatedBy: session.member.memberId,
+      PrintingExportedPlayers: JSON.stringify(this.readTournamentPrintingTags(registration).filter((id) => id !== memberId)),
       ...(teamMembers.length
         ? {
             TeamMembers: JSON.stringify(
@@ -3215,8 +3383,8 @@ export class AppService {
             ),
           }
         : String(registration.MemberId ?? '') === memberId
-          ? { MemberId: replacementMemberId, MemberName: replacement.name }
-          : { PartnerId: replacementMemberId, PartnerName: replacement.name }),
+          ? { MemberId: replacementMemberId, MemberName: replacement.name, MemberTshirtSize: '' }
+          : { PartnerId: replacementMemberId, PartnerName: replacement.name, PartnerTshirtSize: '' }),
     };
     try {
       await table.updateEntity(update, 'Merge', { etag: registration.etag });
@@ -5356,6 +5524,7 @@ export class AppService {
       maxSlots: Number(entity.MaxSlots ?? 0),
       date: String(entity.Date ?? ''),
       location: String(entity.Location ?? ''),
+      tshirtSizes: this.validateTournamentTshirtSizes(entity.TshirtSizes),
       registrationCount: Number(entity.ArchivedRegistrationCount ?? 0),
       pendingRegistrationCount: Number(entity.ArchivedPendingRegistrationCount ?? 0),
       registrationClosed: entity.RegistrationClosed === true,
@@ -5380,6 +5549,7 @@ export class AppService {
       MaxSlots: tournament.maxSlots,
       Date: tournament.date,
       Location: tournament.location,
+      TshirtSizes: JSON.stringify(tournament.tshirtSizes ?? []),
       RegistrationClosed: tournament.registrationClosed,
       CreatedAt: tournament.createdAt,
     };
@@ -5410,6 +5580,8 @@ export class AppService {
       memberName: String(entity.MemberName ?? ''),
       partnerId: String(entity.PartnerId ?? ''),
       partnerName: String(entity.PartnerName ?? ''),
+      ...(this.isTournamentTshirtSize(entity.MemberTshirtSize) ? { memberTshirtSize: entity.MemberTshirtSize } : {}),
+      ...(this.isTournamentTshirtSize(entity.PartnerTshirtSize) ? { partnerTshirtSize: entity.PartnerTshirtSize } : {}),
       ...(includeEligibility ? {
         eligibilityDetails: this.readTournamentEligibility(entity).map(({ blobName, contentType, ...details }) => ({
           ...details,
@@ -5451,6 +5623,8 @@ export class AppService {
       MemberName: registration.memberName,
       PartnerId: registration.partnerId,
       PartnerName: registration.partnerName,
+      ...(registration.memberTshirtSize ? { MemberTshirtSize: registration.memberTshirtSize } : {}),
+      ...(registration.partnerTshirtSize ? { PartnerTshirtSize: registration.partnerTshirtSize } : {}),
       TermsRequired: !!registration.termsUrl,
       ...(registration.memberTermsAcceptedAt ? { MemberTermsAcceptedAt: registration.memberTermsAcceptedAt } : {}),
       ...(registration.memberExperience
@@ -5506,6 +5680,36 @@ export class AppService {
 
   private tournamentTermsUrl(tournamentId: string): string {
     return `/tournaments/${encodeURIComponent(tournamentId)}/terms`;
+  }
+
+  private validateTournamentTshirtSizes(input: unknown): TournamentTshirtSize[] {
+    if (input === undefined) return [];
+    let sizes: unknown = input;
+    if (typeof input === 'string') {
+      try {
+        sizes = JSON.parse(input);
+      } catch {
+        throw new BadRequestException('Select available T-shirt sizes from XXS to XXXL.');
+      }
+    }
+    if (!Array.isArray(sizes) || sizes.some((size) => !this.isTournamentTshirtSize(size))) {
+      throw new BadRequestException('Select available T-shirt sizes from XXS to XXXL.');
+    }
+    const selected = sizes;
+    return TOURNAMENT_TSHIRT_SIZES.filter((size) => selected.includes(size));
+  }
+
+  private isTournamentTshirtSize(size: unknown): size is TournamentTshirtSize {
+    return TOURNAMENT_TSHIRT_SIZES.some((option) => option === size);
+  }
+
+  private validateTournamentTshirtSize(tournament: Tournament, input: unknown): TournamentTshirtSize | undefined {
+    const sizes = tournament.tshirtSizes ?? [];
+    if (!sizes.length && (input === undefined || input === '')) return undefined;
+    if (!this.isTournamentTshirtSize(input) || !sizes.includes(input)) {
+      throw new BadRequestException('Select an available T-shirt size for this tournament.');
+    }
+    return input;
   }
 
   private requireTournamentTermsAgreement(tournament: Tournament, accepted: unknown): void {

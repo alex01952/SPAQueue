@@ -47,11 +47,14 @@ describe('Tournament archive and deletion', () => {
       partitionKey: 'tournaments', rowKey: id, Name: 'Club Open', Category: 'Mens Doubles',
       Level: 'Beginner', MaxSlots: 8, CreatedAt: '2026-10-01', etag: 'v1',
       TermsBlobName: `tournament-terms/${id}/terms.pdf`,
+      TshirtSizes: '["XXS","M","XXXL"]',
     });
     registrations.rows.set(key(id, 'team-1'), {
       partitionKey: id, rowKey: 'team-1', TournamentId: id, TournamentName: 'Club Open',
       Category: 'Mens Doubles', Level: 'Beginner', Status: 'Paid', MemberId: 'a', MemberName: 'Alice',
       PartnerId: 'b', PartnerName: 'Bob', RegisteredAt: '2026-10-01',
+      MemberTshirtSize: 'XXS', PartnerTshirtSize: 'XXXL',
+      PrintingExportedPlayers: '["a"]',
       PaymentProofs: JSON.stringify([{
         memberId: 'a', memberName: 'Alice', fileName: 'proof.pdf', uploadedAt: '2026-10-01',
         blobName: `tournament-payment-proofs/${id}/team-1/proof.pdf`, contentType: 'application/pdf',
@@ -108,13 +111,17 @@ describe('Tournament archive and deletion', () => {
     expect(registrations.rows.size).toBe(0);
     expect(protests.rows.size).toBe(0);
     expect(archive.rows.size).toBe(3);
+    expect([...archive.rows.values()].find((entity) => entity.PrintingExportedPlayers)?.PrintingExportedPlayers).toBe('["a"]');
     expect(blobs).toEqual(before);
     expect((await service.getTournaments('session'))).toEqual([]);
     expect(await service.getTournamentRegistrationsForAdmin('session')).toEqual([]);
     expect(await service.getTournamentProtestsForAdmin('session')).toEqual([]);
     expect(await service.getArchivedTournaments('session')).toHaveLength(1);
     const details = await service.getTournamentArchiveDetails('session', id);
-    expect(details.tournament).toMatchObject({ name: 'Club Open', archivedBy: 'Administrator', registrationCount: 1 });
+    expect(details.tournament).toMatchObject({
+      name: 'Club Open', archivedBy: 'Administrator', registrationCount: 1, tshirtSizes: ['XXS', 'M', 'XXXL'],
+    });
+    expect(details.registrations[0]).toMatchObject({ memberTshirtSize: 'XXS', partnerTshirtSize: 'XXXL' });
     expect(details.roster.canManageRoster).toBe(false);
     expect(details.registrations[0].paymentProofs![0].url).toContain(`/admin/tournament-archive/${id}/registrations/`);
     expect(details.registrations[0].eligibilityDetails![0]).toMatchObject({

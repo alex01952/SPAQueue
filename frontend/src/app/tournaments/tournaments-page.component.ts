@@ -14,6 +14,7 @@ import type {
   TournamentLevel,
   TournamentRegistration,
   TournamentPartnerSearchResult,
+  TournamentTshirtSize,
 } from './tournament.types';
 
 interface TournamentExperienceForm {
@@ -69,6 +70,8 @@ export class TournamentsPageComponent implements OnInit {
   protected readonly partnerIdFile = signal<File | null>(null);
   protected memberClubDetails = '';
   protected partnerClubDetails = '';
+  protected memberTshirtSize: TournamentTshirtSize | '' = '';
+  protected partnerTshirtSize: TournamentTshirtSize | '' = '';
 
   constructor() {
     this.partnerSearchTerms
@@ -106,6 +109,7 @@ export class TournamentsPageComponent implements OnInit {
     this.errorMessage.set('');
     this.feedbackMessage.set('');
     this.activeTournament.set(tournament);
+    this.memberTshirtSize = '';
     this.memberTermsAccepted = false;
     this.memberIdFile.set(null);
     this.memberClubDetails = '';
@@ -119,6 +123,7 @@ export class TournamentsPageComponent implements OnInit {
 
   protected closeRegistration() {
     this.activeTournament.set(null);
+    this.memberTshirtSize = '';
     this.memberTermsAccepted = false;
     this.memberIdFile.set(null);
     this.memberClubDetails = '';
@@ -145,6 +150,10 @@ export class TournamentsPageComponent implements OnInit {
       !this.isExperienceFormComplete(this.memberExperienceForm) ||
       this.isWorking()
     ) return;
+    if (!this.isTshirtSizeComplete(tournament.tournamentId, this.memberTshirtSize)) {
+      this.errorMessage.set('Select an available T-shirt size for this tournament.');
+      return;
+    }
     if (tournament.termsUrl && !this.memberTermsAccepted) {
       this.errorMessage.set('You must agree to the tournament terms and conditions before continuing.');
       return;
@@ -157,6 +166,7 @@ export class TournamentsPageComponent implements OnInit {
     const body = new FormData();
     body.append('idFile', idFile);
     body.append('clubDetails', this.memberClubDetails);
+    body.append('tshirtSize', this.memberTshirtSize);
     body.append('partnerId', this.isTeamTournament()
       ? this.selectedTeamMembers()[0]!.memberId : this.selectedPartnerId());
     if (this.isTeamTournament()) {
@@ -193,6 +203,10 @@ export class TournamentsPageComponent implements OnInit {
       this.isWorking() ||
       (decision === 'Accepted' && !this.isExperienceFormComplete(this.partnerExperienceForm))
     ) return;
+    if (decision === 'Accepted' && !this.isTshirtSizeComplete(registration.tournamentId, this.partnerTshirtSize)) {
+      this.errorMessage.set('Select an available T-shirt size for this tournament.');
+      return;
+    }
     if (decision === 'Accepted' && registration.termsUrl && !this.partnerTermsAccepted) {
       this.errorMessage.set('You must agree to the tournament terms and conditions before continuing.');
       return;
@@ -208,6 +222,7 @@ export class TournamentsPageComponent implements OnInit {
       body.append('decision', decision);
       body.append('idFile', idFile);
       body.append('clubDetails', this.partnerClubDetails);
+      body.append('tshirtSize', this.partnerTshirtSize);
       body.append('partnerExperience', JSON.stringify(this.toExperienceDetails(this.partnerExperienceForm)));
       body.append('termsAccepted', JSON.stringify(this.partnerTermsAccepted));
     } else {
@@ -231,6 +246,7 @@ export class TournamentsPageComponent implements OnInit {
           this.respondingInvitationId.set('');
           this.partnerIdFile.set(null);
           this.partnerClubDetails = '';
+          this.partnerTshirtSize = '';
           this.isWorking.set(false);
           this.loadPage();
         },
@@ -271,11 +287,21 @@ export class TournamentsPageComponent implements OnInit {
   }
 
   protected beginAccepting(registration: TournamentRegistration) {
+    this.partnerTshirtSize = '';
     this.partnerTermsAccepted = false;
     this.partnerIdFile.set(null);
     this.partnerClubDetails = '';
     this.partnerExperienceForm = emptyTournamentExperienceForm();
     this.respondingInvitationId.set(registration.registrationId);
+  }
+
+  protected availableTshirtSizes(tournamentId: string): TournamentTshirtSize[] {
+    return this.tournaments().find((item) => item.tournamentId === tournamentId)?.tshirtSizes ?? [];
+  }
+
+  protected isTshirtSizeComplete(tournamentId: string, size: TournamentTshirtSize | ''): boolean {
+    const sizes = this.availableTshirtSizes(tournamentId);
+    return sizes.length ? size !== '' && sizes.includes(size) : size === '';
   }
 
   protected selectIdFile(input: HTMLInputElement, invitee = false) {

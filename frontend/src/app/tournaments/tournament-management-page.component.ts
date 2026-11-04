@@ -4,9 +4,12 @@ import { Component, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { getApiBaseUrl } from '../api-base-url';
+import { downloadTournamentCsv } from './tournament-csv';
 import {
   tournamentCategories,
   tournamentLevels,
+  tournamentTshirtSizes,
+  type TournamentTshirtSize,
   type TournamentExperienceDetails,
   type Tournament,
   type TournamentRegistration,
@@ -24,6 +27,9 @@ export class TournamentManagementPageComponent implements OnInit {
 
   protected readonly categories = tournamentCategories;
   protected readonly levels = tournamentLevels;
+  protected readonly tshirtSizes = tournamentTshirtSizes;
+  protected readonly tshirtSizeDrafts = signal<Partial<Record<string, TournamentTshirtSize[]>>>({});
+  protected selectedTshirtSizes: TournamentTshirtSize[] = [];
   protected readonly tournaments = signal<Tournament[]>([]);
   protected readonly registrations = signal<TournamentRegistration[]>([]);
   protected readonly isSaving = signal(false);
@@ -64,12 +70,14 @@ export class TournamentManagementPageComponent implements OnInit {
     const file = this.termsFile();
     const body = new FormData();
     Object.entries(this.form).forEach(([key, value]) => body.append(key, String(value)));
+    body.append('tshirtSizes', JSON.stringify(this.selectedTshirtSizes));
     if (file) body.append('termsFile', file);
     this.http.post<Tournament>(`${this.apiUrl}/admin/tournaments`, body, { withCredentials: true }).subscribe({
       next: () => {
         this.form.name = '';
         this.form.date = '';
         this.form.location = '';
+        this.selectedTshirtSizes = [];
         this.termsFile.set(null);
         termsInput.value = '';
         this.feedbackMessage.set('Tournament created.');
@@ -78,6 +86,46 @@ export class TournamentManagementPageComponent implements OnInit {
       },
       error: (error: HttpErrorResponse) => {
         this.errorMessage.set(error.error?.message ?? 'Unable to create tournament.');
+        this.isSaving.set(false);
+      },
+    });
+  }
+
+  protected toggleTshirtSize(size: TournamentTshirtSize, checked: boolean, tournament?: Tournament) {
+    const selected = tournament
+      ? this.tshirtSizeDrafts()[tournament.tournamentId] ?? tournament.tshirtSizes ?? []
+      : this.selectedTshirtSizes;
+    const sizes = this.tshirtSizes.filter((option) => option === size ? checked : selected.includes(option));
+    if (tournament) {
+      this.tshirtSizeDrafts.update((drafts) => ({ ...drafts, [tournament.tournamentId]: sizes }));
+    } else {
+      this.selectedTshirtSizes = sizes;
+    }
+  }
+
+  protected saveTshirtSizes(tournament: Tournament) {
+    if (this.isSaving()) return;
+    this.isSaving.set(true);
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.http.patch<Tournament>(
+      `${this.apiUrl}/admin/tournaments/${encodeURIComponent(tournament.tournamentId)}/tshirt-sizes`,
+      { tshirtSizes: this.tshirtSizeDrafts()[tournament.tournamentId] ?? tournament.tshirtSizes ?? [] },
+      { withCredentials: true },
+    ).subscribe({
+      next: (updated) => {
+        this.tournaments.update((items) => items.map((item) =>
+          item.tournamentId === updated.tournamentId ? { ...item, tshirtSizes: updated.tshirtSizes } : item,
+        ));
+        this.tshirtSizeDrafts.update((drafts) => {
+          const { [tournament.tournamentId]: saved, ...remaining } = drafts;
+          return remaining;
+        });
+        this.feedbackMessage.set('Available T-shirt sizes saved. Existing player selections are unchanged.');
+        this.isSaving.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.showError(error, 'Unable to save available T-shirt sizes.');
         this.isSaving.set(false);
       },
     });
@@ -151,33 +199,22 @@ export class TournamentManagementPageComponent implements OnInit {
         const rows = [
           ['Tournament ID', 'Tournament name', 'Category', 'Level', 'Tournament date', 'Location',
             'Registration ID', 'Status', 'Registered at', 'Approved at', 'Paid at',
-            ...[1, 2, 3, 4].flatMap((number) => [`Player ${number} ID`, `Player ${number} name`])],
+            ...[1, 2, 3, 4].flatMap((number) => [`Player ${number} ID`, `Player ${number} name`, `Player ${number} T-shirt size`])],
           ...teams.map((team) => {
             const players = team.teamMembers?.length ? team.teamMembers : [
-              { memberId: team.memberId, name: team.memberName },
-              { memberId: team.partnerId, name: team.partnerName },
+              { memberId: team.memberId, name: team.memberName, tshirtSize: team.memberTshirtSize },
+              { memberId: team.partnerId, name: team.partnerName, tshirtSize: team.partnerTshirtSize },
             ];
             return [
               tournament.tournamentId, tournament.name, tournament.category, tournament.level,
               tournament.date, tournament.location, team.registrationId, team.status,
               team.registeredAt, team.approvedAt ?? '', team.paidAt ?? '',
-              ...[0, 1, 2, 3].flatMap((index) => [players[index]?.memberId ?? '', players[index]?.name ?? '']),
+              ...[0, 1, 2, 3].flatMap((index) => [players[index]?.memberId ?? '', players[index]?.name ?? '', players[index]?.tshirtSize ?? '']),
             ];
           }),
         ];
-        const csv = '\uFEFF' + rows.map((row) => row.map((value) => this.csvCell(value)).join(',')).join('\r\n') + '\r\n';
         try {
-          const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = `tournament-${tournament.tournamentId}-approved-teams-${new Date().toISOString().slice(0, 10)}.csv`;
-          try {
-            document.body.appendChild(link);
-            link.click();
-          } finally {
-            link.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 0);
-          }
+          downloadTournamentCsv(rows, `tournament-${tournament.tournamentId}-approved-teams-${new Date().toISOString().slice(0, 10)}.csv`);
           this.feedbackMessage.set(`CSV download started: ${teams.length} approved ${teams.length === 1 ? 'team' : 'teams'}.`);
         } catch (error) {
           console.error('Tournament CSV download failed.', error);
@@ -191,12 +228,6 @@ export class TournamentManagementPageComponent implements OnInit {
         this.isSaving.set(false);
       },
     });
-  }
-
-  private csvCell(value: string): string {
-    // Quoting alone does not prevent spreadsheet applications from evaluating formulas.
-    const safe = /^[\s\uFEFF]*[=+\-@]/.test(value) || /^[\t\r\n]/.test(value) ? `'${value}` : value;
-    return `"${safe.replace(/"/g, '""')}"`;
   }
 
   protected deleteTournament(tournament: Tournament) {

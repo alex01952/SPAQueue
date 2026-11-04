@@ -96,6 +96,24 @@ describe('TournamentRegistrationsPageComponent', () => {
       expect(fixture.nativeElement.textContent).toContain('Captain');
     });
 
+    it('shows saved sizes for doubles and four-player teams', () => {
+      const component = fixture.componentInstance;
+      component['registrations'].set([{ ...registration, memberTshirtSize: 'XS', partnerTshirtSize: 'XXL' }]);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain('Captain · T-shirt: XS');
+      expect(fixture.nativeElement.textContent).toContain('Partner · T-shirt: XXL');
+      component['registrations'].set([{
+        ...registration, category: 'Team Tournament',
+        teamMembers: [
+          { memberId: 'a', name: 'Alice', gender: 'Female', accepted: true, tshirtSize: 'XXS' },
+          { memberId: 'b', name: 'Bob', gender: 'Male', accepted: true, tshirtSize: 'XXXL' },
+        ],
+      }]);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain('Alice · T-shirt: XXS');
+      expect(fixture.nativeElement.textContent).toContain('Bob · T-shirt: XXXL');
+    });
+
     it('lists all uploaded proofs and still allows payment confirmation with partial proofs', () => {
       (fixture.componentInstance as any).registrations.set([{
         ...registration, status: 'Payment Submitted',

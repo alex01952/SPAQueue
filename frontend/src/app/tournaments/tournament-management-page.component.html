@@ -19,6 +19,13 @@
       <label><span>Maximum team slots</span><input name="maxSlots" type="number" [(ngModel)]="form.maxSlots" min="1" max="10000" required /></label>
       <label><span>Date</span><input name="date" type="date" [(ngModel)]="form.date" /></label>
       <label class="wide"><span>Location</span><input name="location" [(ngModel)]="form.location" maxlength="160" /></label>
+      <fieldset class="wide tshirt-options">
+        <legend>Available T-shirt sizes</legend>
+        <p>Select sizes to require each participant to choose one, or leave all unchecked to skip T-shirts.</p>
+        @for (size of tshirtSizes; track size) {
+          <label><input #sizeInput type="checkbox" [checked]="selectedTshirtSizes.includes(size)" [disabled]="isSaving()" (change)="toggleTshirtSize(size, sizeInput.checked)" /> {{ size }}</label>
+        }
+      </fieldset>
       <label class="wide"><span>Terms and conditions (optional PDF, up to 10 MB)</span><input #termsInput type="file" accept="application/pdf" [disabled]="isSaving()" (change)="selectTermsFile(termsInput)" /></label>
       <div class="form-submit"><button class="action-button" type="submit" [disabled]="createForm.invalid || isSaving()">{{ isSaving() ? 'Creating...' : 'Create tournament' }}</button></div>
     </form>
@@ -35,11 +42,12 @@
             <small>{{ registration.category }} · {{ registration.level }}</small>
             @if (registration.teamMembers?.length) {
               @for (member of registration.teamMembers; track member.memberId) {
-                <small>{{ experienceSummary(member.name, member.experience) }} {{ member.accepted ? 'Accepted' : 'Invitation pending' }}</small>
+                <small>{{ experienceSummary(member.name, member.experience) }} {{ member.accepted ? 'Accepted' : 'Invitation pending' }} · T-shirt: {{ member.tshirtSize || 'Not provided' }}</small>
               }
             } @else {
               <small>{{ experienceSummary(registration.memberName, registration.memberExperience) }}</small>
               <small>{{ experienceSummary(registration.partnerName, registration.partnerExperience) }}</small>
+              <small>T-shirts: {{ registration.memberName }}: {{ registration.memberTshirtSize || 'Not provided' }} · {{ registration.partnerName }}: {{ registration.partnerTshirtSize || 'Not provided' }}</small>
             }
           </div>
           <div class="registration-copy">
@@ -66,9 +74,18 @@
       @for (tournament of tournaments(); track tournament.tournamentId) {
         <article class="event-row"><div><strong>{{ tournament.name }}</strong><span>{{ tournament.category }} · {{ tournament.level }}</span></div><span>{{ tournament.date ? (tournament.date | date: 'mediumDate') : 'Date not set' }}</span><div><strong>{{ tournament.registrationCount }} / {{ tournament.maxSlots }} approved teams</strong><span>{{ tournament.pendingRegistrationCount }} pending approval</span></div>
           <div class="event-actions">
+            <fieldset class="tshirt-options">
+              <legend>Available T-shirt sizes</legend>
+              @for (size of tshirtSizes; track size) {
+                <label><input #eventSizeInput type="checkbox" [checked]="(tshirtSizeDrafts()[tournament.tournamentId] ?? tournament.tshirtSizes ?? []).includes(size)" [disabled]="isSaving() || !!tournament.lifecycleState" (change)="toggleTshirtSize(size, eventSizeInput.checked, tournament)" /> {{ size }}</label>
+              }
+              <small>Changes apply to new submissions, not existing selections.</small>
+              <button type="button" class="action-button" [disabled]="isSaving() || !!tournament.lifecycleState || !tshirtSizeDrafts()[tournament.tournamentId]" (click)="saveTshirtSizes(tournament)">Save T-shirt sizes</button>
+            </fieldset>
             <span class="status-pill">{{ tournament.lifecycleState ? tournament.lifecycleState + ' - retry action to finish' : tournament.registrationClosed ? 'Registration closed' : 'Registration open' }}</span>
             <button type="button" class="action-button" [disabled]="isSaving() || !!tournament.lifecycleState" (click)="toggleRegistration(tournament)">{{ tournament.registrationClosed ? 'Reopen registration' : 'Close registration' }}</button>
             <a class="registrations-link" [routerLink]="['/tournament-registrations']" [queryParams]="{ tournamentId: tournament.tournamentId }">View registrations &amp; payments</a>
+            <a class="registrations-link" [routerLink]="['/tournaments', tournament.tournamentId, 'printing']">T-shirt printing &amp; player export</a>
             <a class="registrations-link" [routerLink]="['/tournaments', tournament.tournamentId, 'roster']">View roster</a>
             <button type="button" class="action-button" [disabled]="isSaving() || !!tournament.lifecycleState" (click)="exportApprovedTeams(tournament)">Export approved teams (CSV)</button>
             <a class="registrations-link" [routerLink]="['/tournaments', tournament.tournamentId, 'planning']">Plan pools &amp; schedule</a>

@@ -17,6 +17,9 @@ export const tournamentLevels = [
 export type TournamentCategory = (typeof tournamentCategories)[number];
 export type TournamentLevel = (typeof tournamentLevels)[number];
 
+export const tournamentTshirtSizes = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] as const;
+export type TournamentTshirtSize = (typeof tournamentTshirtSizes)[number];
+
 export interface TournamentExperienceDetails {
   hasJoinedTournaments: boolean;
   highestTournamentLevel?: TournamentLevel;
@@ -39,6 +42,7 @@ export interface TournamentTeamMember {
   name: string;
   gender: string;
   accepted: boolean;
+  tshirtSize?: TournamentTshirtSize;
   experience?: TournamentExperienceDetails;
   termsAcceptedAt?: string;
 }
@@ -51,6 +55,7 @@ export interface Tournament {
   maxSlots: number;
   date: string;
   location: string;
+  tshirtSizes?: TournamentTshirtSize[];
   registrationCount: number;
   pendingRegistrationCount: number;
   termsUrl?: string;
@@ -207,6 +212,8 @@ export interface TournamentRegistration {
   memberName: string;
   partnerId: string;
   partnerName: string;
+  memberTshirtSize?: TournamentTshirtSize;
+  partnerTshirtSize?: TournamentTshirtSize;
   memberExperience?: TournamentExperienceDetails;
   partnerExperience?: TournamentExperienceDetails;
   termsUrl?: string;
@@ -236,6 +243,24 @@ export interface TournamentPaymentProof {
   fileName: string;
   uploadedAt: string;
   url: string;
+}
+
+export interface TournamentPrintingPlayerRef {
+  registrationId: string;
+  memberId: string;
+  version: string;
+}
+
+export interface TournamentPrintingPlayer extends TournamentPrintingPlayerRef {
+  name: string;
+  tshirtSize?: TournamentTshirtSize;
+  status: TournamentRegistration['status'];
+  exportedForPrinting: boolean;
+}
+
+export interface TournamentPrintingState {
+  tournament: Tournament;
+  players: TournamentPrintingPlayer[];
 }
 
 export interface TournamentPartnerSearchResult {

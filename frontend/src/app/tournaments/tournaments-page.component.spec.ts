@@ -51,6 +51,69 @@ describe('TournamentsPageComponent', () => {
     teamMembers: [{ memberId: 'invited-member', name: 'Invitee', gender: 'Male', accepted: false }],
   };
 
+  it('offers only configured sizes and requires the sender to select one before submitting', async () => {
+    const component = fixture.componentInstance;
+    const tournament = {
+      tournamentId: 'event-1', name: 'Club Open', category: 'Mens Doubles' as const, level: 'Beginner' as const,
+      maxSlots: 5, registrationCount: 0, pendingRegistrationCount: 0, date: '', location: '', createdAt: '',
+      tshirtSizes: ['XS', 'S', 'M', 'L', 'XL', 'XXL'] as const,
+    };
+    const event = { ...tournament, tshirtSizes: [...tournament.tshirtSizes] };
+    component['tournaments'].set([event]);
+    component['openRegistration'](event);
+    component['selectedPartnerId'].set('partner');
+    Object.assign(component['memberExperienceForm'], { hasJoinedTournaments: false, hasWonTournaments: false });
+    component['memberIdFile'].set(playerId);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>('select[name="memberTshirtSize"]')!;
+    expect([...select.options].map((option) => option.value)).toEqual(['', 'XS', 'S', 'M', 'L', 'XL', 'XXL']);
+    const submit = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.registration-panel button[type="submit"]')!;
+    expect(submit.disabled).toBe(true);
+    component['register']();
+    expect(component['errorMessage']()).toContain('Select an available T-shirt size');
+    expect(http.post).not.toHaveBeenCalled();
+    select.value = 'XL';
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(submit.disabled).toBe(false);
+    component['register']();
+    expect((http.post.mock.calls.at(-1)![1] as FormData).get('tshirtSize')).toBe('XL');
+    component['openRegistration'](event);
+    expect(component['memberTshirtSize']).toBe('');
+  });
+
+  it('requires invitees to select their own size, preserves it on failure, and resets it for another invitation', async () => {
+    const component = fixture.componentInstance;
+    component['tournaments'].set([{
+      tournamentId: 'event-1', name: 'Club Open', category: 'Team Tournament', level: 'Beginner',
+      maxSlots: 5, registrationCount: 0, pendingRegistrationCount: 0, date: '', location: '', createdAt: '',
+      tshirtSizes: ['XXS', 'XXXL'],
+    }]);
+    component['registrations'].set([registration]);
+    component['beginAccepting'](registration);
+    Object.assign(component['partnerExperienceForm'], { hasJoinedTournaments: false, hasWonTournaments: false });
+    component['partnerIdFile'].set(playerId);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>('select[name="partnerTshirtSize"]')!;
+    expect([...select.options].map((option) => option.value)).toEqual(['', 'XXS', 'XXXL']);
+    component['respond'](registration, 'Accepted');
+    expect(http.post).not.toHaveBeenCalled();
+    expect(component['errorMessage']()).toContain('Select an available T-shirt size');
+    select.value = 'XXXL';
+    select.dispatchEvent(new Event('change'));
+    http.post.mockReturnValueOnce(throwError(() => new HttpErrorResponse({ status: 500 })));
+    component['respond'](registration, 'Accepted');
+    expect((http.post.mock.calls.at(-1)![1] as FormData).get('tshirtSize')).toBe('XXXL');
+    expect(component['partnerTshirtSize']).toBe('XXXL');
+    component['beginAccepting'](registration);
+    expect(component['partnerTshirtSize']).toBe('');
+  });
+
   it('requires each player ID while keeping club verification optional', () => {
     const component = fixture.componentInstance as any;
     component.activeTournament.set({ tournamentId: 'event-1', category: 'Mens Doubles' });

@@ -130,6 +130,14 @@
                 </div>
                 <p>Upload a PDF, JPEG, or PNG up to 10 MB. Your ID and club details are shared only with administrators for registration review.</p>
               </fieldset>
+              @if (tournament.tshirtSizes?.length) {
+                <label><span>Your T-shirt size (required)</span>
+                  <select name="memberTshirtSize" [(ngModel)]="memberTshirtSize" required [disabled]="isWorking()">
+                    <option value="">Select a size</option>
+                    @for (size of tournament.tshirtSizes; track size) { <option [value]="size">{{ size }}</option> }
+                  </select>
+                </label>
+              }
               @if (tournament.termsUrl) {
                 <div class="terms-agreement">
                   <a [href]="apiUrl + tournament.termsUrl" target="_blank" rel="noopener">Terms and conditions (opens in a new window)</a>
@@ -163,6 +171,14 @@
             <div class="registration-copy">
               <strong>{{ registration.tournamentName }}</strong>
               <span>{{ teamMemberNames(registration) }} · {{ registration.category }}</span>
+              @if (registration.teamMembers?.length) {
+                @for (player of registration.teamMembers; track player.memberId) {
+                  @if (player.tshirtSize) { <small>{{ player.name }} · T-shirt: {{ player.tshirtSize }}</small> }
+                }
+              } @else {
+                @if (registration.memberTshirtSize) { <small>{{ registration.memberName }} · T-shirt: {{ registration.memberTshirtSize }}</small> }
+                @if (registration.partnerTshirtSize) { <small>{{ registration.partnerName }} · T-shirt: {{ registration.partnerTshirtSize }}</small> }
+              }
             </div>
             <span class="status-pill" [attr.data-status]="registration.status">{{ memberRegistrationStatus(registration) }}</span>
             @if (canViewRoster(registration)) {
@@ -234,6 +250,16 @@
                     </div>
                     <p>Upload a PDF, JPEG, or PNG up to 10 MB. Your ID and club details are shared only with administrators for registration review.</p>
                   </fieldset>
+                  @if (availableTshirtSizes(registration.tournamentId).length) {
+                    <div class="experience-fields">
+                      <label><span>Your T-shirt size (required)</span>
+                        <select name="partnerTshirtSize" [(ngModel)]="partnerTshirtSize" required [disabled]="isWorking()">
+                          <option value="">Select a size</option>
+                          @for (size of availableTshirtSizes(registration.tournamentId); track size) { <option [value]="size">{{ size }}</option> }
+                        </select>
+                      </label>
+                    </div>
+                  }
                   @if (registration.termsUrl) {
                     <div class="terms-agreement">
                       <a [href]="apiUrl + registration.termsUrl" target="_blank" rel="noopener">Terms and conditions (opens in a new window)</a>
@@ -245,7 +271,7 @@
                   }
                   <div class="row-actions">
                     <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="respondingInvitationId.set('')">Cancel</button>
-                    <button type="submit" class="action-button" [disabled]="!partnerIdFile() || (registration.termsUrl && !partnerTermsAccepted) || !isExperienceFormComplete(partnerExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : 'Accept invitation' }}</button>
+                    <button type="submit" class="action-button" [disabled]="!isTshirtSizeComplete(registration.tournamentId, partnerTshirtSize) || !partnerIdFile() || (registration.termsUrl && !partnerTermsAccepted) || !isExperienceFormComplete(partnerExperienceForm) || isWorking()">{{ isWorking() ? 'Sending...' : 'Accept invitation' }}</button>
                   </div>
                 </form>
               }

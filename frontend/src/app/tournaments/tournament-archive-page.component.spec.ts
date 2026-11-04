@@ -31,11 +31,12 @@ describe('TournamentArchivePageComponent', () => {
   it('shows the archived list and renders records without editing actions', () => {
     fixture.componentInstance['view'](tournament);
     const details: TournamentArchiveDetails = {
-      tournament: { ...tournament, termsUrl: '/admin/tournament-archive/event-1/terms' },
+      tournament: { ...tournament, termsUrl: '/admin/tournament-archive/event-1/terms', tshirtSizes: ['XXS', 'XXXL'] },
       registrations: [{
         tournamentId: 'event-1', registrationId: 'team-1', tournamentName: 'Club Open',
         category: 'Mens Doubles', level: 'Beginner', memberId: 'a', memberName: 'Alice',
         partnerId: 'b', partnerName: 'Bob', status: 'Paid', registeredAt: '2026-10-01',
+        memberTshirtSize: 'XXS', partnerTshirtSize: 'XXXL',
         paymentProofs: [{
           memberId: 'a', memberName: 'Alice', fileName: 'proof.pdf', uploadedAt: '2026-10-01',
           url: '/admin/tournament-archive/event-1/registrations/team-1/payment-proofs/a',
@@ -59,6 +60,9 @@ describe('TournamentArchivePageComponent', () => {
     expect(element.textContent).toContain('Alice + Bob');
     expect(element.textContent).toContain('Pool 1');
     expect(element.textContent).toContain('Paid');
+    expect(element.textContent).toContain('Available T-shirt sizes: XXS, XXXL');
+    expect(element.textContent).toContain('Alice · T-shirt: XXS');
+    expect(element.textContent).toContain('Bob · T-shirt: XXXL');
     expect(element.querySelector<HTMLAnchorElement>('a[href$="/terms"]')!.href).toContain('/admin/tournament-archive/');
     expect(element.querySelector<HTMLAnchorElement>('a[href$="/payment-proofs/a"]')!.href).toContain('/admin/tournament-archive/');
     const buttons = [...element.querySelectorAll('button')].map((button) => button.textContent);

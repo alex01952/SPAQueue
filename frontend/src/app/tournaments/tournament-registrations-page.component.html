@@ -33,6 +33,7 @@
     } @else if (!selectedTournamentId()) {
       <p class="empty-state">Select a tournament to view its registrations.</p>
     } @else {
+      <a class="back-link" [routerLink]="['/tournaments', selectedTournamentId(), 'printing']">T-shirt printing &amp; player export</a>
       <div class="event-summary">
         <div><span>Category</span><strong>{{ selectedTournament()?.category }}</strong></div>
         <div><span>Level</span><strong>{{ selectedTournament()?.level }}</strong></div>
@@ -66,6 +67,14 @@
               </strong>
               <span>{{ registration.category }} · {{ registration.level }}</span>
               <small>Registered {{ registration.registeredAt | date: 'medium' }}</small>
+              @if (registration.teamMembers?.length) {
+                @for (player of registration.teamMembers; track player.memberId) {
+                  <small>{{ player.name }} · T-shirt: {{ player.tshirtSize || 'Not provided' }}</small>
+                }
+              } @else {
+                <small>{{ registration.memberName }} · T-shirt: {{ registration.memberTshirtSize || 'Not provided' }}</small>
+                <small>{{ registration.partnerName }} · T-shirt: {{ registration.partnerTshirtSize || 'Not provided' }}</small>
+              }
             </div>
             <span class="status-pill" [attr.data-status]="statusClass(registration.status)">{{ statusLabel(registration.status) }}</span>
             <div class="payment-actions">

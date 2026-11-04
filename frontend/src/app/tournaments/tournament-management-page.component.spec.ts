@@ -82,6 +82,19 @@ describe('TournamentManagementPageComponent terms upload', () => {
     expect((http.post.mock.calls[0][1] as FormData).has('termsFile')).toBe(false);
   });
 
+  it('offers XXS through XXXL and submits only the sizes selected by the administrator', () => {
+    const component = fixture.componentInstance;
+    const checkboxes = [...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLInputElement>('.create-form .tshirt-options input')];
+    expect(checkboxes.map((checkbox) => checkbox.parentElement!.textContent!.trim()))
+      .toEqual(['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL']);
+    checkboxes[0].click();
+    checkboxes[3].click();
+    checkboxes[7].click();
+    component['createTournament']((fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input[type="file"]')!);
+    expect((http.post.mock.calls[0][1] as FormData).get('tshirtSizes')).toBe('["XXS","M","XXXL"]');
+    expect(component['selectedTshirtSizes']).toEqual([]);
+  });
+
   it.each([
     new File(['html'], 'terms.html', { type: 'text/html' }),
     new File([], 'terms.pdf', { type: 'application/pdf' }),
@@ -183,7 +196,7 @@ describe('TournamentManagementPageComponent approved teams CSV', () => {
       tournamentId: 'event-1', registrationId: 'team-1', tournamentName: tournament.name,
       category: tournament.category, level: tournament.level, status: 'Approved',
       memberId: 'alice', memberName: 'Alice', partnerId: 'bob', partnerName: 'Bob',
-      registeredAt: '2026-10-01', approvedAt: '2026-10-02',
+      registeredAt: '2026-10-01', approvedAt: '2026-10-02', memberTshirtSize: 'XS', partnerTshirtSize: 'XXL',
     };
     let fixture: ComponentFixture<TournamentManagementPageComponent>;
     let http: HttpTestingController;
@@ -219,6 +232,25 @@ describe('TournamentManagementPageComponent approved teams CSV', () => {
       return http.expectOne((item) => item.url.endsWith('/admin/tournament-registrations'));
     }
 
+    it('saves edited sizes for an existing event and retains draft options on failure', () => {
+      const component = fixture.componentInstance;
+      component['toggleTshirtSize']('XXS', true, tournament);
+      component['toggleTshirtSize']('XXXL', true, tournament);
+      component['saveTshirtSizes'](tournament);
+      const request = http.expectOne((item) => item.url.endsWith('/event-1/tshirt-sizes'));
+      expect(request.request.method).toBe('PATCH');
+      expect(request.request.withCredentials).toBe(true);
+      expect(request.request.body).toEqual({ tshirtSizes: ['XXS', 'XXXL'] });
+      request.flush({ message: 'Storage unavailable' }, { status: 502, statusText: 'Bad Gateway' });
+      expect(component['tshirtSizeDrafts']()['event-1']).toEqual(['XXS', 'XXXL']);
+      expect(component['errorMessage']()).toBe('Storage unavailable');
+      component['saveTshirtSizes'](tournament);
+      http.expectOne((item) => item.url.endsWith('/event-1/tshirt-sizes'))
+        .flush({ ...tournament, tshirtSizes: ['XXS', 'XXXL'] });
+      expect(component['tournaments']()[0].tshirtSizes).toEqual(['XXS', 'XXXL']);
+      expect(component['tshirtSizeDrafts']()['event-1']).toBeUndefined();
+    });
+
     function readCsv(): Promise<string> {
       const blob = createObjectURL.mock.calls[0][0];
       expect(blob.type).toBe('text/csv;charset=utf-8');
@@ -246,7 +278,7 @@ describe('TournamentManagementPageComponent approved teams CSV', () => {
       const csv = await readCsv();
       expect(csv.split('\r\n')).toHaveLength(5);
       expect(csv).toContain('"Club, ""Open"""');
-      expect(csv).toContain('"alice","Alice","bob","Bob","","","",""');
+      expect(csv).toContain('"alice","Alice","XS","bob","Bob","XXL","","","","","",""');
       expect(csv).toContain('"team-3","Paid","2026-10-01","2026-10-02","2026-10-03"');
       expect(csv).not.toMatch(/pending|invited|declined|wrong-event/);
       expect(click).toHaveBeenCalledTimes(1);
@@ -263,16 +295,16 @@ describe('TournamentManagementPageComponent approved teams CSV', () => {
         ...team, teamMembers: [
           { memberId: 'p1', name: 'Maria, "Ace"\nSantos', gender: 'Female', accepted: true },
           { memberId: 'p2', name: '=HYPERLINK("bad")', gender: 'Male', accepted: true },
-          { memberId: 'p3', name: ' +formula', gender: 'Male', accepted: true },
-          { memberId: 'p4', name: '@formula', gender: 'Female', accepted: true },
+          { memberId: 'p3', name: ' +formula', gender: 'Male', accepted: true, tshirtSize: 'XXS' },
+          { memberId: 'p4', name: '@formula', gender: 'Female', accepted: true, tshirtSize: 'XXXL' },
         ],
       }]);
       const csv = await readCsv();
       expect(csv).toContain('"p1","Maria, ""Ace""\nSantos"');
       expect(csv).toContain(`"p2","'=HYPERLINK(""bad"")"`);
-      expect(csv).toContain(`"p3","' +formula","p4","'@formula"`);
+      expect(csv).toContain(`"p3","' +formula","XXS","p4","'@formula","XXXL"`);
       expect(csv).not.toContain('"alice"');
-      expect(csv.split('\r\n')[0].split(',')).toHaveLength(19);
+      expect(csv.split('\r\n')[0].split(',')).toHaveLength(23);
     });
 
     it('downloads a header-only CSV when there are no approved teams', async () => {

@@ -241,6 +241,13 @@ export const routes: Routes = [
     title: 'Tournament Registrations',
   },
   {
+    path: 'tournaments/:tournamentId/printing',
+    loadComponent: () => import('./tournaments/tournament-printing-page.component').then((module) => module.TournamentPrintingPageComponent),
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'], breadcrumbParent: { label: 'Tournament management', route: '/tournament-management' } },
+    title: 'Tournament T-shirt Printing',
+  },
+  {
     path: 'tournaments/:tournamentId/roster',
     component: TournamentRosterPageComponent,
     canActivate: [memberAuthGuard],

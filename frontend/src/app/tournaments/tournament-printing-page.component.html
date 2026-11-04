@@ -1,0 +1,43 @@
+<main class="registrations-shell">
+  <header class="page-heading">
+    <a class="back-link" routerLink="/tournament-management">Tournament management</a>
+    <p class="eyebrow">Administrator</p>
+    <h1>T-shirt printing</h1>
+    @if (state(); as data) { <h2>{{ data.tournament.name }}</h2> }
+    <p>One row per player from Approved, Payment Submitted, or Paid registrations. Export includes only players not yet tagged as exported for printing, regardless of the list filter.</p>
+    <p>Players without a saved size are included with a blank CSV size. Untag a player to include them in the next export.</p>
+  </header>
+
+  @if (error()) { <p class="notice error" role="alert">{{ error() }}</p> }
+  @if (feedback()) { <p class="notice success" role="status">{{ feedback() }}</p> }
+  @if (busy()) { <p role="status" aria-live="polite">Processing printing list. Please wait...</p> }
+
+  <div class="payment-actions">
+    <button class="quiet-button" type="button" [disabled]="busy()" (click)="reload()">Reload list</button>
+    <button class="action-button" type="button" [disabled]="busy() || !state() || !untaggedPlayers().length" (click)="exportPlayers()">Export untagged players (CSV) ({{ untaggedPlayers().length }})</button>
+  </div>
+
+  @if (state(); as data) {
+    <p class="empty-state">{{ data.players.length }} eligible players · {{ data.players.length - untaggedPlayers().length }} exported for printing · {{ untaggedPlayers().length }} not exported</p>
+    <nav class="status-filters" aria-label="Filter players by printing status">
+      @for (option of filters; track option) {
+        <button type="button" [disabled]="busy()" [class.is-active]="filter() === option" [attr.aria-pressed]="filter() === option" (click)="filter.set(option)">{{ option }}</button>
+      }
+    </nav>
+    <section class="registration-list" aria-label="Players and T-shirt sizes">
+      @for (player of visiblePlayers(); track player.registrationId + ':' + player.memberId) {
+        <article class="registration-row">
+          <div class="registration-copy">
+            <strong>{{ player.name }}</strong>
+            <span>Player ID: {{ player.memberId }} · Registration: {{ player.registrationId }}</span>
+            <span>{{ player.status }} · T-shirt size: {{ player.tshirtSize || 'Not provided' }}</span>
+          </div>
+          <span class="status-pill">{{ player.exportedForPrinting ? 'Exported for printing' : 'Not exported' }}</span>
+          <button type="button" class="quiet-button" [disabled]="busy()" (click)="tagPlayer(player)" [attr.aria-label]="(player.exportedForPrinting ? 'Untag ' : 'Tag ') + player.name + ' for printing'">{{ player.exportedForPrinting ? 'Untag player' : 'Tag as exported' }}</button>
+        </article>
+      } @empty {
+        <p class="empty-state">No players match this printing status.</p>
+      }
+    </section>
+  }
+</main>

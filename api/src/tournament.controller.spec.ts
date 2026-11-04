@@ -13,6 +13,7 @@ describe('Tournament payment HTTP endpoints', () => {
     markTournamentRegistrationPaid: jest.fn(),
     removeTournamentRegistration: jest.fn(),
     createTournament: jest.fn(),
+    setTournamentTshirtSizes: jest.fn(),
     getTournamentTerms: jest.fn(),
     registerTournamentTeam: jest.fn(),
     respondToTournamentInvitation: jest.fn(),
@@ -34,6 +35,8 @@ describe('Tournament payment HTTP endpoints', () => {
     getArchivedTournaments: jest.fn(),
     getTournamentArchiveDetails: jest.fn(),
     getTournamentPlayerId: jest.fn(),
+    getTournamentPrintingPlayers: jest.fn(),
+    setTournamentPrintingTags: jest.fn(),
   };
   const path = '/tournaments/event-1/registrations/captain';
   const cookie = 'spaqueue_member_session=member-session';
@@ -49,6 +52,28 @@ describe('Tournament payment HTTP endpoints', () => {
   });
 
   afterEach(async () => { await app.close(); });
+
+  it('routes printing lists and tag updates with the admin session and no caching', async () => {
+    const state = { tournament: { tournamentId: 'event-1' }, players: [] };
+    const players = [{ registrationId: 'captain', memberId: 'partner', version: 'v1' }];
+    service.getTournamentPrintingPlayers.mockResolvedValue(state);
+    service.setTournamentPrintingTags.mockResolvedValue({ updated: true });
+    await request(app.getHttpServer()).get('/admin/tournaments/event-1/printing-players').set('Cookie', cookie)
+      .expect('Cache-Control', 'private, no-store').expect(200, state);
+    expect(service.getTournamentPrintingPlayers).toHaveBeenCalledWith('member-session', 'event-1');
+    for (const exportedForPrinting of [true, false]) {
+      await request(app.getHttpServer()).patch('/admin/tournaments/event-1/printing-tags').set('Cookie', cookie)
+        .send({ exportedForPrinting, players }).expect('Cache-Control', 'private, no-store').expect(200, { updated: true });
+      expect(service.setTournamentPrintingTags).toHaveBeenLastCalledWith('member-session', 'event-1', exportedForPrinting, players);
+    }
+  });
+
+  it('forwards available T-shirt sizes with the authenticated admin session', async () => {
+    service.setTournamentTshirtSizes.mockResolvedValue({ tshirtSizes: ['XS', 'M', 'XXXL'] });
+    await request(app.getHttpServer()).patch('/admin/tournaments/event-1/tshirt-sizes').set('Cookie', cookie)
+      .send({ tshirtSizes: ['XS', 'M', 'XXXL'] }).expect(200, { tshirtSizes: ['XS', 'M', 'XXXL'] });
+    expect(service.setTournamentTshirtSizes).toHaveBeenCalledWith('member-session', 'event-1', ['XS', 'M', 'XXXL']);
+  });
 
   it('forwards authenticated live draw reads, presence, votes and scheduling without caching', async () => {
     const state = { serverNow: '2026-10-23T10:00:00Z', event: { phase: 'scheduled' } };
@@ -106,10 +131,11 @@ describe('Tournament payment HTTP endpoints', () => {
     service.createTournament.mockResolvedValue({ termsUrl: '/tournaments/event-1/terms' });
     await request(app.getHttpServer()).post('/admin/tournaments').set('Cookie', cookie)
       .field('name', 'Club Open').field('maxSlots', '8')
+      .field('tshirtSizes', '["XS","S","M","L","XL","XXL"]')
       .attach('termsFile', Buffer.from('%PDF-1.7'), { filename: 'terms.pdf', contentType: 'application/pdf' })
       .expect(201);
     expect(service.createTournament).toHaveBeenCalledWith('member-session',
-      expect.objectContaining({ name: 'Club Open', maxSlots: '8' }),
+      expect.objectContaining({ name: 'Club Open', maxSlots: '8', tshirtSizes: '["XS","S","M","L","XL","XXL"]' }),
       expect.objectContaining({ originalname: 'terms.pdf', buffer: Buffer.from('%PDF-1.7') }),
     );
   });
@@ -143,10 +169,10 @@ describe('Tournament payment HTTP endpoints', () => {
     service.respondToTournamentInvitation.mockResolvedValue({});
     await request(app.getHttpServer()).post('/tournaments/event-1/registrations').set('Cookie', cookie)
       .send({ partnerId: 'partner', memberExperience: {}, termsAccepted: true }).expect(201);
-    expect(service.registerTournamentTeam).toHaveBeenCalledWith('member-session', 'event-1', 'partner', {}, undefined, true, undefined, undefined);
+    expect(service.registerTournamentTeam).toHaveBeenCalledWith('member-session', 'event-1', 'partner', {}, undefined, true, undefined, undefined, undefined);
     await request(app.getHttpServer()).post(`${path}/respond`).set('Cookie', cookie)
       .send({ decision: 'Accepted', partnerExperience: {}, termsAccepted: true }).expect(201);
-    expect(service.respondToTournamentInvitation).toHaveBeenCalledWith('member-session', 'event-1', 'captain', 'Accepted', {}, true, undefined, undefined);
+    expect(service.respondToTournamentInvitation).toHaveBeenCalledWith('member-session', 'event-1', 'captain', 'Accepted', {}, true, undefined, undefined, undefined);
   });
 
   it('accepts multipart player IDs and parses registration and acceptance fields', async () => {
@@ -158,18 +184,20 @@ describe('Tournament payment HTTP endpoints', () => {
       .field('partnerId', 'partner').field('memberExperience', '{"hasJoinedTournaments":false,"hasWonTournaments":false}')
       .field('teamMemberIds', '["partner","third","fourth"]').field('termsAccepted', 'true')
       .field('clubDetails', 'City Club: Officer Jane, jane@example.com')
+      .field('tshirtSize', 'XXS')
       .attach('idFile', buffer, { filename: 'id.pdf', contentType: 'application/pdf' }).expect(201);
     expect(service.registerTournamentTeam).toHaveBeenCalledWith(
       'member-session', 'event-1', 'partner', { hasJoinedTournaments: false, hasWonTournaments: false },
-      ['partner', 'third', 'fourth'], true, file, 'City Club: Officer Jane, jane@example.com',
+      ['partner', 'third', 'fourth'], true, file, 'City Club: Officer Jane, jane@example.com', 'XXS',
     );
     await request(app.getHttpServer()).post(`${path}/respond`).set('Cookie', cookie)
       .field('decision', 'Accepted').field('partnerExperience', '{"hasJoinedTournaments":false,"hasWonTournaments":false}')
       .field('termsAccepted', 'false')
+      .field('tshirtSize', 'XXXL')
       .attach('idFile', buffer, { filename: 'id.pdf', contentType: 'application/pdf' }).expect(201);
     expect(service.respondToTournamentInvitation).toHaveBeenCalledWith(
       'member-session', 'event-1', 'captain', 'Accepted',
-      { hasJoinedTournaments: false, hasWonTournaments: false }, false, file, undefined,
+      { hasJoinedTournaments: false, hasWonTournaments: false }, false, file, undefined, 'XXXL',
     );
   });
 
