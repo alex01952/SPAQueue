@@ -12,8 +12,8 @@ describe('TournamentPrintingPageComponent', () => {
       maxSlots: 8, date: '', location: '', registrationCount: 2, pendingRegistrationCount: 0, createdAt: '',
     },
     players: [
-      { registrationId: 'team-1', memberId: 'alice', name: 'Alice', tshirtSize: 'XXS', status: 'Approved', version: 'v1', exportedForPrinting: false },
-      { registrationId: 'team-1', memberId: 'bob', name: 'Bob', tshirtSize: 'XXXL', status: 'Approved', version: 'v1', exportedForPrinting: true },
+      { registrationId: 'team-1', memberId: 'alice', name: 'Alice', tshirtSize: '2XS', status: 'Approved', version: 'v1', exportedForPrinting: false },
+      { registrationId: 'team-1', memberId: 'bob', name: 'Bob', tshirtSize: '3XL', status: 'Approved', version: 'v1', exportedForPrinting: true },
       { registrationId: 'team-2', memberId: 'carol', name: '=Formula, "Name"\nLine', status: 'Paid', version: 'v2', exportedForPrinting: false },
     ],
   };
@@ -72,8 +72,8 @@ describe('TournamentPrintingPageComponent', () => {
   it('shows individual players, sizes, missing sizes and printing status with filters', () => {
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Club, "Open"');
-    expect(text).toContain('T-shirt size: XXS');
-    expect(text).toContain('T-shirt size: XXXL');
+    expect(text).toContain('T-shirt size: 2XS');
+    expect(text).toContain('T-shirt size: 3XL');
     expect(text).toContain('T-shirt size: Not provided');
     expect(text).toContain('1 exported for printing');
     expect(text).toContain('2 not exported');
@@ -110,7 +110,7 @@ describe('TournamentPrintingPageComponent', () => {
     const csv = await readCsv();
     expect(csv).toContain('"Tournament ID","Tournament name","Registration ID","Player ID","Player name","T-shirt size","Registration status"');
     expect(csv).toContain('"Club, ""Open"""');
-    expect(csv).toContain('"alice","Alice","XXS","Approved"');
+    expect(csv).toContain('"alice","Alice","2XS","Approved"');
     expect(csv).toContain(`"carol","'=Formula, ""Name""\nLine","","Paid"`);
     expect(csv).toContain('"dave","Dave","M","Payment Submitted"');
     expect(csv).not.toContain('"bob"');

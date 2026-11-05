@@ -78,7 +78,7 @@ describe('TournamentsPageComponent', () => {
     const tournament = {
       tournamentId: 'event-1', name: 'Club Open', category: 'Mens Doubles' as const, level: 'Beginner' as const,
       maxSlots: 5, registrationCount: 0, pendingRegistrationCount: 0, date: '', location: '', createdAt: '',
-      tshirtSizes: ['XS', 'S', 'M', 'L', 'XL', 'XXL'] as const,
+      tshirtSizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'] as const,
     };
     const event = { ...tournament, tshirtSizes: [...tournament.tshirtSizes] };
     component['tournaments'].set([event]);
@@ -90,7 +90,7 @@ describe('TournamentsPageComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>('select[name="memberTshirtSize"]')!;
-    expect([...select.options].map((option) => option.value)).toEqual(['', 'XS', 'S', 'M', 'L', 'XL', 'XXL']);
+    expect([...select.options].map((option) => option.value)).toEqual(['', 'XS', 'S', 'M', 'L', 'XL', '2XL']);
     const submit = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.registration-panel button[type="submit"]')!;
     expect(submit.disabled).toBe(true);
     component['register']();
@@ -112,7 +112,7 @@ describe('TournamentsPageComponent', () => {
     component['tournaments'].set([{
       tournamentId: 'event-1', name: 'Club Open', category: 'Team Tournament', level: 'Beginner',
       maxSlots: 5, registrationCount: 0, pendingRegistrationCount: 0, date: '', location: '', createdAt: '',
-      tshirtSizes: ['XXS', 'XXXL'],
+      tshirtSizes: ['2XS', '5XL'],
     }]);
     component['registrations'].set([registration]);
     component['beginAccepting'](registration);
@@ -122,16 +122,16 @@ describe('TournamentsPageComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>('select[name="partnerTshirtSize"]')!;
-    expect([...select.options].map((option) => option.value)).toEqual(['', 'XXS', 'XXXL']);
+    expect([...select.options].map((option) => option.value)).toEqual(['', '2XS', '5XL']);
     component['respond'](registration, 'Accepted');
     expect(http.post).not.toHaveBeenCalled();
     expect(component['errorMessage']()).toContain('Select an available T-shirt size');
-    select.value = 'XXXL';
+    select.value = '5XL';
     select.dispatchEvent(new Event('change'));
     http.post.mockReturnValueOnce(throwError(() => new HttpErrorResponse({ status: 500 })));
     component['respond'](registration, 'Accepted');
-    expect((http.post.mock.calls.at(-1)![1] as FormData).get('tshirtSize')).toBe('XXXL');
-    expect(component['partnerTshirtSize']).toBe('XXXL');
+    expect((http.post.mock.calls.at(-1)![1] as FormData).get('tshirtSize')).toBe('5XL');
+    expect(component['partnerTshirtSize']).toBe('5XL');
     component['beginAccepting'](registration);
     expect(component['partnerTshirtSize']).toBe('');
   });

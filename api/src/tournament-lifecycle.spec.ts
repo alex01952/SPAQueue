@@ -121,9 +121,9 @@ describe('Tournament archive and deletion', () => {
     const details = await service.getTournamentArchiveDetails('session', id);
     expect(details.tournament.pricing).toEqual({ regularPrice: 500, earlyBirdPrice: 400, earlyBirdEndDate: '2026-10-31' });
     expect(details.tournament).toMatchObject({
-      name: 'Club Open', archivedBy: 'Administrator', registrationCount: 1, tshirtSizes: ['XXS', 'M', 'XXXL'],
+      name: 'Club Open', archivedBy: 'Administrator', registrationCount: 1, tshirtSizes: ['2XS', 'M', '3XL'],
     });
-    expect(details.registrations[0]).toMatchObject({ memberTshirtSize: 'XXS', partnerTshirtSize: 'XXXL' });
+    expect(details.registrations[0]).toMatchObject({ memberTshirtSize: '2XS', partnerTshirtSize: '3XL' });
     expect(details.roster.canManageRoster).toBe(false);
     expect(details.registrations[0].paymentProofs![0].url).toContain(`/admin/tournament-archive/${id}/registrations/`);
     expect(details.registrations[0].eligibilityDetails![0]).toMatchObject({

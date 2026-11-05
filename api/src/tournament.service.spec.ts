@@ -122,17 +122,17 @@ describe('AppService tournament registration', () => {
     });
 
     it('saves a separate size for every team member without overwriting earlier players', async () => {
-      service['getTournament'] = jest.fn().mockResolvedValue({ ...teamTournament, tshirtSizes: ['XXS', 'M', 'XL', 'XXXL'] });
+      service['getTournament'] = jest.fn().mockResolvedValue({ ...teamTournament, tshirtSizes: ['2XS', 'M', 'XL', '3XL'] });
       service['getTournamentMember'] = jest.fn(async (id) => ({
         name: id, gender: ['third', 'fourth'].includes(id) ? 'Female' : 'Male',
       }));
       const created = await service.registerTournamentTeam(
         'session', tournament.tournamentId, 'partner', experience, ['partner', 'third', 'fourth'],
-        undefined, idFile, undefined, 'XXS',
+        undefined, idFile, undefined, '2XS',
       );
-      expect(created.teamMembers?.[0].tshirtSize).toBe('XXS');
+      expect(created.teamMembers?.[0].tshirtSize).toBe('2XS');
       for (const [memberId, gender, size] of [
-        ['partner', 'Male', 'M'], ['third', 'Female', 'XL'], ['fourth', 'Female', 'XXXL'],
+        ['partner', 'Male', 'M'], ['third', 'Female', 'XL'], ['fourth', 'Female', '3XL'],
       ]) {
         service['getMemberSession'] = jest.fn().mockResolvedValue(memberSession(memberId, gender));
         await service.respondToTournamentInvitation(
@@ -140,7 +140,7 @@ describe('AppService tournament registration', () => {
         );
       }
       const saved = (await service.getMyTournamentRegistrations('session'))[0];
-      expect(saved.teamMembers?.map((player) => player.tshirtSize)).toEqual(['XXS', 'M', 'XL', 'XXXL']);
+      expect(saved.teamMembers?.map((player) => player.tshirtSize)).toEqual(['2XS', 'M', 'XL', '3XL']);
       expect(saved.status).toBe('Pending Approval');
     });
 
@@ -368,13 +368,13 @@ describe('AppService tournament registration', () => {
       { sizes: '["XXXL","XXS","M","M"]' },
     ])('stores canonical available sizes from JSON or multipart input: %p', async ({ sizes }) => {
       const result = await service.createTournament('session', { ...input, tshirtSizes: sizes });
-      expect(result.tshirtSizes).toEqual(['XXS', 'M', 'XXXL']);
+      expect(result.tshirtSizes).toEqual(['2XS', 'M', '3XL']);
       const stored = createEntity.mock.calls[0][0];
-      expect(stored.TshirtSizes).toBe('["XXS","M","XXXL"]');
-      expect(service['toTournament'](stored)?.tshirtSizes).toEqual(['XXS', 'M', 'XXXL']);
+      expect(stored.TshirtSizes).toBe('["2XS","M","3XL"]');
+      expect(service['toTournament'](stored)?.tshirtSizes).toEqual(['2XS', 'M', '3XL']);
     });
 
-    it.each(['not JSON', '"M"', 'null', '["4XL"]', '{}'])('rejects invalid available sizes: %s', async (sizes) => {
+    it.each(['not JSON', '"M"', 'null', '["6XL"]', '{}'])('rejects invalid available sizes: %s', async (sizes) => {
       await expect(service.createTournament('session', { ...input, tshirtSizes: sizes }))
         .rejects.toThrow('Select available T-shirt sizes');
       expect(createEntity).not.toHaveBeenCalled();
@@ -384,9 +384,9 @@ describe('AppService tournament registration', () => {
       const updateEntity = jest.fn().mockResolvedValue(undefined);
       service['getTournamentsTableClient'] = jest.fn().mockReturnValue({ updateEntity });
       await expect(service.setTournamentTshirtSizes('session', tournament.tournamentId, ['XXXL', 'S']))
-        .resolves.toMatchObject({ tshirtSizes: ['S', 'XXXL'] });
+        .resolves.toMatchObject({ tshirtSizes: ['S', '3XL'] });
       expect(updateEntity).toHaveBeenLastCalledWith({
-        partitionKey: 'tournaments', rowKey: tournament.tournamentId, TshirtSizes: '["S","XXXL"]',
+        partitionKey: 'tournaments', rowKey: tournament.tournamentId, TshirtSizes: '["S","3XL"]',
       }, 'Merge');
       await expect(service.setTournamentTshirtSizes('session', tournament.tournamentId, []))
         .resolves.toMatchObject({ tshirtSizes: [] });
@@ -401,7 +401,7 @@ describe('AppService tournament registration', () => {
     it('reports option validation and storage failures instead of returning success', async () => {
       const updateEntity = jest.fn().mockRejectedValue({ statusCode: 404 });
       service['getTournamentsTableClient'] = jest.fn().mockReturnValue({ updateEntity });
-      await expect(service.setTournamentTshirtSizes('session', tournament.tournamentId, ['4XL']))
+      await expect(service.setTournamentTshirtSizes('session', tournament.tournamentId, ['6XL']))
         .rejects.toBeInstanceOf(BadRequestException);
       expect(updateEntity).not.toHaveBeenCalled();
       await expect(service.setTournamentTshirtSizes('session', tournament.tournamentId, ['M']))

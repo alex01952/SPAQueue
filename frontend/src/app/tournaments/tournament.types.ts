@@ -17,7 +17,7 @@ export const tournamentLevels = [
 export type TournamentCategory = (typeof tournamentCategories)[number];
 export type TournamentLevel = (typeof tournamentLevels)[number];
 
-export const tournamentTshirtSizes = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] as const;
+export const tournamentTshirtSizes = ['2XS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'] as const;
 export type TournamentTshirtSize = (typeof tournamentTshirtSizes)[number];
 
 export interface TournamentExperienceDetails {

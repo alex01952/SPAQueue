@@ -312,7 +312,7 @@ export const TOURNAMENT_LEVELS = [
 ] as const;
 export type TournamentLevel = (typeof TOURNAMENT_LEVELS)[number];
 
-export const TOURNAMENT_TSHIRT_SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] as const;
+export const TOURNAMENT_TSHIRT_SIZES = ['2XS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'] as const;
 export type TournamentTshirtSize = (typeof TOURNAMENT_TSHIRT_SIZES)[number];
 
 export type TournamentRegistrationStatus =
@@ -5654,8 +5654,12 @@ export class AppService {
       memberName: String(entity.MemberName ?? ''),
       partnerId: String(entity.PartnerId ?? ''),
       partnerName: String(entity.PartnerName ?? ''),
-      ...(this.isTournamentTshirtSize(entity.MemberTshirtSize) ? { memberTshirtSize: entity.MemberTshirtSize } : {}),
-      ...(this.isTournamentTshirtSize(entity.PartnerTshirtSize) ? { partnerTshirtSize: entity.PartnerTshirtSize } : {}),
+      ...(this.normalizeTournamentTshirtSize(entity.MemberTshirtSize)
+        ? { memberTshirtSize: this.normalizeTournamentTshirtSize(entity.MemberTshirtSize) }
+        : {}),
+      ...(this.normalizeTournamentTshirtSize(entity.PartnerTshirtSize)
+        ? { partnerTshirtSize: this.normalizeTournamentTshirtSize(entity.PartnerTshirtSize) }
+        : {}),
       ...(includeEligibility ? {
         eligibilityDetails: this.readTournamentEligibility(entity).map(({ blobName, contentType, ...details }) => ({
           ...details,
@@ -5763,27 +5767,31 @@ export class AppService {
       try {
         sizes = JSON.parse(input);
       } catch {
-        throw new BadRequestException('Select available T-shirt sizes from XXS to XXXL.');
+        throw new BadRequestException('Select available T-shirt sizes from 2XS to 5XL.');
       }
     }
-    if (!Array.isArray(sizes) || sizes.some((size) => !this.isTournamentTshirtSize(size))) {
-      throw new BadRequestException('Select available T-shirt sizes from XXS to XXXL.');
+    if (!Array.isArray(sizes) || sizes.some((size) => !this.normalizeTournamentTshirtSize(size))) {
+      throw new BadRequestException('Select available T-shirt sizes from 2XS to 5XL.');
     }
-    const selected = sizes;
+    const selected = sizes.map((size) => this.normalizeTournamentTshirtSize(size));
     return TOURNAMENT_TSHIRT_SIZES.filter((size) => selected.includes(size));
   }
 
-  private isTournamentTshirtSize(size: unknown): size is TournamentTshirtSize {
-    return TOURNAMENT_TSHIRT_SIZES.some((option) => option === size);
+  private normalizeTournamentTshirtSize(size: unknown): TournamentTshirtSize | undefined {
+    const legacySizes: Record<string, TournamentTshirtSize> = { XXS: '2XS', XXL: '2XL', XXXL: '3XL' };
+    if (typeof size !== 'string') return undefined;
+    if (TOURNAMENT_TSHIRT_SIZES.some((option) => option === size)) return size as TournamentTshirtSize;
+    return legacySizes[size];
   }
 
   private validateTournamentTshirtSize(tournament: Tournament, input: unknown): TournamentTshirtSize | undefined {
     const sizes = tournament.tshirtSizes ?? [];
     if (!sizes.length && (input === undefined || input === '')) return undefined;
-    if (!this.isTournamentTshirtSize(input) || !sizes.includes(input)) {
+    const normalizedSize = this.normalizeTournamentTshirtSize(input);
+    if (!normalizedSize || !sizes.some((size) => this.normalizeTournamentTshirtSize(size) === normalizedSize)) {
       throw new BadRequestException('Select an available T-shirt size for this tournament.');
     }
-    return input;
+    return normalizedSize;
   }
 
   private requireTournamentTermsAgreement(tournament: Tournament, accepted: unknown): void {
@@ -6019,7 +6027,11 @@ export class AppService {
         typeof (member as TournamentTeamMember).name === 'string' &&
         typeof (member as TournamentTeamMember).gender === 'string' &&
         typeof (member as TournamentTeamMember).accepted === 'boolean',
-      );
+      ).map((member) => {
+        const { tshirtSize: storedSize, ...details } = member;
+        const tshirtSize = this.normalizeTournamentTshirtSize(storedSize);
+        return { ...details, ...(tshirtSize ? { tshirtSize } : {}) };
+      });
     } catch {
       return [];
     }

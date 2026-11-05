@@ -98,20 +98,20 @@ describe('TournamentRegistrationsPageComponent', () => {
 
     it('shows saved sizes for doubles and four-player teams', () => {
       const component = fixture.componentInstance;
-      component['registrations'].set([{ ...registration, memberTshirtSize: 'XS', partnerTshirtSize: 'XXL' }]);
+      component['registrations'].set([{ ...registration, memberTshirtSize: 'XS', partnerTshirtSize: '2XL' }]);
       fixture.detectChanges();
       expect(fixture.nativeElement.textContent).toContain('Captain · T-shirt: XS');
-      expect(fixture.nativeElement.textContent).toContain('Partner · T-shirt: XXL');
+      expect(fixture.nativeElement.textContent).toContain('Partner · T-shirt: 2XL');
       component['registrations'].set([{
         ...registration, category: 'Team Tournament',
         teamMembers: [
-          { memberId: 'a', name: 'Alice', gender: 'Female', accepted: true, tshirtSize: 'XXS' },
-          { memberId: 'b', name: 'Bob', gender: 'Male', accepted: true, tshirtSize: 'XXXL' },
+          { memberId: 'a', name: 'Alice', gender: 'Female', accepted: true, tshirtSize: '2XS' },
+          { memberId: 'b', name: 'Bob', gender: 'Male', accepted: true, tshirtSize: '3XL' },
         ],
       }]);
       fixture.detectChanges();
-      expect(fixture.nativeElement.textContent).toContain('Alice · T-shirt: XXS');
-      expect(fixture.nativeElement.textContent).toContain('Bob · T-shirt: XXXL');
+      expect(fixture.nativeElement.textContent).toContain('Alice · T-shirt: 2XS');
+      expect(fixture.nativeElement.textContent).toContain('Bob · T-shirt: 3XL');
     });
 
     it('lists all uploaded proofs and still allows payment confirmation with partial proofs', () => {

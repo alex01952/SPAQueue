@@ -72,7 +72,7 @@ describe('Tournament printing list and per-player export tags', () => {
     expect(result.tournament).toEqual(tournament);
     expect(result.players).toHaveLength(10);
     expect(result.players.find((player) => player.memberId === 'a')).toMatchObject({
-      registrationId: 'four', tshirtSize: 'XXS', exportedForPrinting: true, version: 'v1',
+      registrationId: 'four', tshirtSize: '2XS', exportedForPrinting: true, version: 'v1',
     });
     expect(result.players.find((player) => player.memberId === 'd')).toMatchObject({ exportedForPrinting: false });
     expect(result.players.find((player) => player.memberId === 'one-a')?.tshirtSize).toBeUndefined();
