@@ -71,6 +71,7 @@ export interface Tournament {
   registrationClosedAt?: string;
   createdAt: string;
   lifecycleState?: string;
+  version?: string;
 }
 
 export const tournamentProtestCategories = [

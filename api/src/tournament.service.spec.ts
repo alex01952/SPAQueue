@@ -49,6 +49,70 @@ describe('AppService tournament registration', () => {
     jest.spyOn(service as any, 'uploadParticipationBlob').mockResolvedValue(undefined);
   });
 
+  describe('editing tournament details', () => {
+    const input = { name: 'Updated Open', level: 'Advanced' as const, maxSlots: 3, date: '2027-01-05', location: 'Club courts', version: 'v1' };
+    let table: { getEntity: jest.Mock; updateEntity: jest.Mock };
+    beforeEach(() => {
+      jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('admin', 'Male', 'admin'));
+      table = { getEntity: jest.fn().mockResolvedValue({ rowKey: tournament.tournamentId, Name: tournament.name, Category: tournament.category, Level: tournament.level, MaxSlots: 8, etag: 'v1' }), updateEntity: jest.fn().mockResolvedValue({ etag: 'v2' }) };
+      jest.spyOn(service as any, 'getTournamentsTableClient').mockReturnValue(table);
+      jest.spyOn(service as any, 'getTournamentRegistrationEntities').mockResolvedValue([{ Status: 'Approved' }, { Status: 'Pending Approval' }]);
+    });
+
+    it('updates details without changing category and preserves registration counts', async () => {
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, input)).resolves.toMatchObject({ ...input, version: 'v2', category: tournament.category, registrationCount: 1, pendingRegistrationCount: 1 });
+      expect(table.updateEntity).toHaveBeenCalledWith(expect.objectContaining({ Name: input.name, Level: input.level, MaxSlots: 3 }), 'Merge', { etag: 'v1' });
+      expect(table.updateEntity.mock.calls[0][0]).not.toHaveProperty('Category');
+    });
+
+    it('returns the tournament version in the list and accepts it when saving', async () => {
+      const entity = await table.getEntity();
+      const tournamentsTable = { ...table, listEntities: jest.fn(() => (async function* () { yield entity; })()) };
+      service['getTournamentsTableClient'] = jest.fn().mockReturnValue(tournamentsTable);
+      service['getTournamentRegistrationsTableClient'] = jest.fn().mockReturnValue({ listEntities: jest.fn(() => (async function* () {})()) });
+      const [listed] = await service.getTournaments('session');
+      expect(listed.version).toBe('v1');
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, { ...input, version: listed.version })).resolves.toMatchObject({ name: input.name, version: 'v2' });
+    });
+
+    it('rejects category changes, too few slots, and conflicting updates', async () => {
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, { ...input, category: 'Mixed Doubles' })).rejects.toThrow('category cannot be changed');
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, { ...input, maxSlots: 0 })).rejects.toThrow('Maximum slots');
+      service['getTournamentRegistrationEntities'] = jest.fn().mockResolvedValue([{ Status: 'Approved' }, { Status: 'Paid' }]);
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, { ...input, maxSlots: 1 })).rejects.toThrow('approved teams');
+      table.updateEntity.mockRejectedValue({ statusCode: 412 });
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, input)).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('rejects non-admin users before touching tournament data', async () => {
+      jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('member'));
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, input)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(table.getEntity).not.toHaveBeenCalled();
+    });
+
+    it('rejects stale drafts and edits to events being archived', async () => {
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, { ...input, version: 'old' })).rejects.toThrow('changed');
+      table.getEntity.mockResolvedValueOnce({ LifecycleState: 'Archiving' });
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, input)).rejects.toThrow('archived or deleted');
+      expect(table.updateEntity).not.toHaveBeenCalled();
+    });
+
+    it('only changes terms while registration is closed and no registrations exist', async () => {
+      const buffer = Buffer.from('%PDF-1.7');
+      const file = { originalname: 'new.pdf', mimetype: 'application/pdf', size: buffer.length, buffer };
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, input, file)).rejects.toThrow('prior agreements');
+      service['getTournamentRegistrationEntities'] = jest.fn().mockResolvedValue([]);
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, input, file)).rejects.toThrow('Close registration');
+      table.getEntity.mockResolvedValue({ rowKey: tournament.tournamentId, Name: tournament.name, Category: tournament.category, Level: tournament.level, MaxSlots: 8, etag: 'v1', RegistrationClosed: true, TermsBlobName: 'old', TermsFileName: 'old.pdf' });
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, input, { ...file, buffer: Buffer.from('not pdf'), size: 7 })).rejects.toThrow('must be a PDF');
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, input, file)).resolves.toMatchObject({ termsFileName: 'new.pdf', termsUrl: expect.stringContaining('/terms') });
+      expect(table.updateEntity).toHaveBeenLastCalledWith(expect.objectContaining({ TermsBlobName: expect.stringContaining('tournament-terms/'), TermsFileName: 'new.pdf' }), 'Merge', { etag: 'v1' });
+      const removed = await service.updateTournamentDetails('session', tournament.tournamentId, { ...input, removeTerms: true });
+      expect(removed.termsUrl).toBeUndefined();
+      expect(table.updateEntity).toHaveBeenLastCalledWith(expect.objectContaining({ TermsBlobName: '', TermsFileName: '' }), 'Merge', { etag: 'v1' });
+    });
+  });
+
   describe('player eligibility verification', () => {
     const clubDetails = 'City Club\nOfficer: Jane Doe\nContact: jane@example.com';
     let entity: Record<string, unknown>;

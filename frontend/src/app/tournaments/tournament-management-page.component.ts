@@ -12,6 +12,7 @@ import {
   tournamentLevels,
   tournamentTshirtSizes,
   type TournamentTshirtSize,
+  type TournamentLevel,
   type TournamentExperienceDetails,
   type Tournament,
   type TournamentRegistration,
@@ -35,6 +36,10 @@ export class TournamentManagementPageComponent implements OnInit {
   protected pricingForm = tournamentPricingForm();
   protected pricingDraft = tournamentPricingForm();
   protected readonly editingPricingId = signal<string | null>(null);
+  protected readonly editingDetailsId = signal<string | null>(null);
+  private detailsVersion = '';
+  protected detailsDraft: { name: string; level: TournamentLevel; maxSlots: number; date: string; location: string; removeTerms: boolean } = { name: '', level: tournamentLevels[0], maxSlots: 1, date: '', location: '', removeTerms: false };
+  protected readonly detailsTermsFile = signal<File | null>(null);
   protected readonly tournaments = signal<Tournament[]>([]);
   protected readonly registrations = signal<TournamentRegistration[]>([]);
   protected readonly isSaving = signal(false);
@@ -105,6 +110,55 @@ export class TournamentManagementPageComponent implements OnInit {
     });
   }
 
+  protected editDetails(tournament: Tournament) {
+    if (this.isSaving()) return;
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.detailsDraft = { name: tournament.name, level: tournament.level, maxSlots: tournament.maxSlots, date: tournament.date, location: tournament.location, removeTerms: false };
+    this.detailsVersion = tournament.version ?? '';
+    this.detailsTermsFile.set(null);
+    this.editingDetailsId.set(tournament.tournamentId);
+  }
+
+  protected selectDetailsTermsFile(input: HTMLInputElement) {
+    const file = input.files?.[0];
+    this.detailsTermsFile.set(null);
+    this.errorMessage.set('');
+    if (!file) return;
+    if (file.type !== 'application/pdf' || !file.size || file.size > 10 * 1024 * 1024) {
+      input.value = '';
+      this.errorMessage.set('Terms and conditions must be a PDF file no larger than 10 MB.');
+      return;
+    }
+    this.detailsDraft.removeTerms = false;
+    this.detailsTermsFile.set(file);
+  }
+
+  protected saveDetails(tournament: Tournament) {
+    if (this.isSaving()) return;
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    const body = new FormData();
+    Object.entries(this.detailsDraft).forEach(([key, value]) => body.append(key, String(value)));
+    body.append('version', this.detailsVersion);
+    const file = this.detailsTermsFile();
+    if (file && !this.detailsDraft.removeTerms) body.append('termsFile', file);
+    this.isSaving.set(true);
+    this.http.patch<Tournament>(`${this.apiUrl}/admin/tournaments/${encodeURIComponent(tournament.tournamentId)}`, body, { withCredentials: true }).subscribe({
+      next: (updated) => {
+        this.tournaments.update((items) => items.map((item) => item.tournamentId === updated.tournamentId ? updated : item));
+        this.editingDetailsId.set(null);
+        this.detailsTermsFile.set(null);
+        this.feedbackMessage.set('Tournament details saved.');
+        this.isSaving.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.showError(error, 'Unable to save tournament details.');
+        this.isSaving.set(false);
+      },
+    });
+  }
+
   protected editPricing(tournament: Tournament) {
     if (this.isSaving()) return;
     this.pricingDraft = tournamentPricingForm(tournament.pricing);
@@ -129,7 +183,7 @@ export class TournamentManagementPageComponent implements OnInit {
     ).subscribe({
       next: (updated) => {
         this.tournaments.update((items) => items.map((item) =>
-          item.tournamentId === updated.tournamentId ? { ...item, pricing: updated.pricing } : item,
+          item.tournamentId === updated.tournamentId ? { ...item, pricing: updated.pricing, version: updated.version } : item,
         ));
         this.editingPricingId.set(null);
         this.feedbackMessage.set('Registration pricing saved.');
@@ -166,7 +220,7 @@ export class TournamentManagementPageComponent implements OnInit {
     ).subscribe({
       next: (updated) => {
         this.tournaments.update((items) => items.map((item) =>
-          item.tournamentId === updated.tournamentId ? { ...item, tshirtSizes: updated.tshirtSizes } : item,
+          item.tournamentId === updated.tournamentId ? { ...item, tshirtSizes: updated.tshirtSizes, version: updated.version } : item,
         ));
         this.tshirtSizeDrafts.update((drafts) => {
           const { [tournament.tournamentId]: saved, ...remaining } = drafts;

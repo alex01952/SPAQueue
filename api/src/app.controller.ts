@@ -358,6 +358,19 @@ export class AppController {
     );
   }
 
+  @Patch('admin/tournaments/:tournamentId')
+  @UseInterceptors(FileInterceptor('termsFile', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  updateTournamentDetails(
+    @Param('tournamentId') tournamentId: string,
+    @Body() body: Partial<TournamentCreateInput> & { removeTerms?: boolean | string; version?: string },
+    @Headers('cookie') cookieHeader = '',
+    @UploadedFile() termsFile?: TournamentDocumentUploadInput,
+  ): Promise<Tournament> {
+    return this.appService.updateTournamentDetails(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, body, termsFile,
+    );
+  }
+
   @Patch('admin/tournaments/:tournamentId/pricing')
   setTournamentPricing(
     @Param('tournamentId') tournamentId: string,

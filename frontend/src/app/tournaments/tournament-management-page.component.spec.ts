@@ -142,6 +142,86 @@ describe('TournamentManagementPageComponent terms upload', () => {
   });
 });
 
+describe('TournamentManagementPageComponent details editor', () => {
+  const tournament: Tournament = {
+    tournamentId: 'event-1', name: 'Club Open', category: 'Mixed Doubles', level: 'Beginner',
+    maxSlots: 8, date: '2027-01-05', location: 'Club courts', registrationCount: 1,
+    pendingRegistrationCount: 0, createdAt: '', version: 'v1', registrationClosed: true,
+  };
+  let fixture: ComponentFixture<TournamentManagementPageComponent>;
+  let http: HttpTestingController;
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [TournamentManagementPageComponent],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(TournamentManagementPageComponent);
+    http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+    http.expectOne('/tournaments').flush([tournament]);
+    http.expectOne('/admin/tournament-registrations').flush([]);
+    fixture.detectChanges();
+  });
+
+  it('edits details while displaying category as read-only', () => {
+    const component = fixture.componentInstance;
+    component['editDetails'](tournament);
+    fixture.detectChanges();
+    const form = (fixture.nativeElement as HTMLElement).querySelector<HTMLFormElement>('.details-form')!;
+    expect(form.textContent).toContain('Category: Mixed Doubles');
+    expect(form.querySelector('[name="category"]')).toBeNull();
+    component['detailsDraft'].name = 'Updated Open';
+    component['detailsDraft'].level = 'Advanced';
+    component['detailsDraft'].location = 'New courts';
+    component['saveDetails'](tournament);
+    const request = http.expectOne('/admin/tournaments/event-1');
+    expect(request.request.method).toBe('PATCH');
+    expect(request.request.withCredentials).toBe(true);
+    const body = request.request.body as FormData;
+    expect(body.get('name')).toBe('Updated Open');
+    expect(body.get('level')).toBe('Advanced');
+    expect(body.get('location')).toBe('New courts');
+    expect(body.get('version')).toBe('v1');
+    expect(body.has('category')).toBe(false);
+    request.flush({ ...tournament, name: 'Updated Open', level: 'Advanced', location: 'New courts', version: 'v2' });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Tournament details saved.');
+    expect(component['tournaments']()[0].name).toBe('Updated Open');
+    expect(component['editingDetailsId']()).toBeNull();
+    http.verify();
+  });
+
+  it('retains the draft and reports a conflict without changing the displayed tournament', () => {
+    const component = fixture.componentInstance;
+    component['editDetails'](tournament);
+    component['detailsDraft'].name = 'Draft name';
+    component['saveDetails'](tournament);
+    http.expectOne('/admin/tournaments/event-1').flush({ message: 'The tournament changed. Reload and retry.' }, { status: 409, statusText: 'Conflict' });
+    expect(component['detailsDraft'].name).toBe('Draft name');
+    expect(component['tournaments']()[0].name).toBe('Club Open');
+    expect(component['errorMessage']()).toContain('Reload and retry');
+    expect(component['isSaving']()).toBe(false);
+    component['editingDetailsId'].set(null);
+    expect(component['editingDetailsId']()).toBeNull();
+    http.verify();
+  });
+
+  it('prevents native navigation when the details form is submitted', () => {
+    fixture.componentInstance['editDetails'](tournament);
+    fixture.detectChanges();
+    const form = (fixture.nativeElement as HTMLElement).querySelector<HTMLFormElement>('.details-form')!;
+    const event = new Event('submit', { bubbles: true, cancelable: true });
+    form.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    const request = http.expectOne('/admin/tournaments/event-1');
+    expect(request.request.method).toBe('PATCH');
+    request.flush({ ...tournament, version: 'v2' });
+    http.verify();
+  });
+});
+
 describe('TournamentManagementPageComponent registration status', () => {
   const tournament = {
     tournamentId: 'event-1', name: 'Club Open', category: 'Mens Doubles', level: 'Beginner',

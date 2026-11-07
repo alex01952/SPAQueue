@@ -30,6 +30,12 @@ h1, h2, p { margin-top: 0; }
 .notice.error { color: #842f22; background: rgba(184, 67, 49, .12); }
 @media (max-width: 680px) { .management-shell { width: calc(100% - 24px); padding: 28px 0 48px; } .create-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .create-form .wide { grid-column: 1 / -1; } .registration-row, .event-row { align-items: flex-start; flex-wrap: wrap; } .registration-copy, .event-row > div { flex-basis: 100%; } }
 .event-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; max-width: 340px; }
+.details-form { display: grid; gap: 10px; width: 100%; padding: 14px; border: 1px solid rgba(103, 70, 41, .24); border-radius: 4px; }
+.details-form h3, .details-form p { margin: 0; font-size: .85rem; }
+.details-form label { display: grid; gap: 5px; font-size: .78rem; font-weight: 700; }
+.details-form input:not([type='checkbox']), .details-form select { width: 100%; min-width: 0; min-height: 40px; padding: 8px; font: inherit; border: 1px solid rgba(103, 70, 41, .24); border-radius: 4px; }
+.details-form .remove-terms { display: flex; align-items: center; }
+.details-form small { color: var(--text-secondary); line-height: 1.4; }
 .tshirt-options { display: flex; flex-wrap: wrap; gap: 10px 16px; min-width: 0; margin: 0; padding: 12px; border: 1px solid rgba(103, 70, 41, .24); border-radius: 4px; }
 .tshirt-options legend { font-size: .8rem; font-weight: 700; }
 .tshirt-options p, .tshirt-options small { flex-basis: 100%; margin: 0; color: var(--text-secondary); font-size: .76rem; }

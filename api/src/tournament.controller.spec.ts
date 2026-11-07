@@ -13,6 +13,7 @@ describe('Tournament payment HTTP endpoints', () => {
     markTournamentRegistrationPaid: jest.fn(),
     removeTournamentRegistration: jest.fn(),
     createTournament: jest.fn(),
+    updateTournamentDetails: jest.fn(),
     setTournamentTshirtSizes: jest.fn(),
     setTournamentPricing: jest.fn(),
     getTournamentTerms: jest.fn(),
@@ -137,6 +138,15 @@ describe('Tournament payment HTTP endpoints', () => {
     expect(service.getTournamentTerms).toHaveBeenCalledWith('member-session', 'event-1', true);
     expect(service.getTournamentPaymentProof).toHaveBeenCalledWith('member-session', 'event-1', 'team-1', 'player-1', true);
     expect(service.getTournamentProtestEvidence).toHaveBeenCalledWith('member-session', 'event-1', 'protest-1', 0, true);
+  });
+
+  it('forwards a multipart details update with the admin session', async () => {
+    service.updateTournamentDetails.mockResolvedValue({ name: 'Updated' });
+    await request(app.getHttpServer()).patch('/admin/tournaments/event-1').set('Cookie', cookie)
+      .field('name', 'Updated').field('version', 'v1')
+      .attach('termsFile', Buffer.from('%PDF-1.7'), { filename: 'terms.pdf', contentType: 'application/pdf' }).expect(200);
+    expect(service.updateTournamentDetails).toHaveBeenCalledWith('member-session', 'event-1',
+      expect.objectContaining({ name: 'Updated', version: 'v1' }), expect.objectContaining({ originalname: 'terms.pdf' }));
   });
 
   it('accepts tournament creation with an optional multipart terms PDF', async () => {

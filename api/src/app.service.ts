@@ -347,6 +347,7 @@ export interface Tournament {
   registrationClosedAt?: string;
   createdAt: string;
   lifecycleState?: string;
+  version?: string;
 }
 
 export interface ArchivedTournament extends Tournament {
@@ -2068,6 +2069,81 @@ export class AppService {
     return entity;
   }
 
+  async updateTournamentDetails(
+    sessionToken: string,
+    tournamentId: string,
+    input: Partial<TournamentCreateInput> & { removeTerms?: boolean | string; version?: string },
+    termsFile?: TournamentDocumentUploadInput,
+  ): Promise<Tournament> {
+    await this.requireAdminSession(sessionToken);
+    if (!/^[A-Fa-f0-9-]{36}$/.test(tournamentId)) throw new BadRequestException('Invalid tournament identifier.');
+    const table = this.getTournamentsTableClient();
+    let entity: TableEntityResult<Record<string, unknown>>;
+    try {
+      entity = await table.getEntity<Record<string, unknown>>('tournaments', tournamentId);
+    } catch (error) {
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    if (entity.LifecycleState) throw new ConflictException('This tournament is being archived or deleted.');
+    const tournament = this.toTournament(entity);
+    if (!tournament) throw new NotFoundException('Tournament was not found.');
+    if (!entity.etag || input?.version !== entity.etag) throw new ConflictException('The tournament changed. Reload and retry.');
+    if (input?.category !== undefined && input.category !== tournament.category) {
+      throw new BadRequestException('Tournament category cannot be changed.');
+    }
+    const name = String(input?.name ?? '').trim().replace(/\s+/g, ' ');
+    const level = input?.level;
+    const maxSlots = Number(input?.maxSlots);
+    const date = String(input?.date ?? '').trim();
+    const location = String(input?.location ?? '').trim();
+    if (!name || name.length > 120) throw new BadRequestException('Tournament name is required and must be 120 characters or fewer.');
+    if (!level || !TOURNAMENT_LEVELS.includes(level)) throw new BadRequestException('Select a valid tournament level.');
+    if (!Number.isInteger(maxSlots) || maxSlots < 1 || maxSlots > 10000) throw new BadRequestException('Maximum slots must be a whole number from 1 to 10000.');
+    if (date && Number.isNaN(Date.parse(date))) throw new BadRequestException('Enter a valid tournament date.');
+    if (location.length > 160) throw new BadRequestException('Location must be 160 characters or fewer.');
+    const registrations = await this.getTournamentRegistrationEntities(tournamentId);
+    const registrationCount = registrations.filter((item) => this.isApprovedTournamentRegistration(String(item.Status ?? ''))).length;
+    if (maxSlots < registrationCount) throw new BadRequestException('Maximum slots cannot be less than the number of approved teams.');
+    const removeTerms = input?.removeTerms === true || input?.removeTerms === 'true';
+    if (removeTerms && termsFile) throw new BadRequestException('Choose either to remove or replace the terms.');
+    if ((removeTerms || termsFile) && registrations.length) {
+      throw new ConflictException('Terms cannot be changed after registrations exist because prior agreements must be preserved.');
+    }
+    if ((removeTerms || termsFile) && !tournament.registrationClosed) {
+      throw new ConflictException('Close registration before changing the terms.');
+    }
+    let termsBlobName: string | undefined;
+    if (termsFile) {
+      if (termsFile.mimetype !== 'application/pdf' || !termsFile.size || termsFile.size > 10 * 1024 * 1024 ||
+        termsFile.buffer.length !== termsFile.size || termsFile.buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+        throw new BadRequestException('Terms and conditions must be a PDF file no larger than 10 MB.');
+      }
+      termsBlobName = `tournament-terms/${tournamentId}/${randomUUID()}.pdf`;
+      try {
+        await this.uploadParticipationBlob(this.getTournamentDocumentBlobClient(termsBlobName), termsFile.buffer, 'application/pdf');
+      } catch (error) {
+        throw this.createAzureUploadException(error, termsBlobName);
+      }
+    }
+    let updatedVersion: string | undefined;
+    try {
+      const result = await table.updateEntity({ partitionKey: 'tournaments', rowKey: tournamentId, Name: name, Level: level, MaxSlots: maxSlots, Date: date, Location: location,
+        ...(termsBlobName ? { TermsBlobName: termsBlobName, TermsFileName: termsFile!.originalname } : removeTerms ? { TermsBlobName: '', TermsFileName: '' } : {}),
+      }, 'Merge', { etag: entity.etag });
+      updatedVersion = result.etag;
+    } catch (error) {
+      if (termsBlobName) await this.getTournamentDocumentBlobClient(termsBlobName).deleteIfExists().catch(() => undefined);
+      if (this.isTournamentRegistrationVersionConflict(error)) throw new ConflictException('The tournament changed. Reload and retry.');
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    const { termsUrl, termsFileName, ...otherDetails } = tournament;
+    return { ...otherDetails, name, level, maxSlots, date, location, registrationCount, version: updatedVersion,
+      ...(termsFile ? { termsUrl: this.tournamentTermsUrl(tournamentId), termsFileName: termsFile.originalname } : !removeTerms && termsUrl ? { termsUrl, termsFileName } : {}),
+      pendingRegistrationCount: registrations.filter((item) => item.Status === 'Invitation Pending' || item.Status === 'Pending Approval').length };
+  }
+
   async createTournament(
     sessionToken: string,
     input: TournamentCreateInput,
@@ -2862,18 +2938,20 @@ export class AppService {
     if (input === undefined) throw new BadRequestException('Specify registration pricing, or null to remove it.');
     const pricing = this.validateTournamentPricing(input);
     const tournament = await this.getTournament(tournamentId);
+    let version: string | undefined;
     try {
-      await this.getTournamentsTableClient().updateEntity({
+      const result = await this.getTournamentsTableClient().updateEntity({
         partitionKey: 'tournaments',
         rowKey: tournamentId,
         RegistrationPricing: JSON.stringify(pricing ?? null),
       }, 'Merge');
+      version = result?.etag;
     } catch (error) {
       if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
       throw this.createMemberAuthenticationStorageException(error);
     }
     const { pricing: previousPricing, ...rest } = tournament;
-    return { ...rest, ...(pricing ? { pricing } : {}) };
+    return { ...rest, version, ...(pricing ? { pricing } : {}) };
   }
 
   private validateTournamentPricing(input: unknown): TournamentPricing | undefined {
@@ -2925,17 +3003,19 @@ export class AppService {
     }
     const tshirtSizes = this.validateTournamentTshirtSizes(sizesInput);
     const tournament = await this.getTournament(tournamentId);
+    let version: string | undefined;
     try {
-      await this.getTournamentsTableClient().updateEntity({
+      const result = await this.getTournamentsTableClient().updateEntity({
         partitionKey: 'tournaments',
         rowKey: tournamentId,
         TshirtSizes: JSON.stringify(tshirtSizes),
       }, 'Merge');
+      version = result?.etag;
     } catch (error) {
       if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
       throw this.createMemberAuthenticationStorageException(error);
     }
-    return { ...tournament, tshirtSizes };
+    return { ...tournament, tshirtSizes, version };
   }
 
   async setTournamentRegistrationClosed(
@@ -2949,13 +3029,15 @@ export class AppService {
     }
     const tournament = await this.getTournament(tournamentId);
     const registrationClosedAt = closedInput ? new Date().toISOString() : '';
+    let version: string | undefined;
     try {
-      await this.getTournamentsTableClient().updateEntity({
+      const result = await this.getTournamentsTableClient().updateEntity({
         partitionKey: 'tournaments',
         rowKey: tournamentId,
         RegistrationClosed: closedInput,
         RegistrationClosedAt: registrationClosedAt,
       }, 'Merge');
+      version = result?.etag;
     } catch (error) {
       if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament was not found.');
       throw this.createMemberAuthenticationStorageException(error);
@@ -2963,7 +3045,7 @@ export class AppService {
     const counts = (await this.getTournamentRegistrationEntities(tournamentId)).map((entity) => String(entity.Status ?? ''));
     const { registrationClosedAt: _previous, ...rest } = tournament;
     return {
-      ...rest,
+      ...rest, version,
       registrationClosed: closedInput,
       ...(closedInput ? { registrationClosedAt } : {}),
       registrationCount: counts.filter((status) => this.isApprovedTournamentRegistration(status)).length,
@@ -5674,6 +5756,7 @@ export class AppService {
         ? { registrationClosedAt: String(entity.RegistrationClosedAt) }
         : {}),
       createdAt: String(entity.CreatedAt ?? ''),
+      ...(entity.etag ? { version: String(entity.etag) } : {}),
       ...(entity.LifecycleState ? { lifecycleState: String(entity.LifecycleState) } : {}),
       ...(entity.TermsBlobName ? {
         termsUrl: this.tournamentTermsUrl(tournamentId),
