@@ -22,6 +22,7 @@ import { MemberRegistrationApprovalsPageComponent } from './member-registration-
 import { ParticipationUploadPageComponent } from './participation-upload/participation-upload-page.component';
 import { TeamMatchingPageComponent } from './team-matching/team-matching-page.component';
 import { VerifyEmailPageComponent } from './verify-email/verify-email-page.component';
+import { ResetPasswordPageComponent } from './reset-password/reset-password-page.component';
 import { TournamentsPageComponent } from './tournaments/tournaments-page.component';
 import { TournamentManagementPageComponent } from './tournaments/tournament-management-page.component';
 import { TournamentRegistrationsPageComponent } from './tournaments/tournament-registrations-page.component';
@@ -116,6 +117,11 @@ export const routes: Routes = [
     path: 'verify-email',
     component: VerifyEmailPageComponent,
     title: 'Verify Email',
+  },
+  {
+    path: 'reset-password',
+    component: ResetPasswordPageComponent,
+    title: 'Reset Password',
   },
   {
     path: 'member-profile',

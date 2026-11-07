@@ -49,6 +49,16 @@
         </button>
       </form>
 
+      <button type="button" class="forgot-password" [disabled]="isRequestingReset()" (click)="requestPasswordReset()">
+        {{ isRequestingReset() ? 'Sending reset link...' : 'Forgot password?' }}
+      </button>
+      @if (resetMessage()) {
+        <p class="resend-message success" role="status">{{ resetMessage() }}</p>
+      }
+      @if (resetError()) {
+        <p class="resend-message error" role="alert">{{ resetError() }}</p>
+      }
+
       <section class="verification-resend" aria-labelledby="resend-verification-title">
         <h2 id="resend-verification-title">Still waiting for verification?</h2>
         <p>Enter your registration email above and we will send a new verification link.</p>

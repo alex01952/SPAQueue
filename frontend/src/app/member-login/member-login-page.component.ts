@@ -24,6 +24,9 @@ export class MemberLoginPageComponent {
   protected readonly isResendingVerification = signal(false);
   protected readonly resendVerificationMessage = signal('');
   protected readonly resendVerificationError = signal('');
+  protected readonly isRequestingReset = signal(false);
+  protected readonly resetMessage = signal('');
+  protected readonly resetError = signal('');
 
   protected submitLogin() {
     if (this.isSubmitting()) {
@@ -48,6 +51,29 @@ export class MemberLoginPageComponent {
               : 'Login is temporarily unavailable. Please try again.',
         );
         this.isSubmitting.set(false);
+      },
+    });
+  }
+
+  protected requestPasswordReset() {
+    if (this.isRequestingReset()) return;
+    const email = this.email.trim();
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      this.resetError.set('Enter a valid email address above.');
+      this.resetMessage.set('');
+      return;
+    }
+    this.isRequestingReset.set(true);
+    this.resetError.set('');
+    this.resetMessage.set('');
+    this.http.post(`${getApiBaseUrl()}/members/password-reset/request`, { email }).subscribe({
+      next: () => {
+        this.resetMessage.set('If an account exists for that email, a password reset link will be sent.');
+        this.isRequestingReset.set(false);
+      },
+      error: () => {
+        this.resetError.set('Unable to request a reset link. Please try again.');
+        this.isRequestingReset.set(false);
       },
     });
   }

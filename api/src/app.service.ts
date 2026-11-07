@@ -1325,6 +1325,7 @@ export class AppService {
         rowKey: sessionId,
         MemberId: memberId,
         Role: this.getMemberRole(member),
+        PasswordResetVersion: String(member.PasswordResetVersion ?? ''),
         ExpiresAt: expiresAt,
         CreatedAt: new Date().toISOString(),
       });
@@ -1373,11 +1374,15 @@ export class AppService {
 
     try {
       const member = await tableClient.getEntity('members', memberId);
+      if (String(member.PasswordResetVersion ?? '') !== String(session.PasswordResetVersion ?? '')) {
+        throw new UnauthorizedException('Member session is invalid or expired.');
+      }
       return {
         authenticated: true,
         member: this.toAuthenticatedMember(memberId, member),
       };
     } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       if (this.isAzureNotFound(error)) {
         throw new UnauthorizedException(
           'Member session is invalid or expired.',
@@ -4725,6 +4730,70 @@ export class AppService {
       if (this.isAzureNotFound(error)) return null;
       throw this.createMemberAuthenticationStorageException(error);
     }
+  }
+
+  async requestPasswordReset(emailInput: string): Promise<{ sent: true }> {
+    const email = typeof emailInput === 'string' ? emailInput.trim().toLowerCase() : '';
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      throw new BadRequestException('Enter a valid email address.');
+    }
+
+    const table = this.getMembersTableClient();
+    const memberId = Buffer.from(email).toString('base64url');
+    try {
+      const member = await table.getEntity('members', memberId);
+      if (!member.etag) throw new Error('Member record has no concurrency token.');
+      const lastRequest = Date.parse(String(member.PasswordResetRequestedAt ?? ''));
+      if (Number.isFinite(lastRequest) && Date.now() - lastRequest < 60_000) return { sent: true };
+      const token = randomBytes(32).toString('base64url');
+      const tokenHash = this.hashSessionToken(token);
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      await table.createEntity({ partitionKey: 'password-resets', rowKey: tokenHash, MemberId: memberId, ExpiresAt: expiresAt });
+      try {
+        await table.updateEntity({ partitionKey: 'members', rowKey: memberId, PasswordResetTokenHash: tokenHash, PasswordResetExpiresAt: expiresAt, PasswordResetRequestedAt: new Date().toISOString() }, 'Merge', { etag: member.etag });
+      } catch (error) {
+        await table.deleteEntity('password-resets', tokenHash).catch(() => undefined);
+        throw error;
+      }
+      const previousToken = String(member.PasswordResetTokenHash ?? '');
+      if (previousToken) await table.deleteEntity('password-resets', previousToken).catch(() => undefined);
+      const url = `${this.publicAppUrl}/reset-password?token=${encodeURIComponent(token)}`;
+      await this.sendEmail(email, 'Reset your Sorsogon Pickleball Arena password',
+        `To reset your password, open this link:\n${url}\n\nThis link expires in 60 minutes and can only be used once. If you did not request it, ignore this email.`,
+        `<p>To reset your password, open the secure link below:</p><p><a href="${this.escapeHtml(url)}">Reset password</a></p><p>This link expires in 60 minutes and can only be used once. If you did not request it, ignore this email.</p>`, 30_000);
+    } catch (error) {
+      if (!this.isAzureNotFound(error)) this.logger.error('Password reset request could not be completed.', error);
+    }
+    return { sent: true };
+  }
+
+  async confirmPasswordReset(token: string, password: string): Promise<{ reset: true }> {
+    if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{40,100}$/.test(token)) {
+      throw new BadRequestException('Reset link is invalid or expired.');
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      throw new BadRequestException('Password must contain at least 8 characters.');
+    }
+    const table = this.getMembersTableClient();
+    const tokenHash = this.hashSessionToken(token);
+    try {
+      const reset = await table.getEntity('password-resets', tokenHash);
+      const memberId = String(reset.MemberId ?? '');
+      const member = await table.getEntity('members', memberId);
+      const expiry = Date.parse(String(member.PasswordResetExpiresAt ?? ''));
+      if (!member.etag || member.PasswordResetTokenHash !== tokenHash || !Number.isFinite(expiry) || expiry <= Date.now()) {
+        throw new BadRequestException('Reset link is invalid or expired.');
+      }
+      const passwordHash = await this.hashPassword(password);
+      await table.updateEntity({ partitionKey: 'members', rowKey: memberId, PasswordHash: passwordHash, PasswordResetTokenHash: '', PasswordResetExpiresAt: '', PasswordResetVersion: randomBytes(32).toString('base64url') }, 'Merge', { etag: member.etag });
+      await table.deleteEntity('password-resets', tokenHash).catch(() => undefined);
+    } catch (error) {
+      if (error instanceof BadRequestException || this.isAzureNotFound(error) || (typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 412)) {
+        throw new BadRequestException('Reset link is invalid or expired.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return { reset: true };
   }
 
   async requestEmailVerification(

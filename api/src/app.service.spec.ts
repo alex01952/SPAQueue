@@ -15,6 +15,74 @@ const notFound = () => {
   return error;
 };
 
+describe('password reset', () => {
+  it('sends a single-use link and replaces the password', async () => {
+    const service = new AppService();
+    const member: Record<string, any> = { etag: 'v1', PasswordHash: 'old' };
+    const records = new Map<string, any>();
+    const table = {
+      getEntity: jest.fn(async (partition: string, key: string) => {
+        if (partition === 'members') return { ...member };
+        if (!records.has(key)) throw notFound();
+        return records.get(key);
+      }),
+      createEntity: jest.fn(async (entity: any) => { records.set(entity.rowKey, entity); }),
+      updateEntity: jest.fn(async (entity: any, _mode: string, options: any) => {
+        expect(options.etag).toBe(member.etag);
+        Object.assign(member, entity, { etag: 'v2' });
+      }),
+      deleteEntity: jest.fn(async (_partition: string, key: string) => { records.delete(key); }),
+    };
+    jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue(table);
+    const send = jest.spyOn(service as any, 'sendEmail').mockResolvedValue(undefined);
+    await expect(service.requestPasswordReset(' Alex@example.com ')).resolves.toEqual({ sent: true });
+    const text = send.mock.calls[0][2] as string;
+    const token = new URL(text.match(/http[^\s]+/)![0]).searchParams.get('token')!;
+    expect(member.PasswordResetTokenHash).not.toBe(token);
+    await expect(service.confirmPasswordReset(token, 'new-password')).resolves.toEqual({ reset: true });
+    expect(await service.verifyPassword('new-password', member.PasswordHash)).toBe(true);
+    expect(member.PasswordResetVersion).toBeTruthy();
+    await expect(service.confirmPasswordReset(token, 'new-password')).rejects.toThrow('Reset link is invalid or expired.');
+  });
+
+  it('returns the same response for an unknown account', async () => {
+    const service = new AppService();
+    jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue({ getEntity: jest.fn().mockRejectedValue(notFound()) });
+    await expect(service.requestPasswordReset('missing@example.com')).resolves.toEqual({ sent: true });
+  });
+
+  it('rejects expired links, weak passwords and concurrent reuse', async () => {
+    const service = new AppService();
+    const token = 'a'.repeat(43);
+    const tokenHash = (service as any).hashSessionToken(token);
+    const member = { etag: 'v1', PasswordResetTokenHash: tokenHash, PasswordResetExpiresAt: new Date(Date.now() - 1000).toISOString() };
+    const table = {
+      getEntity: jest.fn(async (partition: string) => partition === 'members' ? member : { MemberId: 'member-1' }),
+      updateEntity: jest.fn().mockRejectedValue({ statusCode: 412 }),
+    };
+    jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue(table);
+    await expect(service.confirmPasswordReset(token, 'short')).rejects.toThrow('at least 8 characters');
+    await expect(service.confirmPasswordReset(token, 'new-password')).rejects.toThrow('invalid or expired');
+    member.PasswordResetExpiresAt = new Date(Date.now() + 60_000).toISOString();
+    await expect(service.confirmPasswordReset(token, 'new-password')).rejects.toThrow('invalid or expired');
+  });
+
+  it('throttles repeated requests without changing the response', async () => {
+    const service = new AppService();
+    const table = { getEntity: jest.fn().mockResolvedValue({ etag: 'v1', PasswordResetRequestedAt: new Date().toISOString() }), createEntity: jest.fn() };
+    jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue(table);
+    await expect(service.requestPasswordReset('alex@example.com')).resolves.toEqual({ sent: true });
+    expect(table.createEntity).not.toHaveBeenCalled();
+  });
+
+  it('rejects sessions issued before a password reset', async () => {
+    const service = new AppService();
+    jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue({ getEntity: jest.fn().mockResolvedValue({ PasswordResetVersion: 'new-version' }) });
+    jest.spyOn(service as any, 'getSessionsTableClient').mockReturnValue({ getEntity: jest.fn().mockResolvedValue({ MemberId: 'member-1', ExpiresAt: new Date(Date.now() + 60_000).toISOString() }) });
+    await expect(service.getMemberSession('old-session')).rejects.toThrow('Member session is invalid or expired.');
+  });
+});
+
 describe('AppService club join requests', () => {
   let service: AppService;
 

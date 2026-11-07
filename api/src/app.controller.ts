@@ -1143,6 +1143,19 @@ export class AppController {
     );
   }
 
+  @Post('members/password-reset/request')
+  requestPasswordReset(@Body('email') email = ''): Promise<{ sent: true }> {
+    return this.appService.requestPasswordReset(email);
+  }
+
+  @Post('members/password-reset/confirm')
+  confirmPasswordReset(
+    @Body('token') token = '',
+    @Body('password') password = '',
+  ): Promise<{ reset: true }> {
+    return this.appService.confirmPasswordReset(token, password);
+  }
+
   @Post('members/email-verification/request')
   async requestEmailVerification(
     @Headers('cookie') cookieHeader = '',

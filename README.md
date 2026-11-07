@@ -19,6 +19,12 @@ This keeps the first version easy to change while preserving an API shape you ca
 - Shows a suggested next game from the ready, non-playing players
 - Tracks recent completed games
 
+## Password reset
+
+Members can enter their email on the login screen and select **Forgot password?**. The response is the same whether an account exists or not. Reset links expire after 60 minutes and can be used once; a newer request replaces the previous link, with a one-minute per-account request cooldown. A successful reset signs out existing sessions. Pending registrations still require approval before login.
+
+The API uses the existing members table and Mailgun settings (`MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `EMAIL_FROM`, optional `MAILGUN_BASE_URL`). Set `PUBLIC_APP_URL` to the public frontend origin so emailed links work. Delivery failures are logged on the API but are not exposed to the requester, to avoid revealing account existence. The API identity needs read/write access to the members table. Expired unused token records are not automatically purged.
+
 ## Reclub Names
 
 Registration and profile editing display **Reclub Name**, while API payloads still use `reClubId` and existing Azure Table member entities still store `ReclubId`. Enter the name used in Reclub, not an identifier. If another account here already uses that name, players must update their name in Reclub to a unique name and use it here. The application does not change or verify names on Reclub itself.

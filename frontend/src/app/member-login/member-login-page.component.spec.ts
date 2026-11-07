@@ -61,4 +61,26 @@ describe('MemberLoginPageComponent', () => {
     http.expectNone('/members/email-verification/resend');
     http.verify();
   });
+
+  it('requests a password reset without revealing whether the account exists', async () => {
+    const { fixture, http } = await configure();
+    fixture.detectChanges();
+    fixture.componentInstance['email'] = 'alex@example.com';
+    fixture.componentInstance['requestPasswordReset']();
+    const request = http.expectOne('/members/password-reset/request');
+    expect(request.request.body).toEqual({ email: 'alex@example.com' });
+    request.flush({ sent: true });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('If an account exists');
+    http.verify();
+  });
+
+  it('requires a valid email before requesting a password reset', async () => {
+    const { fixture, http } = await configure();
+    fixture.componentInstance['email'] = 'invalid';
+    fixture.componentInstance['requestPasswordReset']();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Enter a valid email address');
+    http.expectNone('/members/password-reset/request');
+  });
 });
