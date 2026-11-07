@@ -31,6 +31,7 @@ describe('Gold memberships', () => {
       listBlobsFlat: jest.fn(() => (async function* () {
         yield { name: templateName };
         yield { name: 'email-templates/a.HTML' };
+        yield { name: 'email-templates/tournament-approval.html' };
         yield { name: 'email-templates/readme.txt' };
         yield { name: 'email-template/wrong.html' };
         yield { name: 'email-templates/../outside.html' };

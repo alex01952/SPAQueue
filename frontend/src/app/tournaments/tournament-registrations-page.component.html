@@ -81,8 +81,18 @@
               @if (canMarkPaid(registration)) {
                 <button type="button" class="action-button" [disabled]="isWorking()" (click)="markPaid(registration)">Mark as paid</button>
               }
+              @if (canDecline(registration) && decliningRegistrationId() !== registration.registrationId) {
+                <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="beginDecline(registration)">Decline registration</button>
+              }
               <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="removeRegistration(registration)">Remove registration</button>
             </div>
+            @if (decliningRegistrationId() === registration.registrationId) {
+              <form #declineForm="ngForm" class="decline-form" (ngSubmit)="decline(registration)">
+                <label><span>Reason for declining</span><textarea name="reason" [(ngModel)]="declineReason" maxlength="4000" required rows="3"></textarea></label>
+                <div><button type="submit" class="action-button" [disabled]="declineForm.invalid || !declineReason.trim() || isWorking()">Decline and notify players</button>
+                <button type="button" class="quiet-button" [disabled]="isWorking()" (click)="decliningRegistrationId.set(null)">Cancel</button></div>
+              </form>
+            }
             @if (registration.paymentProofUrl || registration.paymentProofs?.length) {
               <div class="payment-proofs">
                 @if (registration.paymentProofUrl) {

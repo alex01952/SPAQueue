@@ -11,11 +11,13 @@ describe('TournamentManagementPageComponent terms upload', () => {
   const http = {
     get: vi.fn(() => of([])),
     post: vi.fn((_url: string, _body: unknown, _options: unknown) => of({})),
+    patch: vi.fn((_url: string, _body: unknown, _options: unknown) => of({ deleted: true, failedRecipients: [] })),
   };
 
   beforeEach(async () => {
     http.get.mockClear();
     http.post.mockReset().mockReturnValue(of({}));
+    http.patch.mockReset().mockReturnValue(of({ deleted: true, failedRecipients: [] }));
     await TestBed.configureTestingModule({
       imports: [TournamentManagementPageComponent],
       providers: [provideRouter([]), { provide: HttpClient, useValue: http }],
@@ -51,12 +53,73 @@ describe('TournamentManagementPageComponent terms upload', () => {
     const section = (fixture.nativeElement as HTMLElement).querySelector('.approval-section')!;
     expect(section.textContent).toContain('Officer Jane: jane@example.com');
     expect(section.textContent).toContain('No club verification details provided.');
-    const links = section.querySelectorAll<HTMLAnchorElement>('a');
+    const links = section.querySelectorAll<HTMLAnchorElement>('a:not(.member-profile-link)');
     expect(links).toHaveLength(2);
     expect(links[0].href).toContain('/player-ids/captain');
     expect(links[1].href).toContain('/player-ids/partner');
     expect(links[0].target).toBe('_blank');
     expect(section.textContent).toContain('Approve team');
+    const profiles = section.querySelectorAll<HTMLAnchorElement>('.member-profile-link');
+    expect(profiles).toHaveLength(2);
+    expect(profiles[0].getAttribute('href')).toBe('/member-profile/captain');
+    expect(profiles[1].getAttribute('href')).toBe('/member-profile/partner');
+    profiles[0].click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('iframe')?.getAttribute('src')).toBe('/member-profile/captain?embedded=true');
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')?.textContent).toContain('Captain profile');
+    fixture.nativeElement.querySelector('[aria-label="Close member profile"]').click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-member-profile-frame')).toBeNull();
+    profiles[1].click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('iframe')?.getAttribute('src')).toBe('/member-profile/partner?embedded=true');
+  });
+
+  it('confirms approval when all participant notifications were submitted', () => {
+    const registration: TournamentRegistration = {
+      tournamentId: 'event-1', registrationId: 'captain', tournamentName: 'Club Open', category: 'Mens Doubles', level: 'Beginner',
+      memberId: 'captain', memberName: 'Captain', partnerId: 'partner', partnerName: 'Partner', status: 'Pending Approval', registeredAt: '',
+    };
+    http.patch.mockReturnValueOnce(of({ deleted: true, failedRecipients: [], approvalEmailFailedRecipients: [] }));
+    fixture.componentInstance['approve'](registration);
+    expect(fixture.componentInstance['feedbackMessage']()).toContain('notification emails submitted');
+    expect(fixture.componentInstance['errorMessage']()).toBe('');
+  });
+
+  it('reports unconfirmed approval email delivery while keeping the approval', () => {
+    const registration: TournamentRegistration = {
+      tournamentId: 'event-1', registrationId: 'captain', tournamentName: 'Club Open', category: 'Mens Doubles', level: 'Beginner',
+      memberId: 'captain', memberName: 'Captain', partnerId: 'partner', partnerName: 'Partner', status: 'Pending Approval', registeredAt: '',
+    };
+    http.patch.mockReturnValueOnce(of({ deleted: true, failedRecipients: [], approvalEmailFailedRecipients: ['partner@example.com'] }));
+    fixture.componentInstance['approve'](registration);
+    expect(fixture.componentInstance['errorMessage']()).toContain('partner@example.com');
+    expect(fixture.componentInstance['errorMessage']()).toContain('Team approved');
+    expect(fixture.componentInstance['isSaving']()).toBe(false);
+  });
+
+  it('allows declining an approval with a required reason', async () => {
+    const component = fixture.componentInstance;
+    component['registrations'].set([{
+      tournamentId: 'event-1', registrationId: 'captain', tournamentName: 'Club Open', category: 'Mens Doubles', level: 'Beginner',
+      memberId: 'captain', memberName: 'Captain', partnerId: 'partner', partnerName: 'Partner', status: 'Pending Approval', registeredAt: '',
+    }]);
+    fixture.detectChanges();
+    const button = [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')].find((item) => item.textContent?.includes('Decline team'))!;
+    button.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const form = (fixture.nativeElement as HTMLElement).querySelector<HTMLFormElement>('.decline-form')!;
+    const textarea = form.querySelector<HTMLTextAreaElement>('textarea')!;
+    textarea.value = '  Missing eligibility details  ';
+    textarea.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(http.patch).toHaveBeenCalledWith(expect.stringContaining('/admin/tournaments/event-1/registrations/captain/decline'),
+      { reason: 'Missing eligibility details' }, { withCredentials: true });
+    expect(component['feedbackMessage']()).toContain('notification emails submitted');
   });
 
   it('submits a selected PDF with the tournament fields and clears selection after success', () => {

@@ -37,6 +37,7 @@ describe('Tournament archive and deletion', () => {
   let registrations: ReturnType<typeof table>;
   let protests: ReturnType<typeof table>;
   let blobs: Set<string>;
+  let privateBlobs: Set<string>;
   let deleteBlob: jest.Mock;
   let session: jest.SpyInstance;
 
@@ -99,6 +100,16 @@ describe('Tournament archive and deletion', () => {
       })(),
       getBlockBlobClient: (name: string) => ({ deleteIfExists: () => deleteBlob(name) }),
     });
+    privateBlobs = new Set([
+      `tournament-player-ids/${id}/team-1/private.pdf`,
+      'tournament-player-ids/other-event/keep-private.pdf',
+    ]);
+    jest.spyOn(service as any, 'getTournamentIdContainerClient').mockReturnValue({
+      listBlobsFlat: ({ prefix }: { prefix: string }) => (async function* () {
+        for (const name of [...privateBlobs]) if (name.startsWith(prefix)) yield { name };
+      })(),
+      getBlockBlobClient: (name: string) => ({ deleteIfExists: async () => { privateBlobs.delete(name); } }),
+    });
     jest.spyOn(service as any, 'getTournamentDocumentBlobClient').mockReturnValue({
       downloadToBuffer: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.7')),
     });
@@ -107,6 +118,7 @@ describe('Tournament archive and deletion', () => {
 
   it('moves every table record and retains files, then exposes read-only archived data and private URLs', async () => {
     const before = new Set(blobs);
+    const privateBefore = new Set(privateBlobs);
     await expect(service.archiveTournament('session', id)).resolves.toEqual({ archived: true });
     expect(active.rows.size).toBe(0);
     expect(registrations.rows.size).toBe(0);
@@ -114,6 +126,7 @@ describe('Tournament archive and deletion', () => {
     expect(archive.rows.size).toBe(3);
     expect([...archive.rows.values()].find((entity) => entity.PrintingExportedPlayers)?.PrintingExportedPlayers).toBe('["a"]');
     expect(blobs).toEqual(before);
+    expect(privateBlobs).toEqual(privateBefore);
     expect((await service.getTournaments('session'))).toEqual([]);
     expect(await service.getTournamentRegistrationsForAdmin('session')).toEqual([]);
     expect(await service.getTournamentProtestsForAdmin('session')).toEqual([]);
@@ -197,6 +210,24 @@ describe('Tournament archive and deletion', () => {
     expect(versionDelete).toHaveBeenCalledTimes(2);
   });
 
+  it('deletes private ID snapshots and versions', async () => {
+    const baseDelete = jest.fn().mockResolvedValue({ succeeded: true });
+    const versionDelete = jest.fn().mockResolvedValue({ succeeded: true });
+    const withVersion = jest.fn().mockReturnValue({ deleteIfExists: versionDelete });
+    service['getTournamentIdContainerClient'] = jest.fn().mockReturnValue({
+      listBlobsFlat: ({ prefix }: { prefix: string }) => (async function* () {
+        yield { name: `${prefix}team/id.pdf`, versionId: 'old-version' };
+        yield { name: `${prefix}team/id.pdf`, versionId: 'new-version' };
+      })(),
+      getBlockBlobClient: () => ({ deleteIfExists: baseDelete, withVersion }),
+    });
+    await service.deleteTournament('session', id);
+    expect(baseDelete).toHaveBeenCalledTimes(1);
+    expect(baseDelete).toHaveBeenCalledWith({ deleteSnapshots: 'include' });
+    expect(withVersion.mock.calls).toEqual([['old-version'], ['new-version']]);
+    expect(versionDelete).toHaveBeenCalledTimes(2);
+  });
+
   it('retains already-copied records when retrying a partially completed source cleanup', async () => {
     protests.client.deleteEntity.mockRejectedValueOnce(new Error('temporary outage'));
     await expect(service.archiveTournament('session', id)).rejects.toBeInstanceOf(BadGatewayException);
@@ -212,6 +243,7 @@ describe('Tournament archive and deletion', () => {
     await expect(service.deleteTournament('session', id)).resolves.toEqual({ deleted: true });
     expect(active.rows.size + registrations.rows.size + protests.rows.size + archive.rows.size).toBe(0);
     expect(blobs).toEqual(new Set(['tournament-draws/other-event/keep.json', 'tournament-live-draws/other-event/keep.json', 'tournament-player-ids/other-event/keep.pdf']));
+    expect(privateBlobs).toEqual(new Set(['tournament-player-ids/other-event/keep-private.pdf']));
   });
 
   it('permanently deletes an archived tournament and its retained files', async () => {
@@ -219,6 +251,7 @@ describe('Tournament archive and deletion', () => {
     await expect(service.deleteTournament('session', id, true)).resolves.toEqual({ deleted: true });
     expect(archive.rows.size).toBe(0);
     expect(blobs).toEqual(new Set(['tournament-draws/other-event/keep.json', 'tournament-live-draws/other-event/keep.json', 'tournament-player-ids/other-event/keep.pdf']));
+    expect(privateBlobs).toEqual(new Set(['tournament-player-ids/other-event/keep-private.pdf']));
   });
 
   it('keeps a retryable parent when blob deletion fails instead of reporting success', async () => {
@@ -228,6 +261,15 @@ describe('Tournament archive and deletion', () => {
     expect(registrations.rows.size).toBe(1);
     await service.deleteTournament('session', id);
     expect(active.rows.size).toBe(0);
+  });
+
+  it('keeps a retryable parent when private ID cleanup fails', async () => {
+    service['getTournamentIdContainerClient'] = jest.fn().mockReturnValue({
+      listBlobsFlat: () => (async function* () { throw new Error('private storage unavailable'); })(),
+    });
+    await expect(service.deleteTournament('session', id)).rejects.toBeInstanceOf(BadGatewayException);
+    expect(active.rows.size).toBe(1);
+    expect(registrations.rows.size).toBe(1);
   });
 
   it('rejects malformed identifiers before any lifecycle writes', async () => {

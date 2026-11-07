@@ -46,6 +46,10 @@ describe('AppService tournament registration', () => {
     service = new AppService();
     jest.spyOn(service as any, 'getTournament').mockResolvedValue(tournament);
     jest.spyOn(service as any, 'getTournamentDocumentBlobClient').mockReturnValue({});
+    jest.spyOn(service as any, 'getTournamentIdContainerClient').mockReturnValue({
+      getProperties: jest.fn().mockResolvedValue({}),
+      getBlockBlobClient: jest.fn().mockReturnValue({}),
+    });
     jest.spyOn(service as any, 'uploadParticipationBlob').mockResolvedValue(undefined);
   });
 
@@ -113,6 +117,146 @@ describe('AppService tournament registration', () => {
     });
   });
 
+  describe('tournament approval emails', () => {
+    const savedEnv = { ...process.env };
+    let updateEntity: jest.Mock;
+    let blob: { getProperties: jest.Mock; downloadToBuffer: jest.Mock };
+    let send: jest.SpyInstance;
+    let registration: Record<string, unknown>;
+    beforeEach(() => {
+      process.env.MAILGUN_API_KEY = 'test-key';
+      process.env.MAILGUN_DOMAIN = 'example.com';
+      process.env.EMAIL_FROM = 'club@example.com';
+      registration = { rowKey: 'member-a', partitionKey: tournament.tournamentId, MemberId: 'member-a', PartnerId: 'member-b', Category: tournament.category, Level: tournament.level, Status: 'Pending Approval', PartnerAccepted: true, etag: 'v1' };
+      updateEntity = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('admin', 'Male', 'admin'));
+      jest.spyOn(service as any, 'getTournamentRegistrationEntities').mockResolvedValue([]);
+      jest.spyOn(service as any, 'getTournamentRegistrationsTableClient').mockReturnValue({ getEntity: jest.fn(async () => registration), updateEntity });
+      jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue({ getEntity: jest.fn(async (_partition: string, id: string) => ({ Name: id === 'member-a' ? '<Alice>' : id, Email: `${id}@example.com` })) });
+      blob = { getProperties: jest.fn().mockResolvedValue({ contentLength: 100, etag: 'template-v1', metadata: { subject: 'Approved' } }), downloadToBuffer: jest.fn().mockResolvedValue(Buffer.from('<p>Hello {{memberName}}, {{tournamentName}}.</p><p>Pay via club staff. {{tournamentsUrl}}</p>')) };
+      jest.spyOn(service as any, 'getEmailTemplateContainerClient').mockReturnValue({ getBlockBlobClient: jest.fn((name: string) => { expect(name).toBe('email-templates/tournament-approval.html'); return blob; }) });
+      send = jest.spyOn(service as any, 'sendEmail').mockResolvedValue(undefined);
+      jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
+    });
+    afterEach(() => { process.env = { ...savedEnv }; });
+
+    it('sends individually rendered payment instructions after approving', async () => {
+      const result = await service.approveTournamentRegistration('session', tournament.tournamentId, 'member-a');
+      expect(result).toMatchObject({ status: 'Approved', approvalEmailFailedRecipients: [] });
+      expect(updateEntity).toHaveBeenCalledWith(expect.objectContaining({ Status: 'Approved' }), 'Merge', { etag: 'v1' });
+      expect(send.mock.calls.map((call) => call[0])).toEqual(['member-a@example.com', 'member-b@example.com']);
+      expect(send.mock.calls[0][2]).toContain('Pay via club staff');
+      expect(send.mock.calls[0][3]).toContain('&lt;Alice&gt;');
+      expect(send.mock.calls[0][3]).toContain('Club Open');
+      expect(blob.downloadToBuffer).toHaveBeenCalledWith(0, 100, expect.objectContaining({ conditions: { ifMatch: 'template-v1' } }));
+      expect(updateEntity.mock.invocationCallOrder[0]).toBeLessThan(send.mock.invocationCallOrder[0]);
+    });
+
+    it('notifies all four team members', async () => {
+      registration.TeamMembers = JSON.stringify(['a', 'b', 'c', 'd'].map((memberId) => ({ memberId, name: memberId, gender: 'Male', accepted: true })));
+      await service.approveTournamentRegistration('session', tournament.tournamentId, 'member-a');
+      expect(send.mock.calls.map((call) => call[0])).toEqual(['a@example.com', 'b@example.com', 'c@example.com', 'd@example.com']);
+    });
+
+    it('does not approve when the template or a participant email is unavailable', async () => {
+      blob.getProperties.mockRejectedValueOnce({ statusCode: 404 });
+      await expect(service.approveTournamentRegistration('session', tournament.tournamentId, 'member-a')).rejects.toThrow('email template was not found');
+      service['getMembersTableClient'] = jest.fn().mockReturnValue({ getEntity: jest.fn().mockResolvedValue({ Email: '' }) });
+      await expect(service.approveTournamentRegistration('session', tournament.tournamentId, 'member-a')).rejects.toThrow('no valid email address');
+      expect(updateEntity).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('rejects unknown placeholders and concurrent approval without sending', async () => {
+      blob.downloadToBuffer.mockResolvedValueOnce(Buffer.from('<p>{{unknown}}</p>'));
+      await expect(service.approveTournamentRegistration('session', tournament.tournamentId, 'member-a')).rejects.toThrow('Unsupported tournament approval template placeholder');
+      updateEntity.mockRejectedValueOnce({ statusCode: 412 });
+      await expect(service.approveTournamentRegistration('session', tournament.tournamentId, 'member-a')).rejects.toBeInstanceOf(ConflictException);
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('reports unconfirmed delivery without undoing approval', async () => {
+      send.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('delivery uncertain'));
+      await expect(service.approveTournamentRegistration('session', tournament.tournamentId, 'member-a'))
+        .resolves.toMatchObject({ status: 'Approved', approvalEmailFailedRecipients: ['member-b@example.com'] });
+    });
+  });
+
+  describe('admin declining registrations', () => {
+    let deleteEntity: jest.Mock;
+    let send: jest.SpyInstance;
+    const savedEnv = { ...process.env };
+    beforeEach(() => {
+      process.env.MAILGUN_API_KEY = 'test-key';
+      process.env.MAILGUN_DOMAIN = 'example.com';
+      process.env.EMAIL_FROM = 'club@example.com';
+      jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('admin', 'Male', 'admin'));
+      jest.spyOn(service as any, 'getTournamentRegistrationEntity').mockResolvedValue({ MemberId: 'member-a', PartnerId: 'member-b', Status: 'Pending Approval', etag: 'v1' });
+      deleteEntity = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(service as any, 'getTournamentRegistrationsTableClient').mockReturnValue({ deleteEntity });
+      jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue({ getEntity: jest.fn(async (_partition: string, id: string) => ({ Name: id, Email: `${id}@example.com` })) });
+      send = jest.spyOn(service as any, 'sendEmail').mockResolvedValue(undefined);
+    });
+    afterEach(() => { process.env = { ...savedEnv }; });
+
+    it('deletes the pending registration and emails each player the escaped reason', async () => {
+      await expect(service.declineTournamentRegistration('session', tournament.tournamentId, 'member-a', '  Missing <proof>  '))
+        .resolves.toEqual({ deleted: true, failedRecipients: [] });
+      expect(deleteEntity).toHaveBeenCalledWith(tournament.tournamentId, 'member-a', { etag: 'v1' });
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(send.mock.calls[0][0]).toBe('member-a@example.com');
+      expect(send.mock.calls[1][0]).toBe('member-b@example.com');
+      expect(send.mock.calls[0][2]).toContain('Missing <proof>');
+      expect(send.mock.calls[0][3]).toContain('Missing &lt;proof&gt;');
+    });
+
+    it('reports failed deliveries after the registration is removed', async () => {
+      send.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('delivery failed'));
+      jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
+      await expect(service.declineTournamentRegistration('session', tournament.tournamentId, 'member-a', 'Reason'))
+        .resolves.toEqual({ deleted: true, failedRecipients: ['member-b@example.com'] });
+    });
+
+    it.each(['Invitation Pending', 'Pending Approval', 'Approved', 'Payment Submitted'])('declines unpaid registrations in %s state', async (status) => {
+      service['getTournamentRegistrationEntity'] = jest.fn().mockResolvedValue({ MemberId: 'member-a', PartnerId: 'member-b', Status: status, etag: 'v1' });
+      await expect(service.declineTournamentRegistration('session', tournament.tournamentId, 'member-a', 'Reason')).resolves.toMatchObject({ deleted: true });
+    });
+
+    it.each(['Paid', 'Invitation Declined'])('does not decline %s registrations', async (status) => {
+      service['getTournamentRegistrationEntity'] = jest.fn().mockResolvedValue({ MemberId: 'member-a', PartnerId: 'member-b', Status: status, etag: 'v1' });
+      await expect(service.declineTournamentRegistration('session', tournament.tournamentId, 'member-a', 'Reason')).rejects.toBeInstanceOf(ConflictException);
+      expect(deleteEntity).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('sends an individual email to every member of a four-player team', async () => {
+      service['getTournamentRegistrationEntity'] = jest.fn().mockResolvedValue({
+        Status: 'Pending Approval', etag: 'v1', TeamMembers: JSON.stringify(['a', 'b', 'c', 'd'].map((memberId) => ({ memberId, name: memberId, gender: 'Male', accepted: true }))),
+      });
+      await service.declineTournamentRegistration('session', tournament.tournamentId, 'a', 'Eligibility reason');
+      expect(send.mock.calls.map((call) => call[0])).toEqual(['a@example.com', 'b@example.com', 'c@example.com', 'd@example.com']);
+    });
+
+    it('does not remove a registration when email is unconfigured or a recipient is missing', async () => {
+      delete process.env.MAILGUN_API_KEY;
+      await expect(service.declineTournamentRegistration('session', tournament.tournamentId, 'member-a', 'Reason')).rejects.toThrow('Email delivery is not configured');
+      process.env.MAILGUN_API_KEY = 'test-key';
+      service['getMembersTableClient'] = jest.fn().mockReturnValue({ getEntity: jest.fn().mockResolvedValue({ Name: 'Member', Email: '' }) });
+      await expect(service.declineTournamentRegistration('session', tournament.tournamentId, 'member-a', 'Reason')).rejects.toThrow('no valid email address');
+      expect(deleteEntity).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('does not remove registrations for invalid input, unauthorized admins, or concurrency conflicts', async () => {
+      await expect(service.declineTournamentRegistration('session', tournament.tournamentId, 'member-a', ' ')).rejects.toThrow('decline reason');
+      jest.spyOn(service as any, 'getMemberSession').mockResolvedValueOnce(memberSession('member'));
+      await expect(service.declineTournamentRegistration('session', tournament.tournamentId, 'member-a', 'Reason')).rejects.toBeInstanceOf(ForbiddenException);
+      deleteEntity.mockRejectedValueOnce({ statusCode: 412 });
+      await expect(service.declineTournamentRegistration('session', tournament.tournamentId, 'member-a', 'Reason')).rejects.toBeInstanceOf(ConflictException);
+      expect(send).not.toHaveBeenCalled();
+    });
+  });
+
   describe('player eligibility verification', () => {
     const clubDetails = 'City Club\nOfficer: Jane Doe\nContact: jane@example.com';
     let entity: Record<string, unknown>;
@@ -140,6 +284,16 @@ describe('AppService tournament registration', () => {
       jest.spyOn(service as any, 'getTournamentRegistrationEntities').mockResolvedValue([]);
       jest.spyOn(service as any, 'getTournamentRegistrationsTableClient').mockReturnValue(table);
       jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
+    });
+
+    it('uses the separate spaprivate container by default and rejects a shared container', () => {
+      const actual = new AppService() as any;
+      actual.azureStorageAccount = 'examplestorage';
+      actual.azureContainerName = 'spa';
+      actual.tournamentIdContainerName = 'spaprivate';
+      expect(actual.getTournamentIdContainerClient().containerName).toBe('spaprivate');
+      actual.tournamentIdContainerName = 'spa';
+      expect(() => actual.getTournamentIdContainerClient()).toThrow('separate private tournament ID container');
     });
 
     it('requires an ID when registering and accepting, but not when declining', async () => {
@@ -222,8 +376,12 @@ describe('AppService tournament registration', () => {
       expect(created.eligibilityDetails).toBeUndefined();
       expect(JSON.parse(String(entity.EligibilityDetails))[0]).toMatchObject({
         memberId: 'captain', fileName: 'id.pdf', clubDetails,
+        storage: 'private',
         blobName: expect.stringContaining(`tournament-player-ids/${tournament.tournamentId}/captain/`),
       });
+      expect(service['getTournamentIdContainerClient']().getBlockBlobClient).toHaveBeenCalledWith(
+        expect.stringContaining(`tournament-player-ids/${tournament.tournamentId}/captain/`),
+      );
       jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('partner'));
       const accepted = await service.respondToTournamentInvitation(
         'session', tournament.tournamentId, 'captain', 'Accepted', experience, undefined, idFile,
@@ -238,6 +396,7 @@ describe('AppService tournament registration', () => {
         expect.objectContaining({ memberId: 'partner', clubDetails: '' }),
       ]);
       expect(JSON.stringify(reviewed)).not.toContain('blobName');
+      expect(JSON.stringify(reviewed)).not.toContain('"storage"');
     });
 
     it.each([
@@ -297,7 +456,9 @@ describe('AppService tournament registration', () => {
         'session', tournament.tournamentId, 'partner', experience, undefined, undefined, idFile,
       );
       const downloadToBuffer = jest.fn().mockResolvedValue(idBuffer);
-      jest.spyOn(service as any, 'getTournamentDocumentBlobClient').mockReturnValue({ downloadToBuffer });
+      jest.spyOn(service as any, 'getTournamentIdContainerClient').mockReturnValue({
+        getBlockBlobClient: jest.fn().mockReturnValue({ downloadToBuffer }),
+      });
       await expect(service.getTournamentPlayerId('session', tournament.tournamentId, 'captain', 'captain'))
         .rejects.toBeInstanceOf(ForbiddenException);
       expect(downloadToBuffer).not.toHaveBeenCalled();
@@ -313,6 +474,30 @@ describe('AppService tournament registration', () => {
       await expect(service.getTournamentPlayerId('session', tournament.tournamentId, 'captain', 'captain'))
         .rejects.toThrow('invalid storage location');
       expect(downloadToBuffer).not.toHaveBeenCalled();
+    });
+
+    it('rejects uploads when the ID container allows anonymous access', async () => {
+      service['getTournamentIdContainerClient'] = jest.fn().mockReturnValue({
+        getProperties: jest.fn().mockResolvedValue({ blobPublicAccess: 'blob' }),
+        getBlockBlobClient: jest.fn(),
+      });
+      await expect(service.registerTournamentTeam('session', tournament.tournamentId, 'partner', experience, undefined, undefined, idFile))
+        .rejects.toThrow('must not allow anonymous access');
+      expect(service['uploadParticipationBlob']).not.toHaveBeenCalled();
+      expect(table.createEntity).not.toHaveBeenCalled();
+    });
+
+    it('reads legacy IDs from the original container without treating them as private uploads', async () => {
+      const downloadToBuffer = jest.fn().mockResolvedValue(idBuffer);
+      entity.EligibilityDetails = JSON.stringify([{
+        memberId: 'captain', memberName: 'Captain', fileName: 'id.pdf', uploadedAt: '', clubDetails: '',
+        blobName: `tournament-player-ids/${tournament.tournamentId}/captain/id.pdf`, contentType: 'application/pdf',
+      }]);
+      jest.spyOn(service as any, 'getTournamentDocumentBlobClient').mockReturnValue({ downloadToBuffer });
+      jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('admin', 'Male', 'admin'));
+      await expect(service.getTournamentPlayerId('session', tournament.tournamentId, 'captain', 'captain'))
+        .resolves.toEqual({ buffer: idBuffer, contentType: 'application/pdf' });
+      expect(service['getTournamentIdContainerClient']).not.toHaveBeenCalled();
     });
   });
 
@@ -667,10 +852,11 @@ describe('AppService tournament registration', () => {
     jest.spyOn(service as any, 'getTournamentRegistrationsTableClient').mockReturnValue({
       getEntity: jest.fn().mockResolvedValue({
         rowKey: 'pending-team', partitionKey: tournament.tournamentId,
-        Category: tournament.category, Level: tournament.level, Status: 'Pending Approval', PartnerAccepted: true,
+        Category: tournament.category, Level: tournament.level, Status: 'Pending Approval', PartnerAccepted: true, etag: 'v1',
       }),
       updateEntity,
     });
+    jest.spyOn(service as any, 'prepareTournamentApprovalEmails').mockResolvedValue([]);
     jest.spyOn(service as any, 'getTournamentRegistrationEntities').mockResolvedValue([
       { Status: 'Invitation Pending' }, { Status: 'Pending Approval' },
     ]);

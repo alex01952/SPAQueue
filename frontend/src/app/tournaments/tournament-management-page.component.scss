@@ -20,14 +20,21 @@ h1, h2, p { margin-top: 0; }
 .registration-list, .event-list { display: grid; }
 .registration-row, .event-row { display: flex; align-items: center; gap: 18px; min-height: 78px; padding: 14px 4px; border-bottom: 1px solid rgba(103, 70, 41, .16); }
 .registration-copy { display: grid; flex: 1; gap: 5px; }
+.decline-form { display: grid; flex: 1 1 240px; gap: 8px; }
+.decline-form label { display: grid; gap: 6px; font-size: .78rem; font-weight: 700; }
+.decline-form textarea { width: 100%; min-width: 0; padding: 9px; font: inherit; border: 1px solid rgba(103, 70, 41, .24); border-radius: 4px; resize: vertical; }
+.decline-form > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .registration-copy span, .registration-copy small, .event-row span { color: var(--text-secondary); font-size: .78rem; }
 .status-pill { padding: 6px 9px; color: #664d24; font-size: .71rem; font-weight: 700; background: rgba(217, 139, 43, .16); border-radius: 99px; white-space: nowrap; }
 .event-row > div { display: grid; flex: 1; gap: 5px; }
 .registrations-link { color: var(--accent-dark); font-size: .78rem; font-weight: 700; white-space: nowrap; }
+.member-profile-link { color: var(--accent-dark); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.member-profile-link:hover { color: #245b35; }
+.member-profile-link:focus-visible { outline: 2px solid #2d6841; outline-offset: 3px; }
 .empty-state { margin: 0; padding: 22px 0; color: var(--text-secondary); font-size: .85rem; }
 .notice { margin: 0 0 14px; padding: 11px 14px; border-radius: 4px; }
 .notice.success { color: #245b35; background: rgba(76, 140, 87, .14); }
-.notice.error { color: #842f22; background: rgba(184, 67, 49, .12); }
+.notice.error { color: #842f22; background: rgba(184, 67, 49, .12); white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 680px) { .management-shell { width: calc(100% - 24px); padding: 28px 0 48px; } .create-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .create-form .wide { grid-column: 1 / -1; } .registration-row, .event-row { align-items: flex-start; flex-wrap: wrap; } .registration-copy, .event-row > div { flex-basis: 100%; } }
 .event-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; max-width: 340px; }
 .details-form { display: grid; gap: 10px; width: 100%; padding: 14px; border: 1px solid rgba(103, 70, 41, .24); border-radius: 4px; }

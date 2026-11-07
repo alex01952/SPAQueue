@@ -23,6 +23,8 @@ export class TournamentRegistrationsPageComponent implements OnInit {
 
   protected readonly tournaments = signal<Tournament[]>([]);
   protected readonly registrations = signal<TournamentRegistration[]>([]);
+  protected readonly decliningRegistrationId = signal<string | null>(null);
+  protected declineReason = '';
   protected readonly selectedTournamentId = signal('');
   protected readonly profileMember = signal<{ memberId: string; name: string } | null>(null);
   protected readonly statusFilter = signal<RegistrationStatusFilter>('All');
@@ -64,6 +66,7 @@ export class TournamentRegistrationsPageComponent implements OnInit {
   protected setTournament(tournamentId: string) {
     this.selectedTournamentId.set(tournamentId);
     this.statusFilter.set('All');
+    this.decliningRegistrationId.set(null);
   }
 
   protected setStatusFilter(status: RegistrationStatusFilter) {
@@ -105,6 +108,44 @@ export class TournamentRegistrationsPageComponent implements OnInit {
 
   protected canMarkPaid(registration: TournamentRegistration): boolean {
     return registration.status === 'Approved' || registration.status === 'Payment Submitted';
+  }
+
+  protected canDecline(registration: TournamentRegistration): boolean {
+    return ['Invitation Pending', 'Pending Approval', 'Approved', 'Payment Submitted'].includes(registration.status);
+  }
+
+  protected beginDecline(registration: TournamentRegistration) {
+    if (this.isWorking()) return;
+    this.declineReason = '';
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.decliningRegistrationId.set(registration.registrationId);
+  }
+
+  protected decline(registration: TournamentRegistration) {
+    if (this.isWorking() || !this.canDecline(registration) || !this.declineReason.trim() || this.declineReason.length > 4000) return;
+    this.isWorking.set(true);
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.http.patch<{ deleted: true; failedRecipients: string[] }>(
+      `${this.apiUrl}/admin/tournaments/${encodeURIComponent(registration.tournamentId)}/registrations/${encodeURIComponent(registration.registrationId)}/decline`,
+      { reason: this.declineReason.trim() }, { withCredentials: true },
+    ).subscribe({
+      next: (result) => {
+        this.registrations.update((items) => items.filter((item) => item.tournamentId !== registration.tournamentId || item.registrationId !== registration.registrationId));
+        this.decliningRegistrationId.set(null);
+        this.isWorking.set(false);
+        if (result.failedRecipients.length) {
+          this.errorMessage.set(`Registration declined, but email delivery could not be confirmed for: ${result.failedRecipients.join(', ')}. Contact them directly; messages may already have been delivered.\nReason: ${this.declineReason.trim()}`);
+        } else {
+          this.feedbackMessage.set('Registration declined and notification emails submitted.');
+        }
+      },
+      error: (error: HttpErrorResponse) => {
+        this.errorMessage.set(error.error?.message ?? 'Unable to decline registration. Refresh before retrying.');
+        this.isWorking.set(false);
+      },
+    });
   }
 
   protected markPaid(registration: TournamentRegistration) {

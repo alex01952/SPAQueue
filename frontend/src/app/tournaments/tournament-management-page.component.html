@@ -53,7 +53,7 @@
           </div>
           <div class="registration-copy">
             @for (details of registration.eligibilityDetails ?? []; track details.memberId) {
-              <strong>{{ details.memberName }}: Eligibility verification</strong>
+              <strong><a class="member-profile-link" [href]="memberProfileHref(details.memberId)" (click)="openMemberProfile(details.memberId, details.memberName, $event)">{{ details.memberName }}</a>: Eligibility verification</strong>
               <a [href]="apiUrl + details.url" target="_blank" rel="noopener">View ID: {{ details.fileName }}</a>
               <p style="white-space: pre-wrap">{{ details.clubDetails || 'No club verification details provided.' }}</p>
             } @empty {
@@ -62,6 +62,15 @@
           </div>
           <span class="status-pill">Pending approval</span>
           <button type="button" class="action-button" [disabled]="isSaving()" (click)="approve(registration)">Approve team</button>
+          @if (decliningRegistration()?.tournamentId === registration.tournamentId && decliningRegistration()?.registrationId === registration.registrationId) {
+            <form #declineForm="ngForm" class="decline-form" (ngSubmit)="decline(registration)">
+              <label><span>Reason for declining</span><textarea name="reason" [(ngModel)]="declineReason" maxlength="4000" required rows="3"></textarea></label>
+              <div><button type="submit" class="action-button danger" [disabled]="declineForm.invalid || !declineReason.trim() || isSaving()">Decline and notify players</button>
+              <button type="button" class="action-button" [disabled]="isSaving()" (click)="decliningRegistration.set(null)">Cancel</button></div>
+            </form>
+          } @else {
+            <button type="button" class="action-button danger" [disabled]="isSaving()" (click)="beginDecline(registration)">Decline team</button>
+          }
         </article>
       } @empty {
         <p class="empty-state">No complete teams are waiting for approval.</p>
@@ -126,4 +135,7 @@
       } @empty { <p class="empty-state">No tournaments have been created.</p> }
     </div>
   </section>
+  @if (profileMember(); as member) {
+    <app-member-profile-frame [memberId]="member.memberId" [memberName]="member.name" (closed)="closeMemberProfile()" />
+  }
 </main>

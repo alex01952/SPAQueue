@@ -79,6 +79,31 @@ describe('TournamentRegistrationsPageComponent', () => {
 
     afterEach(() => { http.verify(); });
 
+    it('declines an unpaid team with a reason and reports unconfirmed emails', async () => {
+      const component = fixture.componentInstance;
+      fixture.detectChanges();
+      const button = [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')].find((item) => item.textContent?.includes('Decline registration'))!;
+      button.click();
+      fixture.detectChanges();
+      expect((fixture.nativeElement as HTMLElement).querySelector('.decline-form textarea')).not.toBeNull();
+      component['declineReason'] = 'Missing details';
+      component['decline'](registration);
+      const request = http.expectOne(({ url }) => url.endsWith('/registrations/captain/decline'));
+      expect(request.request.method).toBe('PATCH');
+      expect(request.request.body).toEqual({ reason: 'Missing details' });
+      request.flush({ deleted: true, failedRecipients: ['partner@example.com'] });
+      fixture.detectChanges();
+      expect(component['registrations']()).toEqual([]);
+      expect(fixture.nativeElement.textContent).toContain('partner@example.com');
+      expect(fixture.nativeElement.textContent).toContain('Contact them directly');
+    });
+
+    it('does not offer decline for paid registrations', () => {
+      fixture.componentInstance['registrations'].set([{ ...registration, status: 'Paid' }]);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).not.toContain('Decline registration');
+    });
+
     it('marks an approved registration paid without proofs and updates the paid filter', () => {
       vi.spyOn(window, 'confirm').mockReturnValue(true);
       const button = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'))

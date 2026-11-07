@@ -4,6 +4,7 @@ import { Component, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { getApiBaseUrl } from '../api-base-url';
+import { MemberProfileFrameComponent } from '../member-profile/member-profile-frame.component';
 import { downloadTournamentCsv } from './tournament-csv';
 import { TournamentPricingComponent } from './tournament-pricing.component';
 import { pricingFromForm, tournamentPricingForm, TournamentPricingEditorComponent } from './tournament-pricing-editor.component';
@@ -20,7 +21,7 @@ import {
 
 @Component({
   selector: 'app-tournament-management-page',
-  imports: [DatePipe, FormsModule, RouterLink, TournamentPricingComponent, TournamentPricingEditorComponent],
+  imports: [DatePipe, FormsModule, RouterLink, MemberProfileFrameComponent, TournamentPricingComponent, TournamentPricingEditorComponent],
   templateUrl: './tournament-management-page.component.html',
   styleUrl: './tournament-management-page.component.scss',
 })
@@ -42,6 +43,9 @@ export class TournamentManagementPageComponent implements OnInit {
   protected readonly detailsTermsFile = signal<File | null>(null);
   protected readonly tournaments = signal<Tournament[]>([]);
   protected readonly registrations = signal<TournamentRegistration[]>([]);
+  protected readonly decliningRegistration = signal<TournamentRegistration | null>(null);
+  protected declineReason = '';
+  protected readonly profileMember = signal<{ memberId: string; name: string } | null>(null);
   protected readonly isSaving = signal(false);
   protected readonly errorMessage = signal('');
   protected readonly feedbackMessage = signal('');
@@ -236,17 +240,56 @@ export class TournamentManagementPageComponent implements OnInit {
     });
   }
 
+  protected beginDecline(registration: TournamentRegistration) {
+    if (this.isSaving()) return;
+    this.declineReason = '';
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.decliningRegistration.set(registration);
+  }
+
+  protected decline(registration: TournamentRegistration) {
+    if (this.isSaving() || !this.declineReason.trim() || this.declineReason.length > 4000) return;
+    this.isSaving.set(true);
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.http.patch<{ deleted: true; failedRecipients: string[] }>(
+      `${this.apiUrl}/admin/tournaments/${encodeURIComponent(registration.tournamentId)}/registrations/${encodeURIComponent(registration.registrationId)}/decline`,
+      { reason: this.declineReason.trim() }, { withCredentials: true },
+    ).subscribe({
+      next: (result) => {
+        this.decliningRegistration.set(null);
+        this.isSaving.set(false);
+        if (result.failedRecipients.length) {
+          this.errorMessage.set(`Registration declined, but email delivery could not be confirmed for: ${result.failedRecipients.join(', ')}. Contact them directly; messages may already have been delivered.\nReason: ${this.declineReason.trim()}`);
+        } else {
+          this.feedbackMessage.set('Registration declined and notification emails submitted.');
+        }
+        this.loadData();
+      },
+      error: (error: HttpErrorResponse) => {
+        this.showError(error, 'Unable to decline registration. Refresh before retrying.');
+        this.isSaving.set(false);
+      },
+    });
+  }
+
   protected approve(registration: TournamentRegistration) {
     if (this.isSaving()) return;
     this.isSaving.set(true);
     this.errorMessage.set('');
-    this.http.patch<TournamentRegistration>(
+    this.feedbackMessage.set('');
+    this.http.patch<TournamentRegistration & { approvalEmailFailedRecipients: string[] }>(
       `${this.apiUrl}/admin/tournaments/${encodeURIComponent(registration.tournamentId)}/registrations/${encodeURIComponent(registration.registrationId)}/approve`,
       {},
       { withCredentials: true },
     ).subscribe({
-      next: () => {
-        this.feedbackMessage.set('Team registration approved.');
+      next: (result) => {
+        if (result.approvalEmailFailedRecipients.length) {
+          this.errorMessage.set(`Team approved, but email delivery could not be confirmed for: ${result.approvalEmailFailedRecipients.join(', ')}. Contact them directly with payment instructions; messages may already have been delivered.`);
+        } else {
+          this.feedbackMessage.set('Team registration approved and notification emails submitted.');
+        }
         this.isSaving.set(false);
         this.loadData();
       },
@@ -368,6 +411,20 @@ export class TournamentManagementPageComponent implements OnInit {
 
   protected pendingApprovals() {
     return this.registrations().filter((item) => item.status === 'Pending Approval');
+  }
+
+  protected memberProfileHref(memberId: string): string {
+    return `/member-profile/${encodeURIComponent(memberId)}`;
+  }
+
+  protected openMemberProfile(memberId: string, name: string, event: MouseEvent) {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    this.profileMember.set({ memberId, name });
+  }
+
+  protected closeMemberProfile() {
+    this.profileMember.set(null);
   }
 
   protected teamMemberNames(registration: TournamentRegistration): string {

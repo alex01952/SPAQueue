@@ -1,9 +1,10 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, UnauthorizedException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { shouldServeSpaFallback } from './spa-fallback.config';
 
 describe('Tournament payment HTTP endpoints', () => {
   let app: INestApplication<App>;
@@ -12,6 +13,8 @@ describe('Tournament payment HTTP endpoints', () => {
     getTournamentPaymentProof: jest.fn(),
     markTournamentRegistrationPaid: jest.fn(),
     removeTournamentRegistration: jest.fn(),
+    declineTournamentRegistration: jest.fn(),
+    approveTournamentRegistration: jest.fn(),
     createTournament: jest.fn(),
     updateTournamentDetails: jest.fn(),
     setTournamentTshirtSizes: jest.fn(),
@@ -50,10 +53,47 @@ describe('Tournament payment HTTP endpoints', () => {
       providers: [{ provide: AppService, useValue: service }],
     }).compile();
     app = module.createNestApplication();
+    app.use((req, res, next) => {
+      if (shouldServeSpaFallback(req.method, req.headers.accept, req.path)) {
+        res.type('html').send('SPA fallback');
+      } else {
+        next();
+      }
+    });
     await app.init();
   });
 
   afterEach(async () => { await app.close(); });
+
+  it('serves player IDs to browser navigation even when the SPA fallback is enabled', async () => {
+    const buffer = Buffer.from('%PDF-1.7');
+    service.getTournamentPlayerId.mockResolvedValue({ buffer, contentType: 'application/pdf' });
+    await request(app.getHttpServer()).get('/admin/tournaments/event-1/registrations/captain/player-ids/partner')
+      .set('Cookie', cookie).set('Accept', 'text/html,application/xhtml+xml,*/*')
+      .expect(200).expect('Content-Type', 'application/pdf').expect('Cache-Control', 'private, no-store')
+      .expect((response) => expect(response.body).toEqual(buffer));
+    expect(service.getTournamentPlayerId).toHaveBeenCalledWith('member-session', 'event-1', 'captain', 'partner', false);
+    service.getTournamentPlayerId.mockRejectedValueOnce(new UnauthorizedException('Member session is required.'));
+    await request(app.getHttpServer()).get('/admin/tournaments/event-1/registrations/captain/player-ids/partner')
+      .set('Accept', 'text/html,application/xhtml+xml,*/*').expect(401);
+    await request(app.getHttpServer()).get('/tournaments/event-1/roster').set('Accept', 'text/html').expect(200, 'SPA fallback');
+  });
+
+  it('returns approval notification status without caching', async () => {
+    service.approveTournamentRegistration.mockResolvedValue({ status: 'Approved', approvalEmailFailedRecipients: ['member@example.com'] });
+    await request(app.getHttpServer()).patch('/admin/tournaments/event-1/registrations/captain/approve')
+      .set('Cookie', cookie).send({}).expect('Cache-Control', 'private, no-store')
+      .expect(200, { status: 'Approved', approvalEmailFailedRecipients: ['member@example.com'] });
+    expect(service.approveTournamentRegistration).toHaveBeenCalledWith('member-session', 'event-1', 'captain');
+  });
+
+  it('forwards a decline reason with the member session', async () => {
+    service.declineTournamentRegistration.mockResolvedValue({ deleted: true, failedRecipients: [] });
+    await request(app.getHttpServer()).patch('/admin/tournaments/event-1/registrations/captain/decline')
+      .set('Cookie', cookie).send({ reason: 'Eligibility details incomplete' })
+      .expect(200, { deleted: true, failedRecipients: [] });
+    expect(service.declineTournamentRegistration).toHaveBeenCalledWith('member-session', 'event-1', 'captain', 'Eligibility details incomplete');
+  });
 
   it('routes printing lists and tag updates with the admin session and no caching', async () => {
     const state = { tournament: { tournamentId: 'event-1' }, players: [] };

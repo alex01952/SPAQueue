@@ -523,12 +523,26 @@ export class AppController {
     return new StreamableFile(evidence.buffer, { type: evidence.contentType, disposition: 'inline' });
   }
 
+  @Patch('admin/tournaments/:tournamentId/registrations/:registrationId/decline')
+  @Header('Cache-Control', 'private, no-store')
+  declineTournamentRegistration(
+    @Param('tournamentId') tournamentId: string,
+    @Param('registrationId') registrationId: string,
+    @Body('reason') reason: unknown,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<{ deleted: true; failedRecipients: string[] }> {
+    return this.appService.declineTournamentRegistration(
+      this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId, registrationId, reason,
+    );
+  }
+
   @Patch('admin/tournaments/:tournamentId/registrations/:registrationId/approve')
+  @Header('Cache-Control', 'private, no-store')
   approveTournamentRegistration(
     @Param('tournamentId') tournamentId: string,
     @Param('registrationId') registrationId: string,
     @Headers('cookie') cookieHeader = '',
-  ): Promise<TournamentRegistration> {
+  ): Promise<TournamentRegistration & { approvalEmailFailedRecipients: string[] }> {
     return this.appService.approveTournamentRegistration(
       this.readCookie(cookieHeader, this.memberSessionCookieName),
       tournamentId,

@@ -526,6 +526,7 @@ export interface TournamentEligibilityDetails {
 interface StoredTournamentEligibilityDetails extends Omit<TournamentEligibilityDetails, 'url'> {
   blobName: string;
   contentType: string;
+  storage?: 'private';
 }
 
 interface StoredTournamentPaymentProof extends Omit<TournamentPaymentProof, 'url'> {
@@ -681,6 +682,8 @@ export class AppService {
     process.env.BALANCE_TYPES_AZURE_TABLE ?? 'BalanceTypes';
   private readonly azureContainerName =
     process.env.OP_PARTICIPATION_AZURE_CONTAINER;
+  private readonly tournamentIdContainerName =
+    process.env.TOURNAMENT_ID_AZURE_CONTAINER ?? 'spaprivate';
   private readonly azurePrefix =
     process.env.OP_PARTICIPATION_AZURE_PREFIX?.replace(/\\/g, '/').replace(
       /^\/+|\/+$/g,
@@ -1965,10 +1968,16 @@ export class AppService {
     try {
       // Prefix enumeration also removes old proofs, superseded draws and orphaned uploads.
       const container = this.getTournamentDocumentContainerClient();
-      for (const prefix of ['tournament-terms', 'tournament-payment-proofs', 'tournament-player-ids', 'tournament-protest-evidence', 'tournament-draws', 'tournament-live-draws']) {
+      const privateIdContainer = this.getTournamentIdContainerClient();
+      const locations = [
+        ...['tournament-terms', 'tournament-payment-proofs', 'tournament-player-ids', 'tournament-protest-evidence', 'tournament-draws', 'tournament-live-draws']
+          .map((prefix) => ({ container, prefix })),
+        { container: privateIdContainer, prefix: 'tournament-player-ids' },
+      ];
+      for (const { container: targetContainer, prefix } of locations) {
         const deletedNames = new Set<string>();
-        for await (const blob of container.listBlobsFlat({ prefix: `${prefix}/${tournamentId}/`, includeVersions: true })) {
-          const client = container.getBlockBlobClient(blob.name);
+        for await (const blob of targetContainer.listBlobsFlat({ prefix: `${prefix}/${tournamentId}/`, includeVersions: true })) {
+          const client = targetContainer.getBlockBlobClient(blob.name);
           if (!deletedNames.has(blob.name)) {
             await client.deleteIfExists({ deleteSnapshots: 'include' });
             deletedNames.add(blob.name);
@@ -2729,11 +2738,66 @@ export class AppService {
     throw new BadGatewayException('Unable to read printing tags. Contact an administrator before exporting.');
   }
 
+  async declineTournamentRegistration(
+    sessionToken: string,
+    tournamentId: string,
+    registrationId: string,
+    reasonInput: unknown,
+  ): Promise<{ deleted: true; failedRecipients: string[] }> {
+    await this.requireAdminSession(sessionToken);
+    const reason = typeof reasonInput === 'string' ? reasonInput.trim() : '';
+    if (!reason || reason.length > 4000) {
+      throw new BadRequestException('Enter a decline reason of up to 4,000 characters.');
+    }
+    if (!process.env.MAILGUN_API_KEY || !process.env.MAILGUN_DOMAIN || !process.env.EMAIL_FROM) {
+      throw new BadRequestException('Email delivery is not configured.');
+    }
+    const tournament = await this.getTournament(tournamentId);
+    const entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
+    if (!['Invitation Pending', 'Pending Approval', 'Approved', 'Payment Submitted'].includes(String(entity.Status ?? '')) || !entity.etag) {
+      throw new ConflictException('Only unpaid, active tournament registrations can be declined. Refresh and retry.');
+    }
+    const memberIds = [...new Set(this.tournamentRegistrationMemberIds(entity).filter(Boolean))];
+    if (!memberIds.length) throw new BadRequestException('This registration has no recipients.');
+    const recipients: { name: string; email: string }[] = [];
+    try {
+      for (const memberId of memberIds) {
+        const member = await this.getMembersTableClient().getEntity('members', memberId);
+        const email = String(member.Email ?? '').trim();
+        if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) {
+          throw new BadRequestException('A registrant has no valid email address. Update their account before declining.');
+        }
+        recipients.push({ name: String(member.Name ?? 'Member'), email });
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      if (this.isAzureNotFound(error)) throw new BadRequestException('A registrant account was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    try {
+      await this.getTournamentRegistrationsTableClient().deleteEntity(tournamentId, registrationId, { etag: String(entity.etag) });
+    } catch (error) {
+      if (this.isTournamentRegistrationVersionConflict(error)) throw new ConflictException('The registration changed. Refresh and retry.');
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament registration was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    const results = await Promise.allSettled(recipients.map(({ name, email }) => this.sendEmail(
+      email,
+      'Tournament registration declined',
+      `Hello ${name},\n\nYour team registration for ${tournament.name} was declined.\n\nReason:\n${reason}\n\nYou may submit a new registration if eligible.`,
+      `<p>Hello ${this.escapeHtml(name)},</p><p>Your team registration for ${this.escapeHtml(tournament.name)} was declined.</p><p><strong>Reason:</strong></p><p style="white-space:pre-wrap">${this.escapeHtml(reason)}</p><p>You may submit a new registration if eligible.</p>`,
+      30_000,
+    )));
+    const failedRecipients = recipients.filter((_, index) => results[index].status === 'rejected').map((recipient) => recipient.email);
+    if (failedRecipients.length) this.logger.error(`Tournament decline emails could not be confirmed for ${failedRecipients.length} recipient(s).`);
+    return { deleted: true, failedRecipients };
+  }
+
   async approveTournamentRegistration(
     sessionToken: string,
     tournamentId: string,
     registrationId: string,
-  ): Promise<TournamentRegistration> {
+  ): Promise<TournamentRegistration & { approvalEmailFailedRecipients: string[] }> {
     await this.requireAdminSession(sessionToken);
     const table = this.getTournamentRegistrationsTableClient();
     let entity: Record<string, unknown>;
@@ -2758,9 +2822,70 @@ export class AppService {
     if (approvedCount >= tournament.maxSlots) {
       throw new ConflictException('This tournament has reached its maximum number of approved teams.');
     }
+    if (!entity.etag) throw new ConflictException('The registration version is unavailable. Refresh and retry.');
+    const emails = await this.prepareTournamentApprovalEmails(entity, tournament);
     const approvedAt = new Date().toISOString();
-    await table.updateEntity({ partitionKey: tournamentId, rowKey: registrationId, Status: 'Approved', ApprovedAt: approvedAt }, 'Merge');
-    return this.toTournamentRegistration({ ...entity, Status: 'Approved', ApprovedAt: approvedAt })!;
+    try {
+      await table.updateEntity({ partitionKey: tournamentId, rowKey: registrationId, Status: 'Approved', ApprovedAt: approvedAt }, 'Merge', { etag: String(entity.etag) });
+    } catch (error) {
+      if (this.isTournamentRegistrationVersionConflict(error)) throw new ConflictException('The registration changed. Refresh and retry.');
+      if (this.isAzureNotFound(error)) throw new NotFoundException('Tournament registration was not found.');
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    const results = await Promise.allSettled(emails.map((email) => this.sendEmail(email.to, email.subject, email.text, email.html, 30_000)));
+    const approvalEmailFailedRecipients = emails.filter((_, index) => results[index].status === 'rejected').map((email) => email.to);
+    if (approvalEmailFailedRecipients.length) this.logger.error(`Tournament approval emails could not be confirmed for ${approvalEmailFailedRecipients.length} recipient(s).`);
+    return { ...this.toTournamentRegistration({ ...entity, Status: 'Approved', ApprovedAt: approvedAt })!, approvalEmailFailedRecipients };
+  }
+
+  private async prepareTournamentApprovalEmails(entity: Record<string, unknown>, tournament: Tournament): Promise<{ to: string; subject: string; text: string; html: string }[]> {
+    if (!process.env.MAILGUN_API_KEY || !process.env.MAILGUN_DOMAIN || !process.env.EMAIL_FROM) throw new BadRequestException('Email delivery is not configured.');
+    const blob = this.getEmailTemplateContainerClient().getBlockBlobClient('email-templates/tournament-approval.html');
+    let template: string;
+    let subject: string;
+    try {
+      const properties = await blob.getProperties();
+      const length = properties.contentLength ?? 0;
+      if (!length || length > 60_000 || !properties.etag) throw new BadRequestException('The tournament approval template must contain 1 to 60,000 UTF-8 bytes and have a version.');
+      subject = properties.metadata?.subject ?? 'Your tournament registration is approved';
+      if (!subject.trim() || subject.length > 200 || /[\r\n]/.test(subject)) throw new BadRequestException('The template subject must contain 1 to 200 characters without line breaks.');
+      template = (await blob.downloadToBuffer(0, length, { conditions: { ifMatch: properties.etag }, abortSignal: AbortSignal.timeout(30_000) })).toString('utf8');
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      if (this.isAzureNotFound(error)) throw new NotFoundException('The tournament approval email template was not found.');
+      this.logger.error('Unable to read tournament approval email template.', error);
+      throw new BadGatewayException('Unable to read the tournament approval email template. Registration was not approved.');
+    }
+    const memberIds = [...new Set(this.tournamentRegistrationMemberIds(entity).filter(Boolean))];
+    const teamMembers = this.readTournamentTeamMembers(entity);
+    if (memberIds.length !== (teamMembers.length || 2)) throw new BadRequestException('This registration has missing or duplicate recipients.');
+    const messages: { to: string; subject: string; text: string; html: string }[] = [];
+    for (const memberId of memberIds) {
+      let member: Record<string, unknown>;
+      try {
+        member = await this.getMembersTableClient().getEntity('members', memberId);
+      } catch (error) {
+        if (this.isAzureNotFound(error)) throw new BadRequestException('A registrant account was not found.');
+        throw this.createMemberAuthenticationStorageException(error);
+      }
+      const to = String(member.Email ?? '').trim();
+      if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(to)) throw new BadRequestException('A registrant has no valid email address. Update their account before approving.');
+      const values: Record<string, string> = {
+        memberName: String(member.Name ?? 'Member'), tournamentName: tournament.name,
+        tournamentCategory: tournament.category, tournamentLevel: tournament.level,
+        tournamentDate: tournament.date || 'To be announced', tournamentLocation: tournament.location || 'To be announced',
+        tournamentsUrl: `${this.publicAppUrl}/tournaments`,
+      };
+      const html = template.replace(/\{\{([\s\S]*?)\}\}/g, (_match: string, key: string) => {
+        const name = key.trim();
+        if (!Object.prototype.hasOwnProperty.call(values, name)) throw new BadRequestException(`Unsupported tournament approval template placeholder: {{${name}}}.`);
+        return this.escapeHtml(values[name]);
+      });
+      const text = convert(html, { wordwrap: 100 });
+      if (!text.trim()) throw new BadRequestException('The tournament approval template must contain visible text.');
+      messages.push({ to, subject: subject.trim(), html, text });
+    }
+    return messages;
   }
 
   async uploadTournamentPaymentProof(
@@ -4274,6 +4399,7 @@ export class AppService {
       const templates: { name: string; displayName: string }[] = [];
       for await (const blob of container.listBlobsFlat({ prefix: 'email-templates/' })) {
         if (!this.isEmailTemplateName(blob.name)) continue;
+        if (blob.name === 'email-templates/tournament-approval.html') continue;
         templates.push({
           name: blob.name,
           displayName: blob.name.slice('email-templates/'.length),
@@ -5813,7 +5939,7 @@ export class AppService {
         ? { partnerTshirtSize: this.normalizeTournamentTshirtSize(entity.PartnerTshirtSize) }
         : {}),
       ...(includeEligibility ? {
-        eligibilityDetails: this.readTournamentEligibility(entity).map(({ blobName, contentType, ...details }) => ({
+        eligibilityDetails: this.readTournamentEligibility(entity).map(({ blobName, contentType, storage, ...details }) => ({
           ...details,
           url: `/admin/tournaments/${encodeURIComponent(tournamentId)}/registrations/${encodeURIComponent(registrationId)}/player-ids/${encodeURIComponent(details.memberId)}`,
         })),
@@ -5908,6 +6034,17 @@ export class AppService {
     ).getContainerClient(this.azureContainerName);
   }
 
+  private getTournamentIdContainerClient() {
+    if (!this.azureStorageAccount || !this.tournamentIdContainerName || this.tournamentIdContainerName === this.azureContainerName) {
+      throw new BadRequestException('A separate private tournament ID container is required.');
+    }
+    return new BlobServiceClient(
+      `https://${this.azureStorageAccount}.blob.core.windows.net`,
+      new DefaultAzureCredential(),
+      { retryOptions: { maxTries: 1, tryTimeoutInMs: this.azureUploadTimeoutMs } },
+    ).getContainerClient(this.tournamentIdContainerName);
+  }
+
   private tournamentTermsUrl(tournamentId: string): string {
     return `/tournaments/${encodeURIComponent(tournamentId)}/terms`;
   }
@@ -5968,6 +6105,7 @@ export class AppService {
       !!item && typeof item === 'object' &&
       ['memberId', 'memberName', 'fileName', 'uploadedAt', 'clubDetails', 'blobName', 'contentType']
         .every((key) => key in item && typeof Reflect.get(item, key) === 'string') &&
+      (!('storage' in item) || item.storage === 'private') &&
       'contentType' in item && ['application/pdf', 'image/jpeg', 'image/png'].includes(String(item.contentType)),
     )) {
       throw new BadGatewayException('Stored tournament eligibility details are invalid.');
@@ -6009,13 +6147,19 @@ export class AppService {
     }
     const blobName = `tournament-player-ids/${tournamentId}/${registrationId}/${randomUUID()}.${extension}`;
     try {
-      await this.uploadParticipationBlob(this.getTournamentDocumentBlobClient(blobName), buffer, contentType);
+      const container = this.getTournamentIdContainerClient();
+      const properties = await container.getProperties();
+      if (properties.blobPublicAccess) {
+        throw new BadRequestException('The tournament ID container must not allow anonymous access.');
+      }
+      await this.uploadParticipationBlob(container.getBlockBlobClient(blobName), buffer, contentType);
     } catch (error) {
+      if (error instanceof BadRequestException) throw error;
       throw this.createAzureUploadException(error, blobName);
     }
     return {
       memberId, memberName, fileName: file.originalname, uploadedAt: new Date().toISOString(),
-      clubDetails: typeof clubDetails === 'string' ? clubDetails.trim() : '', blobName, contentType: contentType!,
+      clubDetails: typeof clubDetails === 'string' ? clubDetails.trim() : '', blobName, contentType: contentType!, storage: 'private',
     };
   }
 
@@ -6033,7 +6177,10 @@ export class AppService {
       throw new BadGatewayException('Stored player ID has an invalid storage location.');
     }
     try {
-      return { buffer: await this.getTournamentDocumentBlobClient(details.blobName).downloadToBuffer(), contentType: details.contentType };
+      const blob = details.storage === 'private'
+        ? this.getTournamentIdContainerClient().getBlockBlobClient(details.blobName)
+        : this.getTournamentDocumentBlobClient(details.blobName);
+      return { buffer: await blob.downloadToBuffer(), contentType: details.contentType };
     } catch (error) {
       if (this.isAzureNotFound(error)) throw new NotFoundException('Player ID file was not found.');
       throw this.createMemberAuthenticationStorageException(error);

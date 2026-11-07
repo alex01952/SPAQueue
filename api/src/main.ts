@@ -19,7 +19,7 @@ async function bootstrap() {
   if (existsSync(frontendIndexPath)) {
     app.useStaticAssets(frontendPath);
     app.use((request, response, next) => {
-      if (!shouldServeSpaFallback(request.method, request.headers.accept)) {
+      if (!shouldServeSpaFallback(request.method, request.headers.accept, request.path)) {
         next();
         return;
       }

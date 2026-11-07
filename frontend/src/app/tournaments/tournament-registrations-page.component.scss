@@ -33,6 +33,10 @@ h1, h2, p { margin-top: 0; }
 .status-pill[data-status='invitation-declined'] { color: #842f22; background: rgba(184, 67, 49, .12); }
 .proof-link { color: var(--accent-dark); font-size: .78rem; font-weight: 700; }
 .payment-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.decline-form { display: grid; flex-basis: 100%; gap: 8px; }
+.decline-form label { display: grid; gap: 6px; font-size: .78rem; font-weight: 700; }
+.decline-form textarea { width: 100%; min-width: 0; padding: 9px; font: inherit; border: 1px solid rgba(103, 70, 41, .24); border-radius: 4px; resize: vertical; }
+.decline-form > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .action-button, .quiet-button { min-height: 40px; padding: 9px 14px; font: inherit; font-size: .78rem; font-weight: 700; border: 0; border-radius: 4px; cursor: pointer; }
 .action-button { color: #fff9f1; background: #2d6841; }
 .quiet-button { color: var(--text-primary); background: rgba(103, 70, 41, .1); }
@@ -41,6 +45,6 @@ h1, h2, p { margin-top: 0; }
 .paid-note { flex-basis: 100%; color: var(--text-secondary); }
 .empty-state { margin: 0; padding: 22px 0; color: var(--text-secondary); font-size: .85rem; }
 .notice { margin: 0 0 14px; padding: 11px 14px; border-radius: 4px; }
-.notice.error { color: #842f22; background: rgba(184, 67, 49, .12); }
+.notice.error { color: #842f22; background: rgba(184, 67, 49, .12); white-space: pre-wrap; overflow-wrap: anywhere; }
 .notice.success { color: #245b35; background: rgba(76, 140, 87, .14); }
 @media (max-width: 680px) { .registrations-shell { width: calc(100% - 24px); padding: 28px 0 48px; } .browser-heading { align-items: stretch; flex-direction: column; } .tournament-picker { min-width: 0; } .event-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .registration-row { align-items: flex-start; flex-wrap: wrap; } .registration-copy { flex-basis: 100%; } }
