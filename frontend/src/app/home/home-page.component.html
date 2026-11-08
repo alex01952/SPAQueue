@@ -67,7 +67,7 @@
       [class.has-balances]="memberHasBalances()"
       [class.no-balances]="!memberHasBalances()"
     >
-      <span class="menu-index">07</span>
+      <span class="menu-index">08</span>
       <span class="menu-copy">
         <strong>My balances</strong>
         <small>{{
@@ -78,7 +78,7 @@
     </a>
 
     <a routerLink="/my-rewards" class="menu-item">
-      <span class="menu-index">08</span>
+      <span class="menu-index">09</span>
       <span class="menu-copy">
         <strong>My points &amp; rewards</strong>
         <small>View points, convert to tokens and redeem rewards.</small>
@@ -87,7 +87,7 @@
     </a>
     @if (member()?.role === 'admin' || member()?.role === 'balance-staff') {
       <a routerLink="/member-points" class="menu-item">
-        <span class="menu-index">09</span>
+        <span class="menu-index">10</span>
         <span class="menu-copy">
           <strong>Member points</strong>
           <small>Award Gold member points and review activity history.</small>
@@ -95,7 +95,7 @@
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
       <a routerLink="/member-balances" class="menu-item">
-        <span class="menu-index">10</span>
+        <span class="menu-index">11</span>
         <span class="menu-copy">
           <strong>Member balances</strong>
           <small>Manage balances and email unpaid balance reminders.</small>
@@ -106,10 +106,21 @@
 
     @if (member()?.role === 'admin') {
       <a routerLink="/admin" class="menu-item">
-        <span class="menu-index">11</span>
+        <span class="menu-index">12</span>
         <span class="menu-copy">
           <strong>Admin</strong>
           <small>Rewards store, announcements, approvals, and club administration.</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
+    }
+
+    @if (member()?.role === 'balance-staff') {
+      <a routerLink="/open-play-matching" class="menu-item">
+        <span class="menu-index">12</span>
+        <span class="menu-copy">
+          <strong>Open Play matching</strong>
+          <small>Manage the Open Play roster, sessions, and Gold member point review.</small>
         </span>
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
@@ -122,7 +133,7 @@
       (click)="logout()"
     >
       <span class="menu-index">{{
-        member()?.role === 'admin' ? '12' : member()?.role === 'balance-staff' ? '11' : '09'
+        member()?.role === 'admin' || member()?.role === 'balance-staff' ? '13' : '10'
       }}</span>
       <span class="menu-copy">
         <strong>{{ isLoggingOut() ? 'Logging out...' : 'Logout' }}</strong>

@@ -62,6 +62,12 @@ export class HomePageComponent {
       route: '/club-player-validations',
       index: '06',
     },
+    {
+      label: 'Open Play board',
+      description: 'See the live Next Players, player lines, and Top 5.',
+      route: '/open-play-board',
+      index: '07',
+    },
   ] as const;
 
   constructor() {

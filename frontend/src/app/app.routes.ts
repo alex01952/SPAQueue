@@ -1,11 +1,9 @@
 import { Routes } from '@angular/router';
-import { App } from './app';
 import { ClubsPageComponent } from './clubs/clubs-page.component';
 import { ClubAdminPageComponent } from './club-admin/club-admin-page.component';
 import { ClubMembershipAdminPageComponent } from './club-membership-admin-page.component';
 import { ClubJoinRequestsPageComponent } from './club-join-requests-page.component';
 import { ClubPlayerValidationsPageComponent } from './club-player-validations-page.component';
-import { dashboardAuthGuard } from './dashboard-auth.guard';
 import { EditProfilePageComponent } from './edit-profile/edit-profile-page.component';
 import { HomePageComponent } from './home/home-page.component';
 import { MemberProfilePageComponent } from './member-profile/member-profile-page.component';
@@ -31,6 +29,7 @@ import { TournamentProtestsPageComponent } from './tournaments/tournament-protes
 import { TournamentPlanningPageComponent } from './tournaments/tournament-planning-page.component';
 import { TournamentArchivePageComponent } from './tournaments/tournament-archive-page.component';
 import { TournamentLiveDrawPageComponent } from './tournaments/tournament-live-draw-page.component';
+import type { OpenPlayPageComponent } from './open-play/open-play-page.component';
 
 export const routes: Routes = [
   {
@@ -39,6 +38,13 @@ export const routes: Routes = [
     canActivate: [memberAuthGuard, memberRoleGuard],
     data: { allowedRoles: ['admin'] },
     title: 'Admin',
+  },
+  {
+    path: 'member-role-management',
+    loadComponent: () => import('./member-role-management/member-role-management-page.component').then((module) => module.MemberRoleManagementPageComponent),
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'], breadcrumbParent: { label: 'Admin', route: '/admin' } },
+    title: 'Manage Member Roles',
   },
   {
     path: 'my-rewards',
@@ -73,11 +79,10 @@ export const routes: Routes = [
     title: 'Member Home',
   },
   {
-    path: 'queue-dashboard',
-    component: App,
-    canActivate: [memberAuthGuard, memberRoleGuard, dashboardAuthGuard],
-    data: { allowedRoles: ['admin'], breadcrumbParent: { label: 'Admin', route: '/admin' } },
-    title: 'Pickleball Queue',
+    path: 'open-play-board',
+    loadComponent: () => import('./open-play/open-play-board-page.component').then((module) => module.OpenPlayBoardPageComponent),
+    canActivate: [memberAuthGuard],
+    title: 'Open Play Board',
   },
   {
     path: 'masters-of-the-arena',
@@ -90,6 +95,14 @@ export const routes: Routes = [
     path: 'open-play-participation',
     component: MonthlyParticipationPageComponent,
     title: 'Open Play Participation',
+  },
+  {
+    path: 'open-play-matching',
+    loadComponent: () => import('./open-play/open-play-page.component').then((module) => module.OpenPlayPageComponent),
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    canDeactivate: [(component: OpenPlayPageComponent) => component.confirmLeave()],
+    data: { allowedRoles: ['admin', 'balance-staff'], breadcrumbParent: { label: 'Member Home', route: '/home' } },
+    title: 'Open Play Matching',
   },
   {
     path: 'open-play-participation/upload',

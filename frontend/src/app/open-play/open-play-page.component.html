@@ -1,0 +1,274 @@
+<main class="open-play-shell">
+  <a class="back-link" routerLink="/home">&larr; Member Home</a>
+  <header class="page-heading">
+    <div><p class="eyebrow">Open Play / Player registration</p><h1>Open Play matching</h1></div>
+    <div class="player-count"><strong>{{ players().length }}</strong><span>registered players</span></div>
+  </header>
+  <div class="session-bar">
+    <span class="draft-note">{{ session()?.active ? 'Open Play active · started ' + (session()!.startedAt | date:'shortTime') : session()?.awardReview?.completed ? 'Last Open Play ended · ' + (session()!.endedAt | date:'short') : 'No active Open Play' }}</span>
+    @if (session()?.active) {
+      <button type="button" class="primary" [disabled]="sessionBusy() || savingDraft() || isDirty() || ongoingMatches().length > 0" (click)="endOpenPlay()">{{ sessionBusy() ? 'Ending...' : 'End Open Play' }}</button>
+    } @else {
+      <button type="button" class="primary" [disabled]="!canStartOpenPlay()" (click)="startOpenPlay()">{{ sessionBusy() ? 'Starting...' : 'Start Open Play' }}</button>
+    }
+  </div>
+  @if (sessionError()) { <p class="notice error" role="alert">{{ sessionError() }}</p> }
+  @if (archiveMessage()) { <p class="notice success" role="status">{{ archiveMessage() }}</p> }
+  <div class="draft-bar">
+    <span class="draft-note">{{ loadingDraft() ? 'Loading roster...' : isDirty() ? 'Unsaved changes' : 'Shared roster' }}</span>
+    <div>@if (canArchiveOpenPlay()) { <button type="button" class="secondary" [disabled]="loadingDraft() || savingDraft() || sessionBusy()" (click)="archiveOpenPlay()">Archive</button> } <button type="button" class="primary" [disabled]="!draftReady() || !isDirty() || loadingDraft() || savingDraft()" (click)="saveDraft()">{{ savingDraft() ? 'Saving...' : 'Save changes' }}</button></div>
+  </div>
+  @if (saveMessage()) { <p class="notice success" role="status">{{ saveMessage() }}</p> }
+  @if (storageError()) { <p class="notice error" role="alert">{{ storageError() }}</p> }
+  @if (benchMigrationNeeded()) { <p class="notice legacy" role="status">Bench clocks started now; earlier waiting and rest periods were not recorded. Save changes to keep the clocks.</p> }
+  @if (draftReady() && !players().length && legacyPlayers().length) { <p class="notice legacy">A previous browser draft is available. <button type="button" class="text-button" (click)="restoreLegacyDraft()">Restore browser draft</button></p> }
+  @if (message()) { <p class="notice error" role="alert">{{ message() }}</p> }
+  @if (memberError()) {
+    <p class="notice error" role="alert">{{ memberError() }} <button type="button" class="text-button" (click)="loadMembers()">Retry</button></p>
+  }
+  @if (session()?.awardReview; as review) {
+    <section class="award-review" aria-labelledby="award-review-heading">
+      <div class="roster-heading"><div><p class="eyebrow">Session ended · {{ review.activityDate }}</p><h2 id="award-review-heading">Gold member point review</h2></div></div>
+      @if (review.completed) {
+        <p class="notice success" role="status">{{ review.skipped ? 'No points were awarded for this session.' : review.awardedAwardIds.length + ' point award(s) recorded.' }}</p>
+      } @else {
+        <p class="muted">Choose one participation point for each eligible player and an additional point for each Gold member in the Top 5. Each player can receive up to two points.</p>
+        @if (awardError()) { <p class="notice error" role="alert">{{ awardError() }}</p> }
+        @if (awardMessage()) { <p class="notice success" role="status">{{ awardMessage() }}</p> }
+        <div class="award-list">
+          @for (candidate of review.candidates; track candidate.memberId) {
+            <div class="award-row">
+              <div><strong>{{ candidate.name }}</strong>@if (!candidate.participated) { <span class="award-rank">No active or match activity recorded</span> } @if (candidate.topFiveRank) { <span class="award-rank">Top 5 · #{{ candidate.topFiveRank }}</span> }</div>
+              <div class="award-options">
+                @if (candidate.participationRequestId) { @let participationId = participationAwardId(candidate); <label><input type="checkbox" [checked]="selectedAwardIds().includes(participationId)" [disabled]="awardBusy() || review.awardedAwardIds.includes(participationId)" (change)="toggleAward(participationId, $any($event.target).checked)" /> Participation · 1 point</label> }
+                @if (candidate.topFiveRequestId) { @let topFiveId = topFiveAwardId(candidate); <label><input type="checkbox" [checked]="selectedAwardIds().includes(topFiveId)" [disabled]="awardBusy() || review.awardedAwardIds.includes(topFiveId)" (change)="toggleAward(topFiveId, $any($event.target).checked)" /> Top 5 bonus · 1 point</label> }
+                <label class="exclude-player"><input type="checkbox" [checked]="isCandidateExcluded(candidate)" [disabled]="awardBusy() || hasCandidateAwardBeenRecorded(candidate)" (change)="excludeCandidate(candidate, $any($event.target).checked)" /> Exclude player</label>
+              </div>
+            </div>
+          } @empty { <p class="muted">No eligible Gold members participated in this session.</p> }
+        </div>
+        <div class="award-actions">
+          <button type="button" class="primary" [disabled]="awardBusy() || !selectedAwardIds().length" (click)="awardSessionPoints()">{{ awardBusy() ? 'Recording awards...' : 'Award selected points (' + selectedAwardIds().length + ')' }}</button>
+          <button type="button" class="secondary" [disabled]="awardBusy() || review.awardedAwardIds.length > 0" (click)="skipSessionAwards()">No points this session</button>
+        </div>
+      }
+    </section>
+  }
+
+  <fieldset class="editor" [disabled]="!draftReady() || loadingDraft() || savingDraft()">
+  <section class="matches-section" aria-labelledby="ongoing-matches-heading">
+    <div class="roster-heading"><div><p class="eyebrow">Open Play</p><h2 id="ongoing-matches-heading">Ongoing matches</h2></div><span>{{ ongoingMatches().length }} ongoing</span></div>
+    @for (match of ongoingMatches(); track match.id) {
+      <ng-container *ngTemplateOutlet="matchItem; context: { $implicit: match }" />
+    } @empty { <p class="muted no-matches">No ongoing matches.</p> }
+  </section>
+  <section class="next-players" aria-labelledby="next-players-heading">
+    <div class="roster-heading"><div><p class="eyebrow">Match preparation</p><h2 id="next-players-heading">Next Players</h2></div>@if (manualMatchSlots()) { <button type="button" class="secondary" (click)="resetNextPlayers()">Reset suggestion</button> }</div>
+    @if (matchError()) { <p class="notice error" role="alert">{{ matchError() }}</p> }
+    @if (overdueNotSelected()) { <p class="notice error" role="status">{{ overdueNotSelected() }} other player{{ overdueNotSelected() === 1 ? '' : 's' }} waiting 30 minutes or more not included.</p> }
+    <div class="field matching-mode"><label for="matching-mode">Matching mode</label><select id="matching-mode" [ngModel]="matchingMode()" (ngModelChange)="changeMatchingMode($event)">@for (mode of matchingModeOptions; track mode.id) { <option [value]="mode.id">{{ mode.label }}</option> }</select></div>
+    <div class="field matching-category"><label for="matching-category">Force category</label><select id="matching-category" [ngModel]="forcedCategory()" (ngModelChange)="changeForcedCategory($event)"><option value="">Automatic</option>@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select></div>
+    @if (!manualMatchSlots()) {
+      @if (nextSuggestion(); as suggestion) { <p class="match-label">{{ suggestion.mixedLines ? 'Both lines' : suggestion.teams[0][0].line === 'normal' ? 'Normal line' : 'Winners line' }} &middot; {{ suggestion.mixedLevels ? 'Mixed levels' : suggestion.category }} &middot; Combined wait {{ formatBenchTime(suggestion.totalWaitMs) }}</p> }
+      @else { <p class="muted no-matches">No suitable four-player suggestion is available.</p> }
+    }
+    <div class="match-slots">
+      @for (slot of matchSlots(); track $index; let index = $index) {
+        @let player = slotPlayer(slot);
+        @let memberType = player ? playerMembershipType(player) : 'non-member';
+        <div class="field next-slot">
+          <label [for]="'match-slot-' + index">Team {{ index < 2 ? 1 : 2 }} &middot; Player {{ index % 2 + 1 }}</label>
+          <button type="button" class="secondary slot-target" [id]="'match-slot-' + index" [class.ready]="!!selectedSwapId() || !!draggingPlayerId()" [attr.aria-label]="(selectedSwapId() ? 'Replace ' : '') + 'Team ' + (index < 2 ? 1 : 2) + ' player ' + (index % 2 + 1) + ': ' + (player?.name || 'Open slot') + (selectedSwapId() ? ' with ' + slotPlayer(selectedSwapId())?.name : '')" (dragover)="$event.preventDefault()" (drop)="dropPlayer($event, index)" (click)="applySelectedPlayer(index)"><strong><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ player?.name || 'Open slot' }}</span></strong>@if (player) { <span class="muted"> &middot; {{ player.category }}</span> }</button>
+          @if (player) { <button type="button" class="text-button unavailable-action" [attr.aria-label]="'Mark ' + player.name + ' not available'" (click)="markUnavailableAndPublish(index)">Not available</button> }
+        </div>
+      }
+    </div>
+    @if (matchLockConflict(); as group) { <p class="notice error" role="status">{{ playerLockNames(group) }} must all be selected together.</p> }
+    <div class="action-row start-game">
+      <div class="field match-court"><label for="match-court">Available court</label><select id="match-court" [ngModel]="selectedCourt()" (ngModelChange)="updateSelectedCourt($event)"><option value="">Select court</option>@for (court of availableCourts(); track court.number) { <option [value]="court.number">{{ court.name }} &middot; {{ court.category }}</option> }</select></div>
+      <button type="button" class="primary" [disabled]="!selectedCourtDetails() || !validMatchSlots()" (click)="startMatch()">Start Game</button>
+    </div>
+    @if (!manualMatchSlots() && nextSuggestion() && selectedCourtDetails() && nextSuggestion()!.category !== selectedCourtDetails()!.category) { <p class="notice error" role="status">The selected court's category differs from the suggested group.</p> }
+  </section>
+  <section class="queue-section" aria-labelledby="queue-heading">
+    <div class="roster-heading"><div><p class="eyebrow">Open Play</p><h2 id="queue-heading">Player lines</h2></div><span>{{ eligiblePlayers().length }} waiting</span></div>
+    <div class="queue-columns">
+      <section aria-labelledby="normal-line-heading">
+        <div class="line-heading"><h3 id="normal-line-heading">Normal line</h3><span>{{ normalLine().length }} waiting</span></div>
+        @if (normalLine().length) { <ol class="queue-list">@for (player of normalLine(); track player.id) { @let memberType = playerMembershipType(player); <li>@if (unavailable().includes(player.id)) { <strong><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ player.name }}</span></strong><span>Not available</span> <button type="button" class="text-button" (click)="markAvailableAndPublish(player.id)">Make available</button> } @else { <button type="button" class="queue-player" draggable="true" [class.selected]="selectedSwapId() === player.id" [attr.aria-pressed]="selectedSwapId() === player.id" [attr.aria-label]="'Select or drag ' + player.name" (dragstart)="dragPlayer($event, player.id)" (dragend)="draggingPlayerId.set('')" (click)="selectSwapPlayer(player.id)"><span aria-hidden="true">&#8942;&#8942;&nbsp;</span><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ player.name }}</span></button> }<span>{{ player.category }}</span><span>Waiting {{ formatBenchTime(waitMs(player)) }}</span>@if (waitIndicator(player) === 'warning') { <span class="bench-warning">Long wait: 30+ min</span> } @else if (waitIndicator(player) === 'above-average') { <span class="bench-priority">Above average</span> }</li> }</ol> }
+        @else { <p class="muted no-matches">No players waiting.</p> }
+      </section>
+      <section aria-labelledby="winners-line-heading">
+        <div class="line-heading"><h3 id="winners-line-heading">Winners line</h3><span>{{ winnersLine().length }} waiting</span></div>
+        @if (winnersLine().length) { <ol class="queue-list">@for (player of winnersLine(); track player.id) { @let memberType = playerMembershipType(player); <li>@if (unavailable().includes(player.id)) { <strong><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ player.name }}</span></strong><span>Not available</span> <button type="button" class="text-button" (click)="markAvailableAndPublish(player.id)">Make available</button> } @else { <button type="button" class="queue-player" draggable="true" [class.selected]="selectedSwapId() === player.id" [attr.aria-pressed]="selectedSwapId() === player.id" [attr.aria-label]="'Select or drag ' + player.name" (dragstart)="dragPlayer($event, player.id)" (dragend)="draggingPlayerId.set('')" (click)="selectSwapPlayer(player.id)"><span aria-hidden="true">&#8942;&#8942;&nbsp;</span><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ player.name }}</span></button> }<span>{{ player.category }}</span><span>Waiting {{ formatBenchTime(waitMs(player)) }}</span>@if (waitIndicator(player) === 'warning') { <span class="bench-warning">Long wait: 30+ min</span> } @else if (waitIndicator(player) === 'above-average') { <span class="bench-priority">Above average</span> }</li> }</ol> }
+        @else { <p class="muted no-matches">No players waiting.</p> }
+      </section>
+    </div>
+  </section>
+  <section class="leaderboard" aria-labelledby="leaderboard-heading">
+    <div class="roster-heading"><div><p class="eyebrow">Completed games</p><h2 id="leaderboard-heading">Top 5</h2></div></div>
+    @if (topPlayers().length) { <ol class="queue-list">@for (entry of topPlayers(); track entry.player.id) { @let memberType = playerMembershipType(entry.player); <li><strong><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ entry.player.name }}</span></strong><span>{{ entry.percent | number:'1.0-1' }}% &middot; {{ entry.wins }} {{ entry.wins === 1 ? 'win' : 'wins' }} / {{ entry.games }} {{ entry.games === 1 ? 'game' : 'games' }}</span></li> }</ol> }
+    @else { <p class="muted no-matches">No completed games.</p> }
+  </section>
+  <div class="workspace">
+    <div class="entry-column">
+      <section class="entry-section" aria-labelledby="member-heading">
+        <div class="section-heading"><span class="section-number">01</span><h2 id="member-heading">Add a member</h2></div>
+        <label for="member-search">Search by name or Reclub name</label>
+        <input id="member-search" type="search" placeholder="Search members" [disabled]="loadingMembers() || !!memberError()" [ngModel]="search()" (ngModelChange)="search.set($event)" />
+        @if (loadingMembers()) { <p class="muted" role="status">Loading member profiles...</p> }
+        @if (search().trim() && !loadingMembers()) {
+          <div class="search-results">
+            @for (member of filteredMembers(); track member.memberId) {
+              <button type="button" class="member-result" (click)="selectMember(member)">
+                <strong>{{ member.name }}</strong><span>{{ member.reClubId || 'No Reclub name' }}</span>
+              </button>
+            } @empty { <p class="muted">No members found.</p> }
+          </div>
+        }
+        @if (selectedMember(); as member) {
+          <div class="selected-member">
+            <div><strong>{{ member.name }}</strong><span>{{ member.reClubId || 'No Reclub name' }}</span></div>
+            <button type="button" class="text-button" (click)="openMemberProfile(member.memberId, member.name)">View profile</button>
+          </div>
+          <div class="action-row">
+            <div class="field"><label for="member-category">Category</label><select id="member-category" [ngModel]="memberCategory()" (ngModelChange)="memberCategory.set($event)"><option value="">Select category</option>@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select></div>
+            <button type="button" class="primary" [disabled]="!memberCategory()" (click)="addMember()">Add member</button>
+          </div>
+        }
+      </section>
+
+      <section class="entry-section" aria-labelledby="guest-heading">
+        <div class="section-heading"><span class="section-number">02</span><h2 id="guest-heading">Add a non-member</h2></div>
+        <label for="guest-name">Player name</label>
+        <input id="guest-name" type="text" maxlength="200" placeholder="Full name" [ngModel]="guestName()" (ngModelChange)="guestName.set($event)" />
+        <div class="action-row">
+          <div class="field"><label for="guest-category">Category</label><select id="guest-category" [ngModel]="guestCategory()" (ngModelChange)="guestCategory.set($event)"><option value="">Select category</option>@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select></div>
+          <button type="button" class="primary" [disabled]="!guestName().trim() || !guestCategory()" (click)="addGuest()">Add player</button>
+        </div>
+      </section>
+
+      <section class="entry-section" aria-labelledby="import-heading">
+        <div class="section-heading"><span class="section-number">03</span><h2 id="import-heading">Import participants</h2></div>
+        <label for="import-category">Default category</label>
+        <select id="import-category" [ngModel]="importCategory()" (ngModelChange)="importCategory.set($event)"><option value="">Select category</option>@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select>
+        <label for="import-file">Participant list (.txt)</label>
+        <input id="import-file" type="file" accept=".txt,text/plain" [disabled]="!importCategory() || loadingMembers() || !!memberError()" (change)="readFile($event)" />
+      </section>
+    </div>
+
+    <section class="roster" aria-labelledby="roster-heading">
+      <div class="roster-heading"><div><p class="eyebrow">Current roster</p><h2 id="roster-heading">Registered players</h2></div><span>{{ players().length }} total</span></div>
+      <div>
+        @for (group of playerLocks(); track $index; let index = $index) {
+          <p>{{ playerLockNames(group) }} <button type="button" class="text-button" (click)="unlockAndPublish(index)">Unlock</button></p>
+        }
+        <button type="button" class="secondary" [disabled]="selectedLockPlayerIds().length < 2 || selectedLockPlayerIds().length > 4" (click)="lockSelectedAndPublish()">Lock selected together (2-4)</button>
+      </div>
+      @if (players().length) {
+        <div class="roster-list">
+          @for (player of players(); track player.id; let index = $index) {
+            @let playing = isPlaying(player);
+            @let memberType = playerMembershipType(player);
+            <div class="roster-row">
+              <span class="row-number">{{ index + 1 }}</span>
+              <div class="player-name">
+                <strong><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ player.name }}</span></strong>
+                @if (player.memberId) { <button type="button" class="text-button" (click)="openMemberProfile(player.memberId!, player.name)">Member profile</button> }
+                @let record = playerRecord(player);
+                @let winRate = winPercentage(player);
+                <span>{{ record.wins }} {{ record.wins === 1 ? 'win' : 'wins' }} &middot; {{ record.losses }} {{ record.losses === 1 ? 'loss' : 'losses' }} @if (winRate !== null) { &middot; {{ winRate | number:'1.0-1' }}% wins }</span>
+                @if (lastGameEndedAt(player); as endedAt) {
+                  <span>Last game ended: <time [attr.datetime]="endedAt">{{ endedAt | date:'medium' }}</time>@if (player.status === 'Active' && !playing) { &middot; {{ timeSinceGame(endedAt, now()) }} }</span>
+                } @else { <span>Last game: No completed games</span> }
+                @if (playerLockFor(player.id); as group) {
+                  <span>Locked with {{ playerLockNames(group, player.id) }}</span>
+                } @else {
+                  <label><input type="checkbox" [checked]="selectedLockPlayerIds().includes(player.id)" [disabled]="selectedLockPlayerIds().length >= 4 && !selectedLockPlayerIds().includes(player.id)" (change)="toggleLockPlayer(player.id, $any($event.target).checked)" /> Lock with selected players</label>
+                }
+              </div>
+              <select [attr.aria-label]="'Category for ' + player.name" [ngModel]="player.category" (ngModelChange)="updateCategory(player.id, $event)">@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select>
+              @if (playing) { <span class="playing-status" [attr.aria-label]="'Status for ' + player.name">In Play</span> } @else { <select [attr.aria-label]="'Status for ' + player.name" [ngModel]="player.status" (ngModelChange)="updateStatus(player.id, $event)">@for (status of statuses; track status) { <option [value]="status">{{ status }}</option> }</select> }
+              <button type="button" class="remove" [attr.aria-label]="'Remove ' + player.name" title="Remove player" (click)="removePlayer(player.id)">&times;</button>
+            </div>
+          }
+        </div>
+      } @else { <div class="empty-roster"><span>00</span><p>No players added yet.</p></div> }
+    </section>
+  </div>
+
+  <section class="courts-section" aria-labelledby="courts-heading">
+    <div class="roster-heading"><div><p class="eyebrow">Open Play</p><h2 id="courts-heading">Virtual courts</h2></div><span>{{ courts().length }} configured &middot; {{ availableCourts().length }} available</span></div>
+    @if (courtError()) { <p class="notice error" role="alert">{{ courtError() }}</p> }
+    <div class="court-add">
+      <div class="field"><label for="new-court-name">Court name</label><input id="new-court-name" type="text" maxlength="100" placeholder="e.g. Court 6" [ngModel]="newCourtName()" (ngModelChange)="newCourtName.set($event)" /></div>
+      <div class="field"><label for="new-court-category">New court category</label><select id="new-court-category" [ngModel]="newCourtCategory()" (ngModelChange)="newCourtCategory.set($event)">@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select></div>
+      <button type="button" class="primary" [disabled]="courts().length >= 32" (click)="addCourt()">Add court</button>
+    </div>
+    @if (courts().length) {
+      <div class="court-grid">
+        @for (court of courts(); track court.number) {
+          @let playing = courtMatch(court.number);
+          <article class="court-tile" [class.occupied]="!!playing">
+            <div class="court-title"><strong>{{ court.name }}</strong><button type="button" class="remove" [disabled]="!!playing" [attr.aria-label]="'Remove ' + court.name" [title]="playing ? 'End the match before removing this court' : 'Remove court'" (click)="removeCourt(court.number)">&times;</button></div>
+            <label [for]="'court-category-' + court.number">Category</label><select [id]="'court-category-' + court.number" [disabled]="!!playing" [ngModel]="court.category" (ngModelChange)="updateCourt(court.number, $event)">@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select>
+            @if (playing) { <p class="court-state busy">In play</p><p class="court-players">{{ playing.teams[0][0].name }} / {{ playing.teams[0][1].name }} <span>vs</span> {{ playing.teams[1][0].name }} / {{ playing.teams[1][1].name }}</p> } @else { <p class="court-state">Available</p> }
+          </article>
+        }
+      </div>
+    } @else { <p class="muted no-matches">No courts configured.</p> }
+  </section>
+
+  <section class="matches-section" aria-labelledby="matches-heading">
+    <div class="roster-heading"><div><p class="eyebrow">Open Play</p><h2 id="matches-heading">Completed matches</h2></div><span>{{ completedMatches().length }} completed</span></div>
+    @for (match of matches(); track match.id) {
+      @if (match.status === 'completed') { <ng-container *ngTemplateOutlet="matchItem; context: { $implicit: match }" /> }
+    }
+    @if (!completedMatches().length) { <p class="muted no-matches">No completed matches.</p> }
+  </section>
+
+  <ng-template #matchItem let-match>
+      <article class="match-row">
+        <div class="match-summary"><span class="match-label">Match {{ matches().indexOf(match) + 1 }} &middot; {{ match.status === 'ongoing' ? 'Ongoing' : 'Completed' }} &middot; @if (match.court) { {{ match.court.name }} ({{ match.court.category }}) } @else { Court unassigned }</span><div class="teams"><span>{{ match.teams[0][0].name }} / {{ match.teams[0][1].name }}</span><b>vs</b><span>{{ match.teams[1][0].name }} / {{ match.teams[1][1].name }}</span></div>
+          @if (match.status === 'completed') { <p>@if (match.winner) { Team {{ match.winner }} won } @else { Ended without a result } @if (match.score) { &middot; {{ match.score.team1 }}&ndash;{{ match.score.team2 }} }</p> }
+          @if (match.status === 'ongoing' && !match.court) { <div class="field match-court"><label [for]="'assign-court-' + match.id">Assign court</label><select [id]="'assign-court-' + match.id" [ngModel]="''" (ngModelChange)="assignMatchCourt(match, $event)"><option value="">Select court</option>@for (court of availableCourts(); track court.number) { <option [value]="court.number">{{ court.name }} &middot; {{ court.category }}</option> }</select></div> }
+        </div>
+        @if (match.status === 'ongoing' || editingMatch() === match.id) {
+          <div class="result-controls">
+            @if (resultError() && resultErrorMatchId() === match.id) { <p class="notice error" role="alert">{{ resultError() }}</p> }
+            <div class="field winner-field"><label [for]="'winner-' + match.id">Winning team (optional)</label><select [id]="'winner-' + match.id" [ngModel]="resultDraft(match).winner" (ngModelChange)="updateResult(match, { winner: $event })"><option value="">No winner</option><option value="1">Team 1</option><option value="2">Team 2</option></select></div>
+            <div class="field score-field"><label [for]="'score-one-' + match.id">Team 1 score</label><input [id]="'score-one-' + match.id" type="number" min="0" max="999" step="1" placeholder="Optional" [ngModel]="resultDraft(match).team1" (ngModelChange)="updateResult(match, { team1: $event === null ? '' : '' + $event })" /></div>
+            <div class="field score-field"><label [for]="'score-two-' + match.id">Team 2 score</label><input [id]="'score-two-' + match.id" type="number" min="0" max="999" step="1" placeholder="Optional" [ngModel]="resultDraft(match).team2" (ngModelChange)="updateResult(match, { team2: $event === null ? '' : '' + $event })" /></div>
+            <button type="button" class="primary" (click)="saveResult(match)">{{ match.status === 'ongoing' ? 'End match' : 'Save result' }}</button>
+            @if (match.status === 'ongoing') { <button type="button" class="text-button" (click)="cancelMatch(match.id)">Cancel match</button> } @else { <button type="button" class="text-button" (click)="cancelResultEdit(match.id)">Cancel edit</button> }
+          </div>
+        } @else { <button type="button" class="secondary" (click)="editingMatch.set(match.id)">Edit result</button> }
+      </article>
+  </ng-template>
+
+  @if (importRows().length) {
+    <section class="import-review" aria-labelledby="review-heading">
+      <div class="roster-heading"><div><p class="eyebrow">{{ importFileName() }}</p><h2 id="review-heading">Review imported players</h2></div><span>{{ importRows().length }} found in file</span></div>
+      <div class="review-list">
+        @for (row of importRows(); track $index; let index = $index) {
+          <div class="review-row" [class.excluded]="!row.included">
+            <label class="include"><input type="checkbox" [checked]="row.included" (change)="updateImport(index, { included: $any($event.target).checked })" /><span>{{ row.name }}</span></label>
+            <div class="matches">
+              @if (row.matches.length) {
+                <span class="match-status">{{ row.matches.length }} matching member{{ row.matches.length === 1 ? '' : 's' }}</span>
+                @for (member of row.matches; track member.memberId) { <button type="button" class="text-button" (click)="openMemberProfile(member.memberId, member.name)">{{ member.name }} ({{ member.reClubId }})</button> }
+                <select [attr.aria-label]="'Identity for ' + row.name" [disabled]="!row.included" [ngModel]="row.selection" (ngModelChange)="updateImport(index, { selection: $event })">@for (member of row.matches; track member.memberId) { <option [value]="member.memberId">{{ member.name }} (member)</option> }<option value="guest">Add as non-member</option></select>
+              } @else { <span class="muted">No member found &middot; Non-member</span> }
+            </div>
+            <select [attr.aria-label]="'Category for imported ' + row.name" [disabled]="!row.included" [ngModel]="row.category" (ngModelChange)="updateImport(index, { category: $event })">@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select>
+          </div>
+        }
+      </div>
+      <div class="review-actions"><button type="button" class="secondary" (click)="importRows.set([])">Cancel</button><button type="button" class="primary" [disabled]="pendingImport() || !importRows().length" (click)="addImport()">Add selected players</button></div>
+    </section>
+  }
+  </fieldset>
+  @if (profileMember(); as member) {
+    <app-member-profile-frame [memberId]="member.memberId" [memberName]="member.name" (closed)="closeMemberProfile()" />
+  }
+</main>

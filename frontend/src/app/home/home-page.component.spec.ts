@@ -75,6 +75,7 @@ describe('HomePageComponent', () => {
       'Masters of the Arena',
       'Tournaments',
       'Player validations',
+      'Open Play board',
       'My balances',
       'My points & rewards',
       'Logout',
@@ -86,6 +87,7 @@ describe('HomePageComponent', () => {
       '/masters-of-the-arena',
       '/tournaments',
       '/club-player-validations',
+      '/open-play-board',
       '/my-balances',
       '/my-rewards',
     ]);
@@ -110,7 +112,7 @@ describe('HomePageComponent', () => {
     }
     expect(Array.from(compiled.querySelectorAll('.menu-index')).map(
       (item) => item.textContent?.trim(),
-    )).toEqual(Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0')));
+    )).toEqual(Array.from({ length: 13 }, (_, index) => String(index + 1).padStart(2, '0')));
   });
 
   it.each(['member', 'club-owner', 'balance-staff'] as const)(
@@ -120,6 +122,7 @@ describe('HomePageComponent', () => {
       fixture.detectChanges();
       const compiled = fixture.nativeElement as HTMLElement;
       expect(compiled.querySelector('a[href="/admin"]')).toBeNull();
+      expect(!!compiled.querySelector('a[href="/open-play-matching"]')).toBe(role === 'balance-staff');
       expect(!!compiled.querySelector('a[href="/member-points"]')).toBe(role === 'balance-staff');
       expect(!!compiled.querySelector('a[href="/member-balances"]')).toBe(role === 'balance-staff');
     },

@@ -12,7 +12,7 @@ export const corsOptions: CorsOptions = {
     callback(new Error(`Origin ${origin} is not allowed by CORS.`), false);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x-dashboard-password'],
 };
 

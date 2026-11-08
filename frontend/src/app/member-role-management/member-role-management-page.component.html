@@ -1,0 +1,48 @@
+<main class="role-management-shell">
+  <header class="page-heading">
+    <p class="eyebrow">Administration</p>
+    <h1>Manage member roles</h1>
+  </header>
+
+  <section class="role-panel" aria-labelledby="role-list-title">
+    <div class="panel-heading">
+      <div>
+        <h2 id="role-list-title">Member access</h2>
+        <p>Changes apply immediately after saving. Admin access includes all administrative operations.</p>
+      </div>
+      <label class="search-control">
+        <span>Search members</span>
+        <input type="search" placeholder="Name, member ID, or club" [value]="searchTerm()" (input)="updateSearchTerm($any($event.target).value)" />
+      </label>
+    </div>
+
+    @if (errorMessage()) { <p class="notice error" role="alert">{{ errorMessage() }}</p> }
+    @if (feedbackMessage()) { <p class="notice success" role="status">{{ feedbackMessage() }}</p> }
+    @if (isLoading()) {
+      <p class="empty-state" role="status">Loading members...</p>
+    } @else if (filteredMembers().length) {
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th scope="col">Member</th><th scope="col">Club</th><th scope="col">Role</th><th scope="col"><span class="visually-hidden">Save role</span></th></tr></thead>
+          <tbody>
+            @for (member of filteredMembers(); track member.memberId) {
+              <tr>
+                <td><strong>{{ member.name }}</strong><small>{{ member.memberId }}</small></td>
+                <td>{{ member.clubName }}</td>
+                <td>
+                  <select [value]="selectedRole(member)" [disabled]="savingMemberId() !== '' || isCurrentAdmin(member)" (change)="setRole(member, $any($event.target).value)" [attr.aria-label]="'Role for ' + member.name">
+                    @for (role of roles; track role.value) { <option [value]="role.value">{{ role.label }}</option> }
+                  </select>
+                  @if (isCurrentAdmin(member)) { <small class="protected-note">Your admin access cannot be changed here.</small> }
+                </td>
+                <td class="action-cell"><button type="button" (click)="saveRole(member)" [disabled]="!isChanged(member) || savingMemberId() !== '' || isCurrentAdmin(member)">{{ savingMemberId() === member.memberId ? 'Saving...' : 'Save' }}</button></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    } @else {
+      <p class="empty-state">No members match that search.</p>
+    }
+  </section>
+</main>

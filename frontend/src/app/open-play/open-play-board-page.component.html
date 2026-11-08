@@ -1,0 +1,58 @@
+<main class="board-shell">
+  <header class="board-header">
+    <h1>Open Play</h1>
+    <span class="feed-state" [class.stale]="feedState() !== 'Live'" role="status">{{ feedState() }}</span>
+  </header>
+
+  @if (board()?.active) {
+  <section aria-labelledby="next-players-heading">
+    <h2 id="next-players-heading">Next Players</h2>
+    <div class="next-grid">
+      @for (player of nextPlayerSlots(); track $index; let index = $index) {
+        <div class="next-player">
+          <span class="slot-label">Team {{ index < 2 ? 1 : 2 }} · Player {{ index % 2 + 1 }}</span>
+          @let memberType = player?.membershipType ?? 'non-member';
+          <strong><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ player?.name || 'Open slot' }}</span></strong>
+          @if (player) { <span class="player-detail">{{ player.category }} · {{ player.line === 'normal' ? 'Regular line' : 'Winners line' }}</span> }
+        </div>
+      }
+    </div>
+  </section>
+
+  <div class="line-grid">
+    <section aria-labelledby="regular-line-heading">
+      <h2 id="regular-line-heading">Regular Line</h2>
+      @if (board()?.regularLine?.length) {
+        <ol class="player-list">
+          @for (player of board()!.regularLine; track player.id; let index = $index) {
+            <li><span class="line-number">{{ index + 1 }}</span><span class="board-player-name"><strong><span [class.membership-name-frame]="player.membershipType !== 'non-member'" [class.silver-frame]="player.membershipType === 'member'" [class.gold-frame]="player.membershipType === 'gold-member'">{{ player.name }}</span></strong></span><span>{{ player.category }}</span><span>Waiting {{ formatBenchTime(player.waitMs) }}</span>@if (!player.available) { <span class="unavailable">Unavailable</span> }</li>
+          }
+        </ol>
+      } @else { <p class="empty">No players waiting.</p> }
+    </section>
+
+    <section aria-labelledby="winners-line-heading">
+      <h2 id="winners-line-heading">Winners Line</h2>
+      @if (board()?.winnersLine?.length) {
+        <ol class="player-list">
+          @for (player of board()!.winnersLine; track player.id; let index = $index) {
+            <li><span class="line-number">{{ index + 1 }}</span><span class="board-player-name"><strong><span [class.membership-name-frame]="player.membershipType !== 'non-member'" [class.silver-frame]="player.membershipType === 'member'" [class.gold-frame]="player.membershipType === 'gold-member'">{{ player.name }}</span></strong></span><span>{{ player.category }}</span><span>Waiting {{ formatBenchTime(player.waitMs) }}</span>@if (!player.available) { <span class="unavailable">Unavailable</span> }</li>
+          }
+        </ol>
+      } @else { <p class="empty">No players waiting.</p> }
+    </section>
+    <section aria-labelledby="top-five-heading">
+      <h2 id="top-five-heading">Top 5</h2>
+      @if (board()?.topFive?.length) {
+        <ol class="top-list">
+          @for (player of board()!.topFive; track player.id) {
+            <li><span class="board-player-name"><strong><span [class.membership-name-frame]="player.membershipType !== 'non-member'" [class.silver-frame]="player.membershipType === 'member'" [class.gold-frame]="player.membershipType === 'gold-member'">{{ player.name }}</span></strong></span><span>{{ player.percent | number:'1.0-1' }}%</span><span>{{ player.wins }} wins · {{ player.games }} games</span></li>
+          }
+        </ol>
+      } @else { <p class="empty">No completed games.</p> }
+    </section>
+  </div>
+  } @else if (board()) {
+    <p class="empty" role="status">Open Play is not active.</p>
+  }
+</main>

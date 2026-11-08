@@ -629,6 +629,7 @@ export interface EmailVerificationResult {
 @Injectable()
 export class AppService {
   private readonly logger = new Logger(AppService.name);
+  private goldMembershipExpiryCache: { expiresAt: number; values: Map<string, string | null> } | null = null;
   private readonly monthNames = [
     'January',
     'February',
@@ -1552,6 +1553,52 @@ export class AppService {
     }
 
     return members.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async getOpenPlayMembers(sessionToken: string) {
+    await this.requireBalanceManagerSession(sessionToken);
+    const members: { memberId: string; name: string; reClubId: string; skills: Record<string, number | null>; goldMembershipExpiresOn: string | null }[] = [];
+    try {
+      const entities = this.getMembersTableClient().listEntities({
+        queryOptions: {
+          filter: "PartitionKey eq 'members'",
+          select: ['RowKey', 'Name', 'ReclubId', 'Skills', 'Status', 'EmailValidated', 'GoldMembershipExpiresOn'],
+        },
+      });
+      for await (const entity of entities) {
+        const memberId = String(entity.rowKey ?? '');
+        if (!memberId || !String(entity.Name ?? '').trim() || entity.Status !== 'Approved' || entity.EmailValidated !== true) continue;
+        const member = this.toAuthenticatedMember(memberId, entity);
+        members.push({ memberId, name: member.name, reClubId: member.reClubId, skills: member.skills, goldMembershipExpiresOn: member.goldMembershipExpiresOn ?? null });
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return members.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async getOpenPlayGoldMembershipExpiries(sessionToken: string, memberIds: string[]) {
+    await this.getMemberSession(sessionToken);
+    const now = Date.now();
+    if (!this.goldMembershipExpiryCache || this.goldMembershipExpiryCache.expiresAt <= now) {
+      const values = new Map<string, string | null>();
+      try {
+        const entities = this.getMembersTableClient().listEntities({
+          queryOptions: {
+            filter: "PartitionKey eq 'members'",
+            select: ['RowKey', 'GoldMembershipExpiresOn'],
+          },
+        });
+        for await (const entity of entities) {
+          const memberId = String(entity.rowKey ?? '');
+          if (memberId) values.set(memberId, String(entity.GoldMembershipExpiresOn ?? '') || null);
+        }
+      } catch (error) {
+        throw this.createMemberAuthenticationStorageException(error);
+      }
+      this.goldMembershipExpiryCache = { expiresAt: now + 60_000, values };
+    }
+    return Object.fromEntries([...new Set(memberIds)].map((memberId) => [memberId, this.goldMembershipExpiryCache!.values.get(memberId) ?? null]));
   }
 
   async getClubs(sessionToken: string): Promise<ClubSummary[]> {

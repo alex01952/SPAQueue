@@ -10,6 +10,11 @@ import { RouterLink } from '@angular/router';
 export class AdminPageComponent {
   protected readonly menuItems = [
     {
+      label: 'Manage member roles',
+      description: 'Assign member, club owner, balance staff, and admin access.',
+      route: '/member-role-management',
+    },
+    {
       label: 'Rewards store',
       description: 'Configure rewards and merchants, and view all redemptions.',
       route: '/store-admin',
@@ -20,9 +25,9 @@ export class AdminPageComponent {
       route: '/email-announcements',
     },
     {
-      label: 'Queueing',
-      description: 'Manage check-ins, courts, and the next games.',
-      route: '/queue-dashboard',
+      label: 'Open Play matching',
+      description: 'Prepare the player list for an Open Play session.',
+      route: '/open-play-matching',
     },
     {
       label: 'Upload participation',

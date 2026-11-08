@@ -17,24 +17,29 @@ describe('AdminPageComponent', () => {
     const links = Array.from(compiled.querySelectorAll<HTMLAnchorElement>('.home-menu a'));
 
     expect(links.map((link) => link.querySelector('strong')?.textContent)).toEqual([
-      'Rewards store', 'Email announcements', 'Queueing', 'Upload participation',
+      'Manage member roles', 'Rewards store', 'Email announcements', 'Open Play matching', 'Upload participation',
       'Registration approvals', 'Manage clubs', 'Manage tournaments',
     ]);
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
-      '/store-admin', '/email-announcements', '/queue-dashboard',
+      '/member-role-management', '/store-admin', '/email-announcements', '/open-play-matching',
       '/open-play-participation/upload', '/member-registration-approvals',
       '/club-management', '/tournament-management',
     ]);
-    expect(links[0].textContent).toContain('view all redemptions');
+    expect(links[1].textContent).toContain('view all redemptions');
     expect(compiled.querySelector('a[href="/home"]')?.textContent).toContain('Back to Member Home');
+    expect(routes.some((route) => route.path === 'queue-dashboard')).toBe(false);
 
     for (const path of ['admin', ...links.map((link) => link.getAttribute('href')!.slice(1))]) {
       const route = routes.find((entry) => entry.path === path)!;
       expect(route.canActivate).toContain(memberAuthGuard);
       expect(route.canActivate).toContain(memberRoleGuard);
-      expect(route.data?.['allowedRoles']).toEqual(['admin']);
+      expect(route.data?.['allowedRoles']).toEqual(path === 'open-play-matching'
+        ? ['admin', 'balance-staff']
+        : ['admin']);
       if (path !== 'admin') {
-        expect(route.data?.['breadcrumbParent']).toEqual({ label: 'Admin', route: '/admin' });
+        expect(route.data?.['breadcrumbParent']).toEqual(path === 'open-play-matching'
+          ? { label: 'Member Home', route: '/home' }
+          : { label: 'Admin', route: '/admin' });
       }
     }
   });

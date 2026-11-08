@@ -33,7 +33,8 @@ describe('Balance staff route permissions', () => {
   it('allows balance staff on balance and points management but not admin-only routes', async () => {
     expect(await evaluate('member-balances')).toBe(true);
     expect(await evaluate('member-points')).toBe(true);
-    const others = routes.filter((route) => !['member-balances', 'member-points'].includes(route.path ?? '') && route.canActivate?.includes(memberRoleGuard));
+    expect(await evaluate('open-play-matching')).toBe(true);
+    const others = routes.filter((route) => !['member-balances', 'member-points', 'open-play-matching'].includes(route.path ?? '') && route.canActivate?.includes(memberRoleGuard));
     expect(others.length).toBeGreaterThan(0);
     for (const route of others) {
       const result = await evaluate(route.path!);
@@ -50,12 +51,14 @@ describe('Balance staff route permissions', () => {
       role.set(denied);
       expect(await evaluate('member-balances')).not.toBe(true);
       expect(await evaluate('member-points')).not.toBe(true);
+      expect(await evaluate('open-play-matching')).not.toBe(true);
       expect(await evaluate('admin')).not.toBe(true);
     }
     role.set('balance-staff');
     authenticated.set(false);
     expect(await evaluate('member-balances')).not.toBe(true);
     expect(await evaluate('member-points')).not.toBe(true);
+    expect(await evaluate('open-play-matching')).not.toBe(true);
     expect(await evaluate('admin')).not.toBe(true);
   });
 });
