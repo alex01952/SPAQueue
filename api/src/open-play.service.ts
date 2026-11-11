@@ -43,6 +43,7 @@ export interface OpenPlayDraft {
   secondaryEnabled: boolean;
   secondaryForcedCategory: OpenPlayForcedCategory;
   nextPlayerIds: string[] | null;
+  followingPlayerIds?: string[] | null;
   secondaryNextPlayerIds: string[] | null;
   tieBreakSeed: number;
   liveBoardState: OpenPlayLiveBoardState | null;
@@ -58,6 +59,7 @@ export interface OpenPlayLiveBoardState {
   secondaryEnabled: boolean;
   secondaryForcedCategory: OpenPlayForcedCategory;
   nextPlayerIds: string[] | null;
+  followingPlayerIds?: string[] | null;
   secondaryNextPlayerIds: string[] | null;
   tieBreakSeed: number;
   playerLocks: string[][];
@@ -157,10 +159,11 @@ export class OpenPlayService {
       const players = this.validatePlayers(JSON.parse(String(entity.Players)) as unknown);
       const playerLocks = this.validatePlayerLocks(entity.PlayerLocks === undefined ? [] : JSON.parse(String(entity.PlayerLocks)) as unknown, players);
       const forcedCategory = this.validateForcedCategory(entity.ForcedCategory);
-      const secondaryEnabled = this.validateSecondaryEnabled(entity.SecondaryEnabled);
-      const secondaryForcedCategory = this.validateForcedCategory(entity.SecondaryForcedCategory);
+      const secondaryEnabled = false;
+      const secondaryForcedCategory = null;
       const nextPlayerIds = this.validateNextPlayerIds(entity.NextPlayerIds === undefined ? null : JSON.parse(String(entity.NextPlayerIds)) as unknown, players);
-      const secondaryNextPlayerIds = this.validateNextPlayerIds(entity.SecondaryNextPlayerIds === undefined ? null : JSON.parse(String(entity.SecondaryNextPlayerIds)) as unknown, players);
+      const followingPlayerIds = this.validateFollowingPlayerIds(entity.FollowingPlayerIds === undefined ? null : JSON.parse(String(entity.FollowingPlayerIds)) as unknown, players, nextPlayerIds);
+      const secondaryNextPlayerIds = null;
       const tieBreakSeed = this.validateTieBreakSeed(entity.TieBreakSeed);
       const liveBoardState = this.validateLiveBoardState(entity.LiveBoardState ? JSON.parse(String(entity.LiveBoardState)) as unknown : null, players);
       const session = this.validateSessionState(entity.Session ? JSON.parse(String(entity.Session)) as unknown : null);
@@ -193,7 +196,7 @@ export class OpenPlayService {
       const bench = this.validateBench(benchInput, players, matches);
       const matchingMode = this.validateMatchingMode(entity.MatchingMode);
       if (typeof entity.Revision !== 'string' || !entity.Revision) throw new Error('Invalid draft revision');
-      return { players, courts, matches, queue, winnersQueue, bench, unavailable, playerLocks, matchingMode, forcedCategory, secondaryEnabled, secondaryForcedCategory, nextPlayerIds, secondaryNextPlayerIds, tieBreakSeed, liveBoardState, session, benchMigrationNeeded, revision: entity.Revision, courtNameVersion: 1, queueVersion: 4 };
+      return { players, courts, matches, queue, winnersQueue, bench, unavailable, playerLocks, matchingMode, forcedCategory, secondaryEnabled, secondaryForcedCategory, nextPlayerIds: liveBoardState ? liveBoardState.nextPlayerIds : nextPlayerIds, followingPlayerIds: liveBoardState ? liveBoardState.followingPlayerIds ?? null : followingPlayerIds, secondaryNextPlayerIds, tieBreakSeed, liveBoardState, session, benchMigrationNeeded, revision: entity.Revision, courtNameVersion: 1, queueVersion: 4 };
     } catch (error) {
       if (isMissingTableEntity(error)) return { players: [], courts: [], matches: [], queue: [], winnersQueue: [], bench: {}, unavailable: [], playerLocks: [], matchingMode: defaultMatchingMode, forcedCategory: null, secondaryEnabled: false, secondaryForcedCategory: null, nextPlayerIds: null, secondaryNextPlayerIds: null, tieBreakSeed: 0, liveBoardState: null, session: null, benchMigrationNeeded: false, revision: null, courtNameVersion: 1, queueVersion: 4 };
       if (error instanceof BadRequestException && error.message.includes('MEMBERS_AZURE_STORAGE_ACCOUNT')) throw error;
@@ -256,6 +259,7 @@ export class OpenPlayService {
       secondaryEnabled: liveBoardState?.secondaryEnabled ?? draft.secondaryEnabled,
       secondaryForcedCategory: liveBoardState ? liveBoardState.secondaryForcedCategory : draft.secondaryForcedCategory,
       nextPlayerIds: liveBoardState ? liveBoardState.nextPlayerIds : draft.nextPlayerIds,
+      followingPlayerIds: liveBoardState ? liveBoardState.followingPlayerIds ?? null : draft.followingPlayerIds ?? null,
       secondaryNextPlayerIds: liveBoardState ? liveBoardState.secondaryNextPlayerIds : draft.secondaryNextPlayerIds,
       tieBreakSeed: liveBoardState?.tieBreakSeed ?? draft.tieBreakSeed,
       unavailable: liveBoardState?.unavailable ?? draft.unavailable,
@@ -284,7 +288,8 @@ export class OpenPlayService {
       Matches: '[]', MatchPartCount: 1, MatchPart0: '[]',
       Queue: JSON.stringify(activePlayers.map((player) => player.id)), WinnersQueue: '[]',
       BenchPartCount: 1, BenchPart0: JSON.stringify(bench), Unavailable: '[]',
-      NextPlayerIds: 'null', SecondaryNextPlayerIds: 'null', LiveBoardState: '',
+      NextPlayerIds: JSON.stringify(draft.liveBoardState?.nextPlayerIds ?? draft.nextPlayerIds), SecondaryNextPlayerIds: 'null', LiveBoardState: '',
+      FollowingPlayerIds: JSON.stringify(draft.followingPlayerIds ?? null),
     });
     return this.getDraft(token);
   }
@@ -502,6 +507,7 @@ export class OpenPlayService {
     const cleared = {
       partitionKey: 'drafts', rowKey: 'current', Players: '[]', Queue: '[]', WinnersQueue: '[]', Unavailable: '[]',
       PlayerLocks: '[]', NextPlayerIds: 'null', SecondaryNextPlayerIds: 'null', Courts: JSON.stringify(draft.courts), MatchingMode: draft.matchingMode,
+      FollowingPlayerIds: 'null',
       ForcedCategory: '', LiveBoardState: '', Session: 'null', MatchPartCount: 1, MatchPart0: '[]',
       SecondaryEnabled: false, SecondaryForcedCategory: '',
       BenchPartCount: 1, BenchPart0: '{}', Revision: revision, UpdatedAt: new Date().toISOString(), UpdatedBy: actor.memberId,
@@ -555,6 +561,7 @@ export class OpenPlayService {
       secondaryEnabled: data.secondaryEnabled === undefined ? existing.SecondaryEnabled : data.secondaryEnabled,
       secondaryForcedCategory: data.secondaryForcedCategory === undefined ? existing.SecondaryForcedCategory : data.secondaryForcedCategory,
       nextPlayerIds: data.nextPlayerIds,
+      followingPlayerIds: data.followingPlayerIds === undefined && existing.FollowingPlayerIds !== undefined ? JSON.parse(String(existing.FollowingPlayerIds)) as unknown : data.followingPlayerIds,
       secondaryNextPlayerIds: data.secondaryNextPlayerIds,
       tieBreakSeed: data.tieBreakSeed === undefined ? existing.TieBreakSeed : data.tieBreakSeed,
       playerLocks: data.playerLocks,
@@ -565,6 +572,8 @@ export class OpenPlayService {
       await table.updateEntity({
         partitionKey: 'drafts', rowKey: 'current', LiveBoardState: JSON.stringify(liveBoardState),
         PlayerLocks: JSON.stringify(liveBoardState.playerLocks),
+        NextPlayerIds: JSON.stringify(liveBoardState.nextPlayerIds),
+        FollowingPlayerIds: JSON.stringify(liveBoardState.followingPlayerIds ?? null),
         SecondaryEnabled: liveBoardState.secondaryEnabled, SecondaryForcedCategory: liveBoardState.secondaryForcedCategory ?? '',
         TieBreakSeed: liveBoardState.tieBreakSeed,
       }, 'Merge', { etag: existing.etag });
@@ -596,10 +605,11 @@ export class OpenPlayService {
     const bench = this.validateBench(data.bench, players, matches);
     const matchingMode = this.validateMatchingMode(data.matchingMode);
     const forcedCategory = this.validateForcedCategory(data.forcedCategory);
-    const secondaryEnabled = this.validateSecondaryEnabled(data.secondaryEnabled);
-    const secondaryForcedCategory = this.validateForcedCategory(data.secondaryForcedCategory);
+    const secondaryEnabled = false;
+    const secondaryForcedCategory = null;
     let nextPlayerIds = this.validateNextPlayerIds(data.nextPlayerIds, players);
-    let secondaryNextPlayerIds = this.validateNextPlayerIds(data.secondaryNextPlayerIds, players);
+    let followingPlayerIds = this.validateFollowingPlayerIds(data.followingPlayerIds, players, nextPlayerIds);
+    const secondaryNextPlayerIds = null;
     const serializedBench = JSON.stringify(bench);
     if (serializedBench.length > 400000) throw new BadRequestException('The bench clock data is too large.');
     const benchParts: string[] = [];
@@ -618,6 +628,7 @@ export class OpenPlayService {
     const entity = {
       TieBreakSeed: this.validateTieBreakSeed(data.tieBreakSeed),
       SecondaryNextPlayerIds: JSON.stringify(secondaryNextPlayerIds),
+      FollowingPlayerIds: JSON.stringify(followingPlayerIds),
       SecondaryEnabled: secondaryEnabled, SecondaryForcedCategory: secondaryForcedCategory ?? '',
       partitionKey: 'drafts', rowKey: 'current', Players: serialized, Queue: JSON.stringify(queue), WinnersQueue: JSON.stringify(winnersQueue), Unavailable: JSON.stringify(unavailable), PlayerLocks: JSON.stringify(playerLocks), NextPlayerIds: JSON.stringify(nextPlayerIds), Courts: JSON.stringify(courts), MatchingMode: matchingMode, ForcedCategory: forcedCategory ?? '', LiveBoardState: '', Session: JSON.stringify(sessionState), MatchPartCount: parts.length, BenchPartCount: benchParts.length, Revision: revision,
       ...Object.fromEntries(parts.map((part, index) => [`MatchPart${index}`, part])),
@@ -648,21 +659,20 @@ export class OpenPlayService {
           nextPlayerIds = savedSlots?.map((id) => id && activeIds.has(id) ? id : '') ?? null;
           entity.NextPlayerIds = JSON.stringify(nextPlayerIds);
         }
-        if (data.secondaryNextPlayerIds === undefined && existing.SecondaryNextPlayerIds !== undefined) {
+        if (data.followingPlayerIds === undefined && existing.FollowingPlayerIds !== undefined) {
           const previousPlayers = this.validatePlayers(JSON.parse(String(existing.Players)) as unknown);
-          const savedSlots = this.validateNextPlayerIds(JSON.parse(String(existing.SecondaryNextPlayerIds)) as unknown, previousPlayers);
+          const savedSlots = this.validateNextPlayerIds(JSON.parse(String(existing.FollowingPlayerIds)) as unknown, previousPlayers);
           const activeIds = new Set(players.filter((player) => player.status === 'Active').map((player) => player.id));
-          secondaryNextPlayerIds = savedSlots?.map((id) => id && activeIds.has(id) && !nextPlayerIds?.includes(id) ? id : '') ?? null;
-          entity.SecondaryNextPlayerIds = JSON.stringify(secondaryNextPlayerIds);
+          followingPlayerIds = savedSlots?.map((id) => id && activeIds.has(id) && !nextPlayerIds?.includes(id) ? id : '') ?? null;
         }
+        followingPlayerIds = this.validateFollowingPlayerIds(followingPlayerIds, players, nextPlayerIds);
+        entity.FollowingPlayerIds = JSON.stringify(followingPlayerIds);
         if (data.matchingMode === undefined && existing.MatchingMode !== undefined) entity.MatchingMode = this.validateMatchingMode(existing.MatchingMode);
         if (data.forcedCategory === undefined && existing.ForcedCategory !== undefined) entity.ForcedCategory = this.validateForcedCategory(existing.ForcedCategory) ?? '';
-        if (data.secondaryEnabled === undefined) entity.SecondaryEnabled = this.validateSecondaryEnabled(existing.SecondaryEnabled);
         if (data.tieBreakSeed === undefined) entity.TieBreakSeed = this.validateTieBreakSeed(existing.TieBreakSeed);
-        if (data.secondaryForcedCategory === undefined) entity.SecondaryForcedCategory = this.validateForcedCategory(existing.SecondaryForcedCategory) ?? '';
         await table.updateEntity(entity, 'Replace', { etag: existing.etag });
       }
-      return { players, courts, matches, queue, winnersQueue, bench, unavailable, playerLocks, matchingMode: entity.MatchingMode, forcedCategory: entity.ForcedCategory === '' ? null : entity.ForcedCategory, secondaryEnabled: entity.SecondaryEnabled, secondaryForcedCategory: entity.SecondaryForcedCategory === '' ? null : entity.SecondaryForcedCategory, nextPlayerIds, secondaryNextPlayerIds, tieBreakSeed: entity.TieBreakSeed, liveBoardState: null, session: sessionState, benchMigrationNeeded: false, revision, courtNameVersion: 1, queueVersion: 4 };
+      return { players, courts, matches, queue, winnersQueue, bench, unavailable, playerLocks, matchingMode: entity.MatchingMode, forcedCategory: entity.ForcedCategory === '' ? null : entity.ForcedCategory, secondaryEnabled: entity.SecondaryEnabled, secondaryForcedCategory: entity.SecondaryForcedCategory === '' ? null : entity.SecondaryForcedCategory, nextPlayerIds, followingPlayerIds, secondaryNextPlayerIds, tieBreakSeed: entity.TieBreakSeed, liveBoardState: null, session: sessionState, benchMigrationNeeded: false, revision, courtNameVersion: 1, queueVersion: 4 };
     } catch (error) {
       if (error instanceof ConflictException) throw error;
       if (typeof error === 'object' && error !== null && 'statusCode' in error && (error.statusCode === 409 || error.statusCode === 412 || isMissingTableEntity(error))) {
@@ -729,12 +739,6 @@ export class OpenPlayService {
     return value;
   }
 
-  private validateSecondaryEnabled(value: unknown): boolean {
-    if (value === undefined) return false;
-    if (typeof value !== 'boolean') throw new BadRequestException('Invalid secondary suggestion setting.');
-    return value;
-  }
-
   private validatePlayerLocks(value: unknown, players: OpenPlayPlayer[]): string[][] {
     if (!Array.isArray(value)) throw new BadRequestException('Invalid player locks.');
     const playerIds = new Set(players.map((player) => player.id));
@@ -762,17 +766,25 @@ export class OpenPlayService {
     if (value === undefined || value === null || value === '') return null;
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new BadRequestException('Invalid live board settings.');
     const state = value as Record<string, unknown>;
+    const nextPlayerIds = this.validateNextPlayerIds(state.nextPlayerIds, players);
     return {
       matchingMode: this.validateMatchingMode(state.matchingMode),
       forcedCategory: this.validateForcedCategory(state.forcedCategory),
-      secondaryEnabled: this.validateSecondaryEnabled(state.secondaryEnabled),
-      secondaryForcedCategory: this.validateForcedCategory(state.secondaryForcedCategory),
-      nextPlayerIds: this.validateNextPlayerIds(state.nextPlayerIds, players),
-      secondaryNextPlayerIds: this.validateNextPlayerIds(state.secondaryNextPlayerIds, players),
+      secondaryEnabled: false,
+      secondaryForcedCategory: null,
+      nextPlayerIds,
+      followingPlayerIds: this.validateFollowingPlayerIds(state.followingPlayerIds, players, nextPlayerIds),
+      secondaryNextPlayerIds: null,
       tieBreakSeed: this.validateTieBreakSeed(state.tieBreakSeed),
       playerLocks: this.validatePlayerLocks(state.playerLocks, players),
       unavailable: this.validateLiveUnavailable(state.unavailable, players),
     };
+  }
+
+  private validateFollowingPlayerIds(value: unknown, players: OpenPlayPlayer[], nextPlayerIds: string[] | null): string[] | null {
+    const ids = this.validateNextPlayerIds(value, players);
+    if (ids?.some((id) => id && nextPlayerIds?.includes(id))) throw new BadRequestException('The waiting groups cannot contain the same player.');
+    return ids;
   }
 
   private validateLiveUnavailable(value: unknown, players: OpenPlayPlayer[]): string[] {

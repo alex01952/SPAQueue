@@ -5,7 +5,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, EMPTY, switchMap, timer } from 'rxjs';
 import { getApiBaseUrl } from '../api-base-url';
 import { formatBenchTime, OpenPlayCategory } from './open-play-players';
-import { MatchingMode, MatchingPlayer, suggestNextOpenPlayMatch } from './open-play-matching';
+import { MatchingMode, MatchingPlayer } from './open-play-matching';
 
 interface BoardPlayer extends MatchingPlayer {
   name: string;
@@ -35,6 +35,7 @@ interface OpenPlayBoard {
   secondaryEnabled?: boolean;
   secondaryForcedCategory?: OpenPlayCategory | null;
   nextPlayerIds: string[] | null;
+  followingPlayerIds?: string[] | null;
   secondaryNextPlayerIds?: string[] | null;
   tieBreakSeed?: number;
 }
@@ -56,34 +57,12 @@ export class OpenPlayBoardPageComponent implements OnInit {
     const board = this.board();
     if (!board) return [null, null, null, null];
     const byId = new Map([...board.regularLine, ...board.winnersLine].map((player) => [player.id, player]));
-    if (board.nextPlayerIds) return board.nextPlayerIds.map((id) => id ? byId.get(id) ?? null : null);
-    const suggestion = suggestNextOpenPlayMatch(
-      [...board.regularLine, ...board.winnersLine].filter((player) => player.available),
-      board.matchingMode,
-      board.playerLocks,
-      board.forcedCategory,
-      board.secondaryEnabled ? board.secondaryNextPlayerIds ?? [] : [],
-      board.tieBreakSeed ?? 0,
-    );
-    return suggestion ? suggestion.teams.flat().map((player) => byId.get(player.id) ?? null) : [null, null, null, null];
+    return (board.nextPlayerIds ?? ['', '', '', '']).map((id) => id ? byId.get(id) ?? null : null);
   });
-  protected readonly secondaryPlayerSlots = computed<(BoardPlayer | null)[]>(() => {
+  protected readonly followingPlayerSlots = computed<(BoardPlayer | null)[]>(() => {
     const board = this.board();
-    if (!board?.secondaryEnabled) return [null, null, null, null];
-    const players = [...board.regularLine, ...board.winnersLine];
-    const byId = new Map(players.map((player) => [player.id, player]));
-    const primaryIds = new Set(this.nextPlayerSlots().filter((player): player is BoardPlayer => !!player).map((player) => player.id));
-    if (board.secondaryNextPlayerIds) return board.secondaryNextPlayerIds.map((id) => {
-      const player = byId.get(id);
-      return player?.available && !primaryIds.has(id) ? player : null;
-    });
-    const suggestion = suggestNextOpenPlayMatch(
-      players.filter((player) => player.available), board.matchingMode, board.playerLocks,
-      board.secondaryForcedCategory ?? null,
-      [...primaryIds],
-      board.tieBreakSeed ?? 0,
-    );
-    return suggestion ? suggestion.teams.flat().map((player) => byId.get(player.id) ?? null) : [null, null, null, null];
+    const byId = new Map([...(board?.regularLine ?? []), ...(board?.winnersLine ?? [])].map((player) => [player.id, player]));
+    return (board?.followingPlayerIds ?? ['', '', '', '']).map((id) => id ? byId.get(id) ?? null : null);
   });
 
   ngOnInit() {

@@ -117,24 +117,31 @@ describe('Open Play draft storage', () => {
     expect((await service.getBoard('session')).playerLocks).toEqual([]);
   });
 
-  it('persists and publishes independent primary and secondary lineup selections', async () => {
+  it('preserves a published lineup through reloads, session start, and roster saves', async () => {
     const players = Array.from({ length: 8 }, (_, index) => ({ ...player, id: `lineup-${index}`, memberId: null, status: 'Active' }));
     const nextPlayerIds = players.slice(0, 4).map((entry) => entry.id);
     const secondaryNextPlayerIds = players.slice(4).map((entry) => entry.id);
-    const saved = await service.saveDraft('session', { players, secondaryEnabled: true, nextPlayerIds, secondaryNextPlayerIds, revision: null });
-    expect(await service.getDraft('session')).toMatchObject({ nextPlayerIds, secondaryNextPlayerIds });
-    const { secondaryNextPlayerIds: _secondary, ...olderPayload } = saved;
-    const preserved = await service.saveDraft('session', olderPayload);
-    expect(preserved.secondaryNextPlayerIds).toEqual(secondaryNextPlayerIds);
-    const started = await service.startSession('session', { revision: preserved.revision });
-    expect(started).toMatchObject({ nextPlayerIds: null, secondaryNextPlayerIds: null });
+    const saved = await service.saveDraft('session', { players, revision: null });
+    await service.publishBoardState('session', {
+      matchingMode: 'wait-priority', forcedCategory: null, playerLocks: [], unavailable: [], nextPlayerIds, revision: saved.revision,
+    });
+    expect(JSON.parse(String(row!.NextPlayerIds))).toEqual(nextPlayerIds);
+    row!.NextPlayerIds = 'null';
+    expect(await service.getDraft('session')).toMatchObject({ nextPlayerIds });
+    const started = await service.startSession('session', { revision: saved.revision });
+    expect(started).toMatchObject({ nextPlayerIds, secondaryNextPlayerIds: null });
     const settings = { matchingMode: 'wait-priority', forcedCategory: null, secondaryEnabled: true, secondaryForcedCategory: null, playerLocks: [], unavailable: [], revision: started.revision };
-    await service.publishBoardState('session', { ...settings, nextPlayerIds: null, secondaryNextPlayerIds });
-    expect(await service.getBoard('session')).toMatchObject({ nextPlayerIds: null, secondaryNextPlayerIds });
+    expect(await service.getBoard('session')).toMatchObject({ nextPlayerIds, secondaryNextPlayerIds: null });
+    const { nextPlayerIds: _lineup, ...olderPayload } = started;
+    const preserved = await service.saveDraft('session', { ...olderPayload, queue: players.slice().reverse().map((entry) => entry.id) });
+    expect(await service.getBoard('session')).toMatchObject({ nextPlayerIds });
+    expect(preserved.nextPlayerIds).toEqual(nextPlayerIds);
+    settings.revision = preserved.revision;
     await service.publishBoardState('session', { ...settings, nextPlayerIds, secondaryNextPlayerIds: null });
     expect(await service.getBoard('session')).toMatchObject({ nextPlayerIds, secondaryNextPlayerIds: null });
-    await expect(service.publishBoardState('session', { ...settings, nextPlayerIds, secondaryNextPlayerIds: [players[4].id] })).rejects.toBeInstanceOf(BadRequestException);
-    await expect(service.saveDraft('session', { ...started, secondaryNextPlayerIds: Array(4).fill(players[4].id) })).rejects.toBeInstanceOf(BadRequestException);
+    await service.publishBoardState('session', { ...settings, nextPlayerIds: secondaryNextPlayerIds });
+    expect(await service.getBoard('session')).toMatchObject({ nextPlayerIds: secondaryNextPlayerIds });
+    expect(await service.getDraft('session')).toMatchObject({ nextPlayerIds: secondaryNextPlayerIds });
   });
 
   it('shares and preserves randomized tie-break seeds between draft and board', async () => {
@@ -152,22 +159,44 @@ describe('Open Play draft storage', () => {
     await expect(service.saveDraft('session', { ...draft, tieBreakSeed: -1 })).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('defaults the secondary lineup off and persists its settings through publishing and saving', async () => {
+  it('saves and publishes two disjoint waiting groups and preserves them at session start', async () => {
+    const players = Array.from({ length: 8 }, (_, index) => ({ ...player, id: `waiting-${index}`, memberId: null, status: 'Active' }));
+    const nextPlayerIds = players.slice(0, 4).map((entry) => entry.id);
+    const followingPlayerIds = players.slice(4).map((entry) => entry.id);
+    const saved = await service.saveDraft('session', { players, nextPlayerIds, followingPlayerIds, revision: null });
+    expect(await service.getDraft('session')).toMatchObject({ nextPlayerIds, followingPlayerIds });
+    const started = await service.startSession('session', { revision: saved.revision });
+    expect(started).toMatchObject({ nextPlayerIds, followingPlayerIds });
+    const settings = { matchingMode: 'wait-priority', forcedCategory: null, playerLocks: [], unavailable: [], revision: started.revision };
+    await service.publishBoardState('session', { ...settings, nextPlayerIds: followingPlayerIds, followingPlayerIds: nextPlayerIds });
+    expect(await service.getBoard('session')).toMatchObject({ nextPlayerIds: followingPlayerIds, followingPlayerIds: nextPlayerIds });
+    expect(await service.getDraft('session')).toMatchObject({ nextPlayerIds: followingPlayerIds, followingPlayerIds: nextPlayerIds });
+    await expect(service.publishBoardState('session', { ...settings, nextPlayerIds, followingPlayerIds: nextPlayerIds })).rejects.toThrow('same player');
+    await expect(service.saveDraft('session', { ...started, nextPlayerIds, followingPlayerIds: nextPlayerIds })).rejects.toThrow('same player');
+    await expect(service.publishBoardState('session', { ...settings, nextPlayerIds, followingPlayerIds: [players[4].id] })).rejects.toBeInstanceOf(BadRequestException);
+    const { followingPlayerIds: _following, ...olderPayload } = await service.getDraft('session');
+    const preserved = await service.saveDraft('session', olderPayload);
+    expect(preserved).toMatchObject({ nextPlayerIds: followingPlayerIds, followingPlayerIds: nextPlayerIds });
+  });
+
+  it('ignores legacy secondary settings when loading, publishing, and saving', async () => {
     const saved = await service.saveDraft('session', { players: [player], revision: null });
     expect(saved).toMatchObject({ secondaryEnabled: false, secondaryForcedCategory: null });
     const settings = { matchingMode: saved.matchingMode, forcedCategory: null, nextPlayerIds: null, playerLocks: [], unavailable: [], revision: saved.revision };
+    row!.SecondaryEnabled = true;
+    row!.SecondaryForcedCategory = 'High Intermediate';
+    row!.SecondaryNextPlayerIds = 'invalid legacy lineup';
+    expect(await service.getDraft('session')).toMatchObject({ secondaryEnabled: false, secondaryForcedCategory: null, secondaryNextPlayerIds: null });
     await service.publishBoardState('session', { ...settings, secondaryEnabled: true, secondaryForcedCategory: 'High Intermediate' });
     const reloaded = await service.getDraft('session');
-    expect(reloaded).toMatchObject({ secondaryEnabled: true, secondaryForcedCategory: 'High Intermediate' });
-    expect(await service.getBoard('session')).toMatchObject({ secondaryEnabled: true, secondaryForcedCategory: 'High Intermediate' });
+    expect(reloaded).toMatchObject({ secondaryEnabled: false, secondaryForcedCategory: null });
+    expect(await service.getBoard('session')).toMatchObject({ secondaryEnabled: false, secondaryForcedCategory: null });
     const { secondaryEnabled: _enabled, secondaryForcedCategory: _category, ...olderPayload } = reloaded;
     const preserved = await service.saveDraft('session', olderPayload);
-    expect(preserved).toMatchObject({ secondaryEnabled: true, secondaryForcedCategory: 'High Intermediate' });
+    expect(preserved).toMatchObject({ secondaryEnabled: false, secondaryForcedCategory: null });
     await service.publishBoardState('session', { ...settings, revision: preserved.revision, secondaryEnabled: false, secondaryForcedCategory: null });
     expect(await service.getDraft('session')).toMatchObject({ secondaryEnabled: false, secondaryForcedCategory: null });
     expect(await service.getBoard('session')).toMatchObject({ secondaryEnabled: false, secondaryForcedCategory: null });
-    await expect(service.saveDraft('session', { ...preserved, secondaryEnabled: 'yes' })).rejects.toBeInstanceOf(BadRequestException);
-    await expect(service.publishBoardState('session', { ...settings, revision: preserved.revision, secondaryForcedCategory: 'Expert' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('persists and validates the forced category', async () => {
@@ -197,7 +226,7 @@ describe('Open Play draft storage', () => {
     expect(board.regularLine[0].membershipType).toBe('gold-member');
     expect(board.regularLine[1].membershipType).toBe('member');
     expect(board.regularLine[2].membershipType).toBe('non-member');
-    expect(board.nextPlayerIds).toBeNull();
+    expect(board.nextPlayerIds).toEqual(nextPlayerIds);
     expect(board).not.toHaveProperty('matches');
     expect(board.regularLine[0]).not.toHaveProperty('memberId');
     role = 'admin';

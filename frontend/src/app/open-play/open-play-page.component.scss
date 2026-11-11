@@ -70,6 +70,8 @@ button:disabled, input:disabled, select:disabled { opacity: .55; cursor: not-all
 .queue-list li .bench-priority { color: #245c42; font-weight: 700; }
 .leaderboard { margin: 0 0 32px; }
 .next-players { margin: 0 0 32px; padding: 18px 0; border-top: 2px solid #284f3b; }
+.on-deck { margin-top: 24px; padding-top: 16px; border-top: 1px solid #b5c5b9; }
+.on-deck h3 { margin: 0 0 12px; font-size: 1rem; }
 .court-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 12px; max-width: 700px; margin-bottom: 18px; }
 .court-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 .court-tile { min-width: 0; padding: 14px; background: rgba(255, 253, 250, .8); border: 1px solid #c8c0b3; border-top: 3px solid #4f865f; border-radius: 4px; }
@@ -86,10 +88,6 @@ button:disabled, input:disabled, select:disabled { opacity: .55; cursor: not-all
 .match-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
 .slot-target { width: 100%; min-height: 76px; text-align: left; overflow-wrap: anywhere; }
 .slot-target.ready { border: 2px dashed #285d43; }
-.secondary-toggle { display: flex !important; align-items: center; gap: 8px; padding: 8px 0; }
-.secondary-toggle input { width: 18px; height: 18px; margin: 0; accent-color: #285d43; }
-.secondary-slot-label { display: block; margin: 12px 0 6px; font-size: .8rem; font-weight: 700; }
-.secondary-preview { box-sizing: border-box; }
 .match-row { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; padding: 18px 0; border-bottom: 1px solid #d9cdbf; }
 .match-summary { min-width: 0; flex: 1 1 260px; }
 .match-label { color: #245c42; font-size: .75rem; font-weight: 700; text-transform: uppercase; }

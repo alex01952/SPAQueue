@@ -69,16 +69,12 @@
     } @empty { <p class="muted no-matches">No ongoing matches.</p> }
   </section>
   <section class="next-players" aria-labelledby="next-players-heading">
-    <div class="roster-heading"><div><p class="eyebrow">Match preparation</p><h2 id="next-players-heading">Next Players</h2></div><button type="button" class="secondary refresh-suggestions primary-refresh-suggestions" (click)="resetNextPlayers()">Refresh primary</button></div>
+    <div class="roster-heading"><div><p class="eyebrow">Match preparation</p><h2 id="next-players-heading">Next Players</h2></div><button type="button" class="secondary refresh-suggestions" (click)="resetNextPlayers()">Refresh suggestions</button></div>
     @if (matchError()) { <p class="notice error" role="alert">{{ matchError() }}</p> }
     @if (overdueNotSelected()) { <p class="notice error" role="status">{{ overdueNotSelected() }} other player{{ overdueNotSelected() === 1 ? '' : 's' }} waiting 30 minutes or more not included.</p> }
     <div class="field matching-mode"><label for="matching-mode">Matching mode</label><select id="matching-mode" [ngModel]="matchingMode()" (ngModelChange)="changeMatchingMode($event)">@for (mode of matchingModeOptions; track mode.id) { <option [value]="mode.id">{{ mode.label }}</option> }</select></div>
     <div class="field matching-category"><label for="matching-category">Force category</label><select id="matching-category" [ngModel]="forcedCategory()" (ngModelChange)="changeForcedCategory($event)"><option value="">Automatic</option>@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select></div>
-    <label class="secondary-toggle"><input id="secondary-suggestions-enabled" type="checkbox" [checked]="secondaryEnabled()" (change)="changeSecondaryEnabled($any($event.target).checked)" aria-controls="secondary-next-players" /> Secondary suggested players</label>
-    @if (!manualMatchSlots()) {
-      @if (nextSuggestion(); as suggestion) { <p class="match-label">{{ suggestion.mixedLines ? 'Both lines' : suggestion.teams[0][0].line === 'normal' ? 'Normal line' : 'Winners line' }} &middot; {{ suggestion.mixedLevels ? 'Mixed levels' : suggestion.category }} &middot; Combined wait {{ formatBenchTime(suggestion.totalWaitMs) }}</p> }
-      @else { <p class="muted no-matches">No suitable four-player suggestion is available.</p> }
-    }
+    @if (!matchSlots()[0] && !matchSlots()[1] && !matchSlots()[2] && !matchSlots()[3]) { <p class="muted no-matches">No players selected.</p> }
     <div class="match-slots">
       @for (slot of matchSlots(); track $index; let index = $index) {
         @let player = slotPlayer(slot);
@@ -93,38 +89,24 @@
     @if (matchLockConflict(); as group) { <p class="notice error" role="status">{{ playerLockNames(group) }} must all be selected together.</p> }
     <div class="action-row start-game">
       <div class="field match-court"><label for="match-court">Available court</label><select id="match-court" [ngModel]="selectedCourt()" (ngModelChange)="updateSelectedCourt($event)"><option value="">Select court</option>@for (court of availableCourts(); track court.number) { <option [value]="court.number">{{ court.name }} &middot; {{ court.category }}</option> }</select></div>
-      <button type="button" class="primary" [disabled]="!selectedCourtDetails() || !validMatchSlots()" (click)="startMatch()">Start Game</button>
+      <button type="button" class="primary" [disabled]="!selectedCourtDetails() || !validMatchSlots()" (click)="startMatchAndSave()">Start Game</button>
     </div>
-    @if (!manualMatchSlots() && nextSuggestion() && selectedCourtDetails() && nextSuggestion()!.category !== selectedCourtDetails()!.category) { <p class="notice error" role="status">The selected court's category differs from the suggested group.</p> }
-  </section>
-  @if (secondaryEnabled()) {
-    <section class="next-players secondary-next" id="secondary-next-players" aria-labelledby="secondary-next-players-heading">
-      <div class="roster-heading"><div><p class="eyebrow">Match preparation</p><h2 id="secondary-next-players-heading">Secondary Next Players</h2></div><button type="button" class="secondary refresh-suggestions secondary-refresh-suggestions" (click)="resetNextPlayers(true)">Refresh secondary</button></div>
-      <div class="field matching-category"><label for="secondary-matching-category">Force category</label><select id="secondary-matching-category" [ngModel]="secondaryForcedCategory()" (ngModelChange)="changeSecondaryForcedCategory($event)"><option value="">Automatic</option>@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select></div>
-      @if (secondaryMatchError()) { <p class="notice error" role="alert">{{ secondaryMatchError() }}</p> }
-      @if (secondaryCategoryNotice()) { <p class="notice legacy" role="status">{{ secondaryCategoryNotice() }}</p> }
-      @if (!manualSecondaryMatchSlots()) {
-        @if (secondarySuggestion(); as suggestion) { <p class="match-label">{{ suggestion.mixedLines ? 'Both lines' : suggestion.teams[0][0].line === 'normal' ? 'Normal line' : 'Winners line' }} &middot; {{ suggestion.mixedLevels ? 'Mixed levels' : suggestion.category }} &middot; Combined wait {{ formatBenchTime(suggestion.totalWaitMs) }}</p> }
-        @else { <p class="muted no-matches">No suitable four-player suggestion is available.</p> }
-      }
+    <div class="on-deck" aria-labelledby="on-deck-heading">
+      <h3 id="on-deck-heading">On Deck</h3>
       <div class="match-slots">
-        @for (slot of secondaryMatchSlots(); track $index; let index = $index) {
+        @for (slot of followingMatchSlots(); track $index; let index = $index) {
           @let player = slotPlayer(slot);
           @let memberType = player ? playerMembershipType(player) : 'non-member';
           <div class="field next-slot">
-            <label [for]="'secondary-match-slot-' + index">Team {{ index < 2 ? 1 : 2 }} &middot; Player {{ index % 2 + 1 }}</label>
-            <button type="button" class="secondary slot-target secondary-preview" [id]="'secondary-match-slot-' + index" [draggable]="!!player" (dragstart)="dragPlayer($event, slot)" (dragend)="draggingPlayerId.set('')" [class.ready]="!!selectedSwapId() || !!draggingPlayerId()" [attr.aria-label]="(selectedSwapId() ? 'Replace ' : '') + 'Secondary Team ' + (index < 2 ? 1 : 2) + ' player ' + (index % 2 + 1) + ': ' + (player?.name || 'Open slot') + (selectedSwapId() ? ' with ' + slotPlayer(selectedSwapId())?.name : '')" (dragover)="$event.preventDefault()" (drop)="dropPlayer($event, index, true)" (click)="applySelectedPlayer(index, true)"><strong><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ player?.name || 'Open slot' }}</span></strong>@if (player) { <span class="muted"> &middot; {{ player.category }}</span> }</button>
+            <label [for]="'following-match-slot-' + index">Team {{ index < 2 ? 1 : 2 }} &middot; Player {{ index % 2 + 1 }}</label>
+            <button type="button" class="secondary slot-target" [id]="'following-match-slot-' + index" [draggable]="!!player" (dragstart)="dragPlayer($event, slot)" (dragend)="draggingPlayerId.set('')" [class.ready]="!!selectedSwapId() || !!draggingPlayerId()" [attr.aria-label]="'On Deck Team ' + (index < 2 ? 1 : 2) + ' player ' + (index % 2 + 1) + ': ' + (player?.name || 'Open slot')" (dragover)="$event.preventDefault()" (drop)="dropPlayer($event, index, true)" (click)="applySelectedPlayer(index, true)"><strong><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ player?.name || 'Open slot' }}</span></strong>@if (player) { <span class="muted"> &middot; {{ player.category }}</span> }</button>
+            @if (player) { <button type="button" class="text-button unavailable-action" [attr.aria-label]="'Mark ' + player.name + ' not available'" (click)="markUnavailableAndPublish(index, true)">Not available</button> }
           </div>
         }
       </div>
-      @if (secondaryMatchLockConflict(); as group) { <p class="notice error" role="status">{{ playerLockNames(group) }} must all be selected together.</p> }
-      <div class="action-row start-game">
-        <div class="field match-court"><label for="secondary-match-court">Available court</label><select id="secondary-match-court" [ngModel]="secondarySelectedCourt()" (ngModelChange)="updateSelectedCourt($event, true)"><option value="">Select court</option>@for (court of availableCourts(); track court.number) { <option [value]="court.number">{{ court.name }} &middot; {{ court.category }}</option> }</select></div>
-        <button type="button" class="primary" [disabled]="!secondarySelectedCourtDetails() || !validSecondaryMatchSlots()" (click)="startMatch(true)">Start Game</button>
-      </div>
-      @if (!manualSecondaryMatchSlots() && secondarySuggestion() && secondarySelectedCourtDetails() && secondarySuggestion()!.category !== secondarySelectedCourtDetails()!.category) { <p class="notice error" role="status">The selected court's category differs from the suggested group.</p> }
-    </section>
-  }
+      @if (followingMatchLockConflict(); as group) { <p class="notice error" role="status">{{ playerLockNames(group) }} must all be selected together.</p> }
+    </div>
+  </section>
   <section class="queue-section" aria-labelledby="queue-heading">
     <div class="roster-heading"><div><p class="eyebrow">Open Play</p><h2 id="queue-heading">Player lines</h2></div><span>{{ eligiblePlayers().length }} waiting</span></div>
     <div class="queue-columns">
