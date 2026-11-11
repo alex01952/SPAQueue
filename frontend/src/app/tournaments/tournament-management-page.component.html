@@ -96,7 +96,7 @@
                 @if (tournament.termsUrl) { <p>Current terms: <a [href]="apiUrl + tournament.termsUrl" target="_blank" rel="noopener">{{ tournament.termsFileName }}</a></p> }
                 <label><span>Replace terms (PDF, up to 10 MB)</span><input #detailsTermsInput type="file" accept="application/pdf" [disabled]="isSaving() || detailsDraft.removeTerms" (change)="selectDetailsTermsFile(detailsTermsInput)" /></label>
                 @if (tournament.termsUrl) { <label class="remove-terms"><input type="checkbox" name="removeTerms" [(ngModel)]="detailsDraft.removeTerms" /> Remove current terms</label> }
-                <small>Close registration before changing terms. Terms cannot be changed after registrations exist. Existing registrations retain their recorded name and level.</small>
+                <small>Removing terms requires registration to be closed and no registrations to exist. Existing registrations retain their recorded name and level.</small>
                 <button type="submit" class="action-button" [disabled]="detailsForm.invalid || isSaving() || !!tournament.lifecycleState">Save details</button>
                 <button type="button" class="action-button" [disabled]="isSaving()" (click)="editingDetailsId.set(null)">Cancel</button>
               </form>

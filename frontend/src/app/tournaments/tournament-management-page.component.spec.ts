@@ -271,6 +271,27 @@ describe('TournamentManagementPageComponent details editor', () => {
     http.verify();
   });
 
+  it('submits replacement terms for an open tournament with registrations', () => {
+    const openTournament = { ...tournament, registrationClosed: false, termsUrl: '/tournaments/event-1/terms', termsFileName: 'old.pdf' };
+    const component = fixture.componentInstance;
+    component['tournaments'].set([openTournament]);
+    component['editDetails'](openTournament);
+    fixture.detectChanges();
+    const form = (fixture.nativeElement as HTMLElement).querySelector<HTMLFormElement>('.details-form')!;
+    const input = form.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const file = new File(['%PDF-1.7'], 'new.pdf', { type: 'application/pdf' });
+    Object.defineProperty(input, 'files', { value: [file], configurable: true });
+    input.dispatchEvent(new Event('change'));
+    expect(input.disabled).toBe(false);
+    expect(form.textContent).toContain('old.pdf');
+    component['saveDetails'](openTournament);
+    const request = http.expectOne('/admin/tournaments/event-1');
+    expect((request.request.body as FormData).get('termsFile')).toBe(file);
+    request.flush({ ...openTournament, termsFileName: 'new.pdf', version: 'v2' });
+    expect(component['tournaments']()[0].termsFileName).toBe('new.pdf');
+    http.verify();
+  });
+
   it('prevents native navigation when the details form is submitted', () => {
     fixture.componentInstance['editDetails'](tournament);
     fixture.detectChanges();

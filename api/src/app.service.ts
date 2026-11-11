@@ -2183,10 +2183,10 @@ export class AppService {
     if (maxSlots < registrationCount) throw new BadRequestException('Maximum slots cannot be less than the number of approved teams.');
     const removeTerms = input?.removeTerms === true || input?.removeTerms === 'true';
     if (removeTerms && termsFile) throw new BadRequestException('Choose either to remove or replace the terms.');
-    if ((removeTerms || termsFile) && registrations.length) {
+    if (removeTerms && registrations.length) {
       throw new ConflictException('Terms cannot be changed after registrations exist because prior agreements must be preserved.');
     }
-    if ((removeTerms || termsFile) && !tournament.registrationClosed) {
+    if (removeTerms && !tournament.registrationClosed) {
       throw new ConflictException('Close registration before changing the terms.');
     }
     let termsBlobName: string | undefined;

@@ -101,16 +101,20 @@ describe('AppService tournament registration', () => {
       expect(table.updateEntity).not.toHaveBeenCalled();
     });
 
-    it('only changes terms while registration is closed and no registrations exist', async () => {
+    it('replaces terms while registration is open and registrations exist', async () => {
       const buffer = Buffer.from('%PDF-1.7');
       const file = { originalname: 'new.pdf', mimetype: 'application/pdf', size: buffer.length, buffer };
-      await expect(service.updateTournamentDetails('session', tournament.tournamentId, input, file)).rejects.toThrow('prior agreements');
-      service['getTournamentRegistrationEntities'] = jest.fn().mockResolvedValue([]);
-      await expect(service.updateTournamentDetails('session', tournament.tournamentId, input, file)).rejects.toThrow('Close registration');
-      table.getEntity.mockResolvedValue({ rowKey: tournament.tournamentId, Name: tournament.name, Category: tournament.category, Level: tournament.level, MaxSlots: 8, etag: 'v1', RegistrationClosed: true, TermsBlobName: 'old', TermsFileName: 'old.pdf' });
+      table.getEntity.mockResolvedValue({ rowKey: tournament.tournamentId, Name: tournament.name, Category: tournament.category, Level: tournament.level, MaxSlots: 8, etag: 'v1', TermsBlobName: 'old', TermsFileName: 'old.pdf' });
       await expect(service.updateTournamentDetails('session', tournament.tournamentId, input, { ...file, buffer: Buffer.from('not pdf'), size: 7 })).rejects.toThrow('must be a PDF');
       await expect(service.updateTournamentDetails('session', tournament.tournamentId, input, file)).resolves.toMatchObject({ termsFileName: 'new.pdf', termsUrl: expect.stringContaining('/terms') });
       expect(table.updateEntity).toHaveBeenLastCalledWith(expect.objectContaining({ TermsBlobName: expect.stringContaining('tournament-terms/'), TermsFileName: 'new.pdf' }), 'Merge', { etag: 'v1' });
+    });
+
+    it('only removes terms while registration is closed and no registrations exist', async () => {
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, { ...input, removeTerms: true })).rejects.toThrow('prior agreements');
+      service['getTournamentRegistrationEntities'] = jest.fn().mockResolvedValue([]);
+      await expect(service.updateTournamentDetails('session', tournament.tournamentId, { ...input, removeTerms: true })).rejects.toThrow('Close registration');
+      table.getEntity.mockResolvedValue({ rowKey: tournament.tournamentId, Name: tournament.name, Category: tournament.category, Level: tournament.level, MaxSlots: 8, etag: 'v1', RegistrationClosed: true, TermsBlobName: 'old', TermsFileName: 'old.pdf' });
       const removed = await service.updateTournamentDetails('session', tournament.tournamentId, { ...input, removeTerms: true });
       expect(removed.termsUrl).toBeUndefined();
       expect(table.updateEntity).toHaveBeenLastCalledWith(expect.objectContaining({ TermsBlobName: '', TermsFileName: '' }), 'Merge', { etag: 'v1' });
