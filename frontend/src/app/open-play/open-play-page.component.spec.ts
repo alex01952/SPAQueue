@@ -29,7 +29,7 @@ describe('OpenPlayPageComponent', () => {
     localStorage.removeItem('open-play-player-draft-v1');
   });
 
-  function createPage(draft: { players: unknown[]; revision: string | null; playerLocks?: string[][]; forcedCategory?: 'Novice' | 'Intermediate' | 'High Intermediate' | null; nextPlayerIds?: string[] | null } = { players: [], revision: null }) {
+  function createPage(draft: { players: unknown[]; revision: string | null; playerLocks?: string[][]; forcedCategory?: 'Novice' | 'Intermediate' | 'High Intermediate' | null; secondaryEnabled?: boolean; secondaryForcedCategory?: 'Novice' | 'Intermediate' | 'High Intermediate' | null; nextPlayerIds?: string[] | null; secondaryNextPlayerIds?: string[] | null } = { players: [], revision: null }) {
     const fixture = TestBed.createComponent(OpenPlayPageComponent);
     fixture.detectChanges();
     http.expectOne((request) => request.url.endsWith('/open-play/draft') && request.method === 'GET').flush({ courts: [], matches: [], queue: [], winnersQueue: [], bench: {}, unavailable: [], playerLocks: [], matchingMode: 'wait-priority', forcedCategory: null, nextPlayerIds: null, session: null, benchMigrationNeeded: false, courtNameVersion: 1, queueVersion: 4, ...draft });
@@ -39,6 +39,110 @@ describe('OpenPlayPageComponent', () => {
     fixture.detectChanges();
     return fixture;
   }
+
+  it('independently hides setup and history sections while keeping matching visible', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    const root = fixture.nativeElement as HTMLElement;
+    for (const section of component['sectionOptions']) {
+      const toggle = root.querySelector(`#show-open-play-${section.id}`) as HTMLInputElement;
+      const target = root.querySelector(`#${toggle.getAttribute('aria-controls')}`) as HTMLElement;
+      expect(toggle.checked).toBe(true);
+      expect(target.hidden).toBe(false);
+      toggle.click();
+      fixture.detectChanges();
+      expect(toggle.checked).toBe(false);
+      expect(target.hidden).toBe(true);
+      expect(root.querySelector('.next-players')?.closest('[hidden]')).toBeNull();
+      expect(root.querySelector('[aria-labelledby="ongoing-matches-heading"]')?.closest('[hidden]')).toBeNull();
+      expect(root.querySelector('.queue-section')?.closest('[hidden]')).toBeNull();
+    }
+    expect((root.querySelector('.workspace') as HTMLElement).hidden).toBe(true);
+    expect(component['isDirty']()).toBe(false);
+    const rosterToggle = root.querySelector('#show-open-play-roster') as HTMLInputElement;
+    rosterToggle.click();
+    fixture.detectChanges();
+    expect((root.querySelector('#open-play-roster') as HTMLElement).hidden).toBe(false);
+    expect((root.querySelector('#open-play-players') as HTMLElement).hidden).toBe(true);
+    expect(root.querySelector('.workspace')?.classList.contains('single-column')).toBe(true);
+    expect((root.querySelector('.workspace') as HTMLElement).hidden).toBe(false);
+  });
+
+  it('preserves entry, import, roster, and match drafts when sections are hidden and shown', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    component['guestName'].set('Pending guest');
+    component['search'].set('Jenn');
+    component['selectMember'](member);
+    component['newCourtName'].set('Pending court');
+    component['importRows'].set([{ name: 'Imported guest', matches: [], selection: 'guest', category: 'Novice', included: true }]);
+    component['addMember']();
+    const players = component['players']();
+    const participants = Array.from({ length: 4 }, (_, index) => ({ id: `participant-${index}`, name: `Player ${index}`, memberId: null }));
+    const match = {
+      id: 'pending-edit', teams: [participants.slice(0, 2), participants.slice(2, 4)], status: 'completed' as const,
+      winner: null, score: null, court: null, startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:15:00Z',
+    };
+    component['matches'].set([match]);
+    component['editingMatch'].set(match.id);
+    component['updateResult'](match, { winner: '1', team1: '11', team2: '5' });
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    for (const section of component['sectionOptions']) {
+      (root.querySelector(`#show-open-play-${section.id}`) as HTMLInputElement).click();
+    }
+    fixture.detectChanges();
+    expect((root.querySelector('.import-review') as HTMLElement).hidden).toBe(true);
+    for (const section of component['sectionOptions']) {
+      (root.querySelector(`#show-open-play-${section.id}`) as HTMLInputElement).click();
+    }
+    fixture.detectChanges();
+    expect(component['guestName']()).toBe('Pending guest');
+    expect(component['newCourtName']()).toBe('Pending court');
+    expect(component['players']()).toEqual(players);
+    expect(component['importRows']()[0].included).toBe(true);
+    expect((root.querySelector('.import-review') as HTMLElement).hidden).toBe(false);
+    expect(component['editingMatch']()).toBe(match.id);
+    expect(component['resultDraft'](match)).toMatchObject({ winner: '1', team1: '11', team2: '5' });
+    expect(root.querySelector('.result-lineup')).not.toBeNull();
+  });
+
+  it('keeps a single compact save control outside the editor with saving, retry, and saved states', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    const root = fixture.nativeElement as HTMLElement;
+    const bar = root.querySelector('.draft-bar') as HTMLElement;
+    const saveButton = bar.querySelector('.save-roster') as HTMLButtonElement;
+    expect(root.querySelectorAll('.save-roster')).toHaveLength(1);
+    expect(bar.closest('fieldset')).toBeNull();
+    expect(saveButton.getAttribute('aria-label')).toBe('Save changes');
+    expect(saveButton.disabled).toBe(true);
+    component['guestName'].set('New guest');
+    component['guestCategory'].set('Novice');
+    component['addGuest']();
+    fixture.detectChanges();
+    expect(saveButton.disabled).toBe(false);
+    expect(saveButton.textContent).toBe('Save');
+    expect(bar.querySelector('[role="status"]')?.textContent).toContain('Unsaved changes');
+    saveButton.click();
+    fixture.detectChanges();
+    const failed = http.expectOne((request) => request.url.endsWith('/open-play/draft') && request.method === 'PUT');
+    expect(saveButton.disabled).toBe(true);
+    expect(saveButton.getAttribute('aria-busy')).toBe('true');
+    expect(bar.querySelector('[role="status"]')?.textContent).toContain('Saving changes');
+    failed.flush({}, { status: 503, statusText: 'Service Unavailable' });
+    fixture.detectChanges();
+    expect(saveButton.disabled).toBe(false);
+    expect(bar.querySelector('[role="status"]')?.textContent).toContain('Save unavailable');
+    expect(component['players']()).toHaveLength(1);
+    saveButton.click();
+    const request = http.expectOne((entry) => entry.url.endsWith('/open-play/draft') && entry.method === 'PUT');
+    request.flush({ ...request.request.body, revision: 'saved-via-sticky-bar', benchMigrationNeeded: false, courtNameVersion: 1, queueVersion: 4 });
+    fixture.detectChanges();
+    expect(saveButton.disabled).toBe(true);
+    expect(saveButton.getAttribute('aria-busy')).toBe('false');
+    expect(bar.querySelector('[role="status"]')?.textContent).toContain('Changes saved.');
+  });
 
   it('saves member IDs and overrides in the shared draft', () => {
     const fixture = createPage();
@@ -58,7 +162,7 @@ describe('OpenPlayPageComponent', () => {
     component['saveDraft']();
     const request = http.expectOne((item) => item.url.endsWith('/open-play/draft') && item.method === 'PUT');
     expect(request.request.withCredentials).toBe(true);
-    expect(request.request.body).toEqual({ players: component['players'](), courts: [], matches: [], queue: [], winnersQueue: [], bench: component['bench'](), unavailable: [], playerLocks: [], matchingMode: 'wait-priority', forcedCategory: null, nextPlayerIds: null, revision: null });
+    expect(request.request.body).toEqual({ players: component['players'](), courts: [], matches: [], queue: [], winnersQueue: [], bench: component['bench'](), unavailable: [], playerLocks: [], matchingMode: 'wait-priority', forcedCategory: null, secondaryEnabled: false, secondaryForcedCategory: null, nextPlayerIds: null, secondaryNextPlayerIds: null, tieBreakSeed: 0, revision: null });
     const draft = { players: component['players'](), courts: [], matches: [], queue: [], winnersQueue: [], bench: component['bench'](), unavailable: [], playerLocks: [], matchingMode: 'wait-priority', forcedCategory: null, nextPlayerIds: null, revision: 'revision-1', courtNameVersion: 1, queueVersion: 4 };
     request.flush(draft);
     expect(component['isDirty']()).toBe(false);
@@ -66,6 +170,86 @@ describe('OpenPlayPageComponent', () => {
 
     const restored = createPage(draft);
     expect(restored.componentInstance['players']()[0]).toMatchObject({ memberId: 'member-1', category: 'Novice' });
+  });
+
+  it('filters registered players by partial names without changing the saved roster or matching queues', async () => {
+    const players = [
+      { id: 'one', name: 'Alex Park', memberId: 'member-one', category: 'Novice', status: 'Active' },
+      { id: 'two', name: 'Alexandra Lee', memberId: null, category: 'Novice', status: 'Rest' },
+      { id: 'three', name: 'Sam Rivera', memberId: null, category: 'Intermediate', status: 'Not Arrived' },
+    ];
+    const fixture = createPage({ players, revision: 'roster-search' });
+    const component = fixture.componentInstance;
+    const root = fixture.nativeElement as HTMLElement;
+    await fixture.whenStable();
+    const input = root.querySelector('#roster-search') as HTMLInputElement;
+    const queue = [...component['queue']()];
+    const winnersQueue = [...component['winnersQueue']()];
+    const filter = (query: string) => {
+      input.value = query;
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+    };
+
+    filter('  aLeX  ');
+    expect(root.querySelectorAll('.roster-row')).toHaveLength(2);
+    expect(root.querySelector('#open-play-roster .roster-heading')?.textContent).toContain('2 of 3 shown');
+    filter('pAR');
+    expect(root.querySelectorAll('.roster-row')).toHaveLength(1);
+    expect(root.querySelector('.roster-row .player-name strong')?.textContent).toContain('Alex Park');
+    filter('unknown');
+    expect(root.querySelectorAll('.roster-row')).toHaveLength(0);
+    expect(root.querySelector('.roster-list [role="status"]')?.textContent).toContain('No players match');
+    filter('   ');
+    expect(root.querySelectorAll('.roster-row')).toHaveLength(3);
+    expect(root.querySelector('#open-play-roster .roster-heading')?.textContent).toContain('3 total');
+    filter('');
+    expect(root.querySelectorAll('.roster-row')).toHaveLength(3);
+    expect(component['players']()).toEqual(players);
+    expect(component['queue']()).toEqual(queue);
+    expect(component['winnersQueue']()).toEqual(winnersQueue);
+    expect(component['search']()).toBe('');
+    expect(component['isDirty']()).toBe(false);
+  });
+
+  it('updates a filtered player category and status and saves the entire roster', async () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (const name of ['One', 'Two', 'Three', 'Four', 'Target Player']) {
+      component['guestName'].set(name);
+      component['guestCategory'].set('Novice');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    const others = component['players']().slice(0, 4);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const root = fixture.nativeElement as HTMLElement;
+    const input = root.querySelector('#roster-search') as HTMLInputElement;
+    input.value = 'target   PLAYER';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(root.querySelectorAll('.roster-row')).toHaveLength(1);
+    const category = root.querySelector('[aria-label="Category for Target Player"]') as HTMLSelectElement;
+    category.value = 'Intermediate';
+    category.dispatchEvent(new Event('change'));
+    const status = root.querySelector('[aria-label="Status for Target Player"]') as HTMLSelectElement;
+    status.value = 'Rest';
+    status.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(component['players']()[4]).toMatchObject({ category: 'Intermediate', status: 'Rest' });
+    expect(component['players']().slice(0, 4)).toEqual(others);
+    expect(component['queue']()).not.toContain(players[4].id);
+    expect(root.querySelectorAll('.roster-row')).toHaveLength(1);
+
+    component['saveDraft']();
+    const save = http.expectOne((request) => request.url.endsWith('/open-play/draft') && request.method === 'PUT');
+    expect(save.request.body.players).toHaveLength(5);
+    expect(save.request.body.players[4]).toMatchObject({ id: players[4].id, category: 'Intermediate', status: 'Rest' });
+    save.flush({ ...save.request.body, revision: 'filtered-edit', benchMigrationNeeded: false, courtNameVersion: 1, queueVersion: 4 });
+    expect(component['isDirty']()).toBe(false);
   });
 
   it('classifies linked members by active Gold status and identifies guests', () => {
@@ -470,6 +654,256 @@ describe('OpenPlayPageComponent', () => {
     expect(restored.componentInstance['manualMatchSlots']()).toEqual(players.map((player) => player.id));
   });
 
+  it('offers disjoint secondary matches from the same lines and starts them on a separate court', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (const category of ['Intermediate', 'High Intermediate'] as const) {
+      for (let index = 0; index < 4; index++) {
+        component['guestName'].set(`${category} ${index}`);
+        component['guestCategory'].set(category);
+        component['addGuest']();
+      }
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    component['forcedCategory'].set('Intermediate');
+    expect(component['secondaryEnabled']()).toBe(false);
+    expect(component['secondarySuggestion']()).toBeNull();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('#secondary-next-players')).toBeNull();
+    (fixture.nativeElement.querySelector('#secondary-suggestions-enabled') as HTMLInputElement).click();
+    fixture.detectChanges();
+    const categorySelect = fixture.nativeElement.querySelector('#secondary-matching-category') as HTMLSelectElement;
+    categorySelect.value = 'High Intermediate';
+    categorySelect.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.secondary-next .secondary-preview')).toHaveLength(4);
+    const primary = [...component['matchSlots']()];
+    const secondary = [...component['secondaryMatchSlots']()];
+    expect(primary).toEqual(expect.arrayContaining(players.slice(0, 4).map((player) => player.id)));
+    expect(secondary).toEqual(expect.arrayContaining(players.slice(4).map((player) => player.id)));
+    expect(primary.some((id) => secondary.includes(id))).toBe(false);
+    expect(component['queue']()).toEqual(players.map((player) => player.id));
+    component['addCourt']();
+    component['addCourt']();
+    component['manualMatchSlots'].set(primary);
+    component['updateSelectedCourt']('2', true);
+    component['startMatch'](true);
+    expect(component['ongoingMatches']()[0].teams.flat().map((player) => player.id)).toEqual(secondary);
+    expect(component['ongoingMatches']()[0].court?.number).toBe(2);
+    expect(component['matchSlots']()).toEqual(primary);
+    expect(component['secondarySuggestion']()).toBeNull();
+    component['updateSelectedCourt']('1');
+    component['startMatch']();
+    expect(component['ongoingMatches']()).toHaveLength(2);
+    expect(new Set(component['ongoingMatches']().flatMap((match) => match.teams.flat().map((player) => player.id))).size).toBe(8);
+    const secondaryMatch = component['ongoingMatches']()[0];
+    component['saveResult'](secondaryMatch);
+    expect(component['normalLine']().map((player) => player.id)).toEqual(expect.arrayContaining(secondary));
+    component['changeSecondaryEnabled'](false);
+    expect(component['secondarySuggestion']()).toBeNull();
+  });
+
+  it('refreshes an all-High-Intermediate secondary group from the back without changing primary', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (const category of ['Intermediate', 'High Intermediate'] as const) {
+      for (let index = 0; index < 6; index++) {
+        component['guestName'].set(`${category} ${index}`);
+        component['guestCategory'].set(category);
+        component['addGuest']();
+      }
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    component['secondaryEnabled'].set(true);
+    const primary = players.slice(0, 4).map((player) => player.id);
+    component['manualMatchSlots'].set(primary);
+    component['manualSecondaryMatchSlots'].set([players[4].id, players[5].id, players[6].id, players[7].id]);
+    component['changeSecondaryForcedCategory']('High Intermediate');
+    component['resetNextPlayers'](true);
+    expect(component['matchSlots']()).toEqual(primary);
+    expect(component['secondaryMatchSlots']()).toHaveLength(4);
+    expect(component['secondaryMatchSlots']().every((id) => players.slice(6).some((player) => player.id === id))).toBe(true);
+    expect(component['secondaryCategoryNotice']()).toBe('');
+  });
+
+  it('explains when primary reservations or locks prevent a complete forced-category secondary group', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (let index = 0; index < 10; index++) {
+      component['guestName'].set(`Player ${index}`);
+      component['guestCategory'].set(index < 6 ? 'High Intermediate' : 'Intermediate');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    component['secondaryEnabled'].set(true);
+    component['manualMatchSlots'].set(players.slice(0, 4).map((player) => player.id));
+    component['changeSecondaryForcedCategory']('High Intermediate');
+    expect(component['secondaryCategoryNotice']()).toContain('2 available High Intermediate');
+    expect(component['matchSlots']()).toEqual(players.slice(0, 4).map((player) => player.id));
+    component['manualMatchSlots'].set(players.slice(6).map((player) => player.id));
+    component['playerLocks'].set([[players[0].id, players[6].id], [players[1].id, players[7].id], [players[2].id, players[8].id]]);
+    expect(component['secondaryCategoryNotice']()).toContain('Player locks prevent');
+  });
+
+  it('publishes, saves, and restores secondary suggestion settings', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    component['changeSecondaryEnabled'](true);
+    http.expectOne((request) => request.url.endsWith('/open-play/board-state')).flush({});
+    component['changeSecondaryForcedCategory']('High Intermediate');
+    const publish = http.expectOne((request) => request.url.endsWith('/open-play/board-state'));
+    expect(publish.request.body).toMatchObject({ secondaryEnabled: true, secondaryForcedCategory: 'High Intermediate' });
+    publish.flush({});
+    component['saveDraft']();
+    const save = http.expectOne((request) => request.method === 'PUT');
+    expect(save.request.body).toMatchObject({ secondaryEnabled: true, secondaryForcedCategory: 'High Intermediate' });
+    const draft = { ...save.request.body, revision: 'secondary-settings', courtNameVersion: 1, queueVersion: 4, benchMigrationNeeded: false };
+    save.flush(draft);
+    expect(component['isDirty']()).toBe(false);
+    fixture.destroy();
+    const restored = createPage(draft);
+    expect(restored.componentInstance['secondaryEnabled']()).toBe(true);
+    expect(restored.componentInstance['secondaryForcedCategory']()).toBe('High Intermediate');
+  });
+
+  it('publishes a fresh shared tie-break seed when refreshing suggestions', () => {
+    const fixture = createPage();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.25);
+    try {
+      fixture.componentInstance['resetNextPlayers']();
+      const publish = http.expectOne((request) => request.url.endsWith('/open-play/board-state'));
+      expect(publish.request.body.tieBreakSeed).toBe(0x40000000);
+      expect(fixture.componentInstance['tieBreakSeed']()).toBe(0x40000000);
+      publish.flush({});
+    } finally {
+      random.mockRestore();
+    }
+  });
+
+  it('shows the refresh suggestions button even without a manual lineup', () => {
+    const fixture = createPage();
+    expect(fixture.componentInstance['manualMatchSlots']()).toBeNull();
+    const refresh = fixture.nativeElement.querySelector('.refresh-suggestions') as HTMLButtonElement;
+    expect(refresh).not.toBeNull();
+    expect(refresh.textContent).toContain('Refresh primary');
+  });
+
+  it('refreshes primary suggestions after a match returns players while preserving the secondary lineup', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (const category of ['Novice', 'Intermediate', 'High Intermediate'] as const) {
+      for (let index = 0; index < 4; index++) {
+        component['guestName'].set(`${category} ${index}`);
+        component['guestCategory'].set(category);
+        component['addGuest']();
+      }
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    component['forcedCategory'].set('Intermediate');
+    component['secondaryEnabled'].set(true);
+    component['secondaryForcedCategory'].set('High Intermediate');
+    const locks = [[players[4].id, players[5].id]];
+    component['playerLocks'].set(locks);
+    component['addCourt']();
+    component['addCourt']();
+    component['startMatch']();
+    const match = component['ongoingMatches']()[0];
+    expect(match.teams.flat().map((player) => player.id)).toEqual(expect.arrayContaining(players.slice(4, 8).map((player) => player.id)));
+    component['manualMatchSlots'].set(players.slice(0, 4).map((player) => player.id));
+    component['saveResult'](match);
+    expect(component['queue']().slice(-4)).toEqual(match.teams.flat().map((player) => player.id));
+    expect(component['matchSlots']()).toEqual(players.slice(0, 4).map((player) => player.id));
+    const queue = [...component['queue']()];
+    const winnersQueue = [...component['winnersQueue']()];
+    const bench = structuredClone(component['bench']());
+    component['selectedCourt'].set('1');
+    component['secondarySelectedCourt'].set('2');
+    component['selectedSwapId'].set(players[0].id);
+    component['draggingPlayerId'].set(players[1].id);
+    component['matchError'].set('Old error');
+    component['secondaryMatchError'].set('Old secondary error');
+    const secondarySlots = [...component['secondaryMatchSlots']()];
+    component['now'].set(Date.now() - 60000);
+    fixture.detectChanges();
+    const refreshedAt = Date.now();
+    (fixture.nativeElement.querySelector('.refresh-suggestions') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(component['now']()).toBeGreaterThanOrEqual(refreshedAt);
+    expect(component['manualMatchSlots']()).toBeNull();
+    expect(component['matchSlots']()).toEqual(expect.arrayContaining(players.slice(4, 8).map((player) => player.id)));
+    expect(component['secondaryMatchSlots']()).toEqual(expect.arrayContaining(players.slice(8).map((player) => player.id)));
+    expect(component['queue']()).toEqual(queue);
+    expect(component['winnersQueue']()).toEqual(winnersQueue);
+    expect(component['bench']()).toEqual(bench);
+    expect(component['playerLocks']()).toEqual(locks);
+    expect(component['selectedCourt']()).toBe('1');
+    expect(component['secondarySelectedCourt']()).toBe('2');
+    expect(component['selectedSwapId']()).toBe('');
+    expect(component['draggingPlayerId']()).toBe('');
+    expect(component['matchError']()).toBe('');
+    expect(component['secondaryMatchError']()).toBe('Old secondary error');
+    expect(component['secondaryMatchSlots']()).toEqual(secondarySlots);
+    const publish = http.expectOne((request) => request.url.endsWith('/open-play/board-state'));
+    expect(publish.request.body).toMatchObject({ nextPlayerIds: null, secondaryNextPlayerIds: secondarySlots, forcedCategory: 'Intermediate', secondaryEnabled: true, secondaryForcedCategory: 'High Intermediate' });
+    publish.flush({});
+  });
+
+  it.each([false, true])('refreshes only the requested lineup when secondary is %s', (secondary) => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (let index = 0; index < 12; index++) {
+      component['guestName'].set(`Player ${index}`);
+      component['guestCategory'].set('Intermediate');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    const since = new Date().toISOString();
+    component['bench'].set(Object.fromEntries(players.map((player) => [player.id, { accumulatedMs: 0, since }])));
+    component['secondaryEnabled'].set(true);
+    const primary = [...component['matchSlots']()];
+    const other = [...component['secondaryMatchSlots']()];
+    component['manualMatchSlots'].set(primary);
+    component['manualSecondaryMatchSlots'].set(other);
+    component['queue'].set([...players.slice(8), ...players.slice(0, 8)].map((player) => player.id));
+    component['matchError'].set('Primary error');
+    component['secondaryMatchError'].set('Secondary error');
+    component['selectedCourt'].set('1');
+    component['secondarySelectedCourt'].set('2');
+    const queue = [...component['queue']()];
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector(secondary ? '.secondary-refresh-suggestions' : '.primary-refresh-suggestions') as HTMLButtonElement;
+    button.click();
+    fixture.detectChanges();
+    const refreshed = secondary ? component['secondaryMatchSlots']() : component['matchSlots']();
+    expect(refreshed).toEqual(expect.arrayContaining(players.slice(8).map((player) => player.id)));
+    expect(secondary ? component['matchSlots']() : component['secondaryMatchSlots']()).toEqual(secondary ? primary : other);
+    expect(component['matchSlots']().some((id) => component['secondaryMatchSlots']().includes(id))).toBe(false);
+    expect(component['queue']()).toEqual(queue);
+    expect(component['selectedCourt']()).toBe('1');
+    expect(component['secondarySelectedCourt']()).toBe('2');
+    expect(component['matchError']()).toBe(secondary ? 'Primary error' : '');
+    expect(component['secondaryMatchError']()).toBe(secondary ? '' : 'Secondary error');
+    const publish = http.expectOne((request) => request.url.endsWith('/open-play/board-state'));
+    expect(publish.request.body.nextPlayerIds).toEqual(secondary ? primary : null);
+    expect(publish.request.body.secondaryNextPlayerIds).toEqual(secondary ? null : other);
+    publish.flush({});
+    component['saveDraft']();
+    const save = http.expectOne((request) => request.method === 'PUT');
+    const saved = { ...save.request.body, revision: 'refreshed-lineup', benchMigrationNeeded: false, courtNameVersion: 1, queueVersion: 4 };
+    save.flush(saved);
+    expect(component['isDirty']()).toBe(false);
+    fixture.destroy();
+    const restored = createPage(saved).componentInstance;
+    expect(secondary ? restored['matchSlots']() : restored['secondaryMatchSlots']()).toEqual(secondary ? primary : other);
+    expect(restored['isDirty']()).toBe(false);
+  });
+
   it('forces and persists the selected matching category', () => {
     const fixture = createPage();
     const component = fixture.componentInstance;
@@ -655,6 +1089,237 @@ describe('OpenPlayPageComponent', () => {
     component['saveResult'](completed);
     expect(component['playerRecord'](players[0])).toEqual({ wins: 0, losses: 1 });
     expect(component['playerRecord'](players[2])).toEqual({ wins: 1, losses: 0 });
+  });
+
+  it('corrects completed team lineups and player records without changing clocks or locks', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (const name of ['One', 'Two', 'Three', 'Four', 'Replacement']) {
+      component['guestName'].set(name);
+      component['guestCategory'].set('Novice');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    component['addCourt']();
+    component['manualMatchSlots'].set(players.slice(0, 4).map((player) => player.id));
+    component['startMatch']();
+    const ongoing = component['ongoingMatches']()[0];
+    component['updateResult'](ongoing, { winner: '1', team1: '11', team2: '5' });
+    component['saveResult'](ongoing);
+    const completed = component['completedMatches']()[0];
+    const bench = structuredClone(component['bench']());
+    const locks = [[players[0].id, players[1].id]];
+    component['playerLocks'].set(locks);
+
+    component['updateResultPlayer'](completed, 0, players[2].id);
+    expect(component['matches']()[0]).toEqual(completed);
+    expect(component['resultDraft'](completed).teams.flat().map((player) => player.id))
+      .toEqual([players[2].id, players[1].id, players[0].id, players[3].id]);
+    component['updateResultPlayer'](completed, 3, players[4].id);
+    component['saveResult'](completed);
+
+    const corrected = component['completedMatches']()[0];
+    expect(corrected.teams.flat().map((player) => player.id)).toEqual([players[2].id, players[1].id, players[0].id, players[4].id]);
+    expect(corrected).toMatchObject({ startedAt: completed.startedAt, completedAt: completed.completedAt, winner: 1, score: { team1: 11, team2: 5 } });
+    expect(players.map((player) => component['playerRecord'](player))).toEqual([
+      { wins: 0, losses: 1 }, { wins: 1, losses: 0 }, { wins: 1, losses: 0 }, { wins: 0, losses: 0 }, { wins: 0, losses: 1 },
+    ]);
+    expect(component['winnersQueue']()).toEqual([players[2].id, players[1].id]);
+    expect(new Set(component['queue']())).toEqual(new Set([players[0].id, players[3].id, players[4].id]));
+    expect(component['bench']()).toEqual(bench);
+    expect(component['playerLocks']()).toEqual(locks);
+    expect(component['isDirty']()).toBe(true);
+  });
+
+  it('edits completed lineups through the controls and discards canceled edits', async () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (const name of ['One', 'Two', 'Three', 'Four', 'Replacement']) {
+      component['guestName'].set(name);
+      component['guestCategory'].set('Novice');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    const completed = {
+      id: 'editable', teams: [players.slice(0, 2), players.slice(2, 4)], status: 'completed' as const,
+      winner: 1 as const, score: { team1: 11, team2: 5 }, court: null,
+      startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:15:00Z',
+    };
+    component['matches'].set([completed]);
+    component['removePlayer'](players[0].id);
+    fixture.detectChanges();
+    const history = fixture.nativeElement.querySelector('[aria-labelledby="matches-heading"]') as HTMLElement;
+    (history.querySelector('.secondary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    let selectors = history.querySelectorAll('.result-lineup select') as NodeListOf<HTMLSelectElement>;
+    expect(selectors).toHaveLength(4);
+    expect(selectors[0].value).toBe(players[0].id);
+    selectors[0].value = players[2].id;
+    selectors[0].dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(component['matches']()[0]).toEqual(completed);
+    expect(selectors[2].value).toBe(players[0].id);
+    (Array.from(history.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Cancel edit') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(component['matches']()[0]).toEqual(completed);
+    expect(component['resultDrafts']()).toEqual({});
+
+    (history.querySelector('.secondary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    selectors = history.querySelectorAll('.result-lineup select');
+    expect(selectors[0].value).toBe(players[0].id);
+    selectors[0].value = players[4].id;
+    selectors[0].dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    (history.querySelector('.primary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(history.querySelector('.teams')?.textContent).toContain('Replacement / Two');
+    expect(history.querySelector('.result-lineup')).toBeNull();
+    expect(component['players']().map((player) => player.status)).toEqual(Array(4).fill('Not Arrived'));
+
+    component['saveDraft']();
+    const save = http.expectOne((request) => request.url.endsWith('/open-play/draft') && request.method === 'PUT');
+    expect(save.request.body.matches[0].teams.flat().map((player: { id: string }) => player.id))
+      .toEqual([players[4].id, players[1].id, players[2].id, players[3].id]);
+    save.flush({ ...save.request.body, revision: 'edited-lineup', benchMigrationNeeded: false, courtNameVersion: 1, queueVersion: 4 });
+    expect(component['isDirty']()).toBe(false);
+  });
+
+  it('keeps later results authoritative and restores earlier results for removed participants', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (const name of ['One', 'Two', 'Three', 'Four', 'Five', 'Six']) {
+      component['guestName'].set(name);
+      component['guestCategory'].set('Novice');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    const completed = {
+      id: 'corrected', teams: [players.slice(0, 2), players.slice(2, 4)], status: 'completed' as const,
+      winner: 1 as const, score: null, court: null, startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:15:00Z',
+    };
+    const earlier = { ...completed, id: 'earlier', teams: [[players[0], players[4]], [players[1], players[5]]], completedAt: '2026-11-08T09:15:00Z' };
+    const later = { ...completed, id: 'later', teams: [[players[1], players[2]], [players[4], players[5]]], winner: 2 as const, completedAt: '2026-11-08T11:15:00Z' };
+    component['matches'].set([earlier, completed, later]);
+    component['queue'].set([players[1].id, players[2].id, players[3].id]);
+    component['winnersQueue'].set([players[0].id, players[4].id, players[5].id]);
+    const bench = structuredClone(component['bench']());
+
+    component['updateResultPlayer'](completed, 0, players[4].id);
+    component['updateResultPlayer'](completed, 1, players[3].id);
+    component['saveResult'](completed);
+
+    expect(component['queue']()).toEqual([players[1].id, players[2].id]);
+    expect(component['winnersQueue']()).toEqual([players[4].id, players[5].id, players[3].id, players[0].id]);
+    expect(component['lastGameEndedAt'](players[0])).toBe(earlier.completedAt);
+    expect(component['bench']()).toEqual(bench);
+    expect(component['matches']().find((match) => match.id === later.id)).toEqual(later);
+  });
+
+  it('requires a warning and explicit confirmation before deleting a completed match and saves its removal', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    const participants = Array.from({ length: 4 }, (_, index) => ({ id: `deleted-${index}`, name: `Player ${index}`, memberId: null }));
+    const completed = {
+      id: 'delete-me', teams: [participants.slice(0, 2), participants.slice(2, 4)], status: 'completed' as const,
+      winner: 1 as const, score: { team1: 11, team2: 5 }, court: null, startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:15:00Z',
+    };
+    component['matches'].set([completed]);
+    component['saveDraft']();
+    const initialSave = http.expectOne((request) => request.url.endsWith('/open-play/draft') && request.method === 'PUT');
+    initialSave.flush({ ...initialSave.request.body, revision: 'saved-game', benchMigrationNeeded: false, courtNameVersion: 1, queueVersion: 4 });
+    expect(component['isDirty']()).toBe(false);
+    component['deleteCompletedMatch'](completed.id);
+    expect(component['matches']()).toEqual([completed]);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const history = root.querySelector('[aria-labelledby="matches-heading"]') as HTMLElement;
+    (history.querySelector('.delete-match') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(history.querySelector('.delete-confirmation [id]')?.textContent).toContain('cannot be undone after saving');
+    expect(component['matches']()).toEqual([completed]);
+    const cancel = Array.from(history.querySelectorAll('.delete-confirmation button')).find((button) => button.textContent === 'Cancel') as HTMLButtonElement;
+    cancel.click();
+    fixture.detectChanges();
+    expect(history.querySelector('.delete-confirmation')).toBeNull();
+    expect(component['matches']()).toEqual([completed]);
+
+    component['editingMatch'].set(completed.id);
+    component['updateResult'](completed, { winner: '2' });
+    (history.querySelector('.delete-match') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    (history.querySelector('.delete-confirmation .delete-match') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(component['matches']()).toEqual([]);
+    expect(component['resultDrafts']()).toEqual({});
+    expect(component['editingMatch']()).toBe('');
+    expect(component['pendingDeleteMatchId']()).toBe('');
+    expect(component['isDirty']()).toBe(true);
+    expect(history.textContent).toContain('No completed matches');
+    component['saveDraft']();
+    const save = http.expectOne((request) => request.url.endsWith('/open-play/draft') && request.method === 'PUT');
+    expect(save.request.body.matches).toEqual([]);
+    save.flush({ ...save.request.body, revision: 'deleted-game', benchMigrationNeeded: false, courtNameVersion: 1, queueVersion: 4 });
+    expect(component['isDirty']()).toBe(false);
+  });
+
+  it('restores prior results after deletion without changing later games, player status, clocks, or locks', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (const name of ['One', 'Two', 'Three', 'Four', 'Five', 'Six']) {
+      component['guestName'].set(name);
+      component['guestCategory'].set('Novice');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    component['updateStatus'](players[3].id, 'Rest');
+    const deleted = {
+      id: 'delete-result', teams: [players.slice(0, 2), players.slice(2, 4)], status: 'completed' as const,
+      winner: 1 as const, score: null, court: null, startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:15:00Z',
+    };
+    const earlier = { ...deleted, id: 'earlier-result', teams: [[players[0], players[4]], [players[1], players[5]]], winner: 2 as const, completedAt: '2026-11-08T09:15:00Z' };
+    const later = { ...deleted, id: 'later-result', teams: [[players[1], players[2]], [players[4], players[5]]], completedAt: '2026-11-08T11:15:00Z' };
+    const ongoing = { ...deleted, id: 'ongoing-game', status: 'ongoing' as const, winner: null, completedAt: null };
+    component['matches'].set([earlier, deleted, later, ongoing]);
+    component['queue'].set([players[2].id, players[4].id, players[5].id]);
+    component['winnersQueue'].set([players[0].id, players[1].id]);
+    component['playerLocks'].set([[players[0].id, players[1].id]]);
+    const bench = structuredClone(component['bench']());
+    const roster = structuredClone(component['players']());
+    component['pendingDeleteMatchId'].set(deleted.id);
+    component['deleteCompletedMatch'](deleted.id);
+    expect(component['matches']()).toEqual([earlier, later, ongoing]);
+    expect(component['lastGameEndedAt'](players[0])).toBe(earlier.completedAt);
+    expect(component['playerRecord'](players[0])).toEqual({ wins: 0, losses: 1 });
+    expect(component['queue']()).toEqual([players[2].id, players[4].id, players[5].id, players[0].id]);
+    expect(component['winnersQueue']()).toEqual([players[1].id]);
+    expect(component['players']()).toEqual(roster);
+    expect(component['bench']()).toEqual(bench);
+    expect(component['playerLocks']()).toEqual([[players[0].id, players[1].id]]);
+    component['pendingDeleteMatchId'].set(ongoing.id);
+    component['deleteCompletedMatch'](ongoing.id);
+    expect(component['matches']()).toContain(ongoing);
+  });
+
+  it('rejects duplicate players in a completed lineup without changing the saved match', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    const participants = Array.from({ length: 4 }, (_, index) => ({ id: `participant-${index}`, name: `Player ${index}`, memberId: null }));
+    const completed = {
+      id: 'invalid-lineup', teams: [participants.slice(0, 2), participants.slice(2, 4)], status: 'completed' as const,
+      winner: null, score: null, court: null, startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:15:00Z',
+    };
+    component['matches'].set([completed]);
+    component['updateResult'](completed, { teams: [[participants[0], participants[0]], participants.slice(2, 4)] });
+    component['saveResult'](completed);
+    expect(component['resultError']()).toContain('four different players');
+    expect(component['matches']()).toEqual([completed]);
   });
 
   it('ends a match without a result and returns every player to the regular line', () => {
@@ -1285,6 +1950,168 @@ describe('OpenPlayPageComponent', () => {
     expect(component['matchSlots']()[0]).toBe(component['players']()[4].id);
     expect(target.textContent).toContain('Five');
     expect(component['selectedSwapId']()).toBe('');
+  });
+
+  it.each([[0, 1], [0, 2], [3, 0], [1, 1]])('swaps suggested players dragged from slot %i to slot %i', (sourceIndex, targetIndex) => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (const name of ['One', 'Two', 'Three', 'Four']) {
+      component['guestName'].set(name);
+      component['guestCategory'].set('Novice');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    const locks = [[players[0].id, players[1].id]];
+    component['playerLocks'].set(locks);
+    fixture.detectChanges();
+    const before = [...component['matchSlots']()];
+    const slots = fixture.nativeElement.querySelectorAll('.slot-target') as NodeListOf<HTMLButtonElement>;
+    expect(slots[sourceIndex].draggable).toBe(true);
+    let payload = '';
+    const dataTransfer = { setData: (_type: string, value: string) => { payload = value; }, getData: () => payload, effectAllowed: '' };
+    const dragStart = new Event('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(dragStart, 'dataTransfer', { value: dataTransfer });
+    slots[sourceIndex].dispatchEvent(dragStart);
+    expect(component['draggingPlayerId']()).toBe(before[sourceIndex]);
+    const drop = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, 'dataTransfer', { value: dataTransfer });
+    slots[targetIndex].dispatchEvent(drop);
+    fixture.detectChanges();
+
+    const expected = [...before];
+    [expected[sourceIndex], expected[targetIndex]] = [before[targetIndex], before[sourceIndex]];
+    expect(component['matchSlots']()).toEqual(expected);
+    expect(new Set(component['matchSlots']()).size).toBe(4);
+    expect(component['playerLocks']()).toEqual(locks);
+    expect(component['draggingPlayerId']()).toBe('');
+    const publish = http.expectOne((request) => request.url.endsWith('/open-play/board-state'));
+    expect(publish.request.body.nextPlayerIds).toEqual(expected);
+    publish.flush({});
+
+    slots[targetIndex].dispatchEvent(dragStart);
+    slots[targetIndex].dispatchEvent(new Event('dragend', { bubbles: true }));
+    expect(component['draggingPlayerId']()).toBe('');
+  });
+
+  it.each([
+    { source: 'line', secondary: true, sourceIndex: 8, targetIndex: 0 },
+    { source: 'secondary', secondary: true, sourceIndex: 0, targetIndex: 2 },
+    { source: 'secondary', secondary: false, sourceIndex: 1, targetIndex: 0 },
+    { source: 'primary', secondary: true, sourceIndex: 2, targetIndex: 3 },
+  ])('supports $source drag sources into secondary=$secondary slots', ({ source, secondary, sourceIndex, targetIndex }) => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (let index = 0; index < 9; index++) {
+      component['guestName'].set(`Player ${index}`);
+      component['guestCategory'].set('Novice');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    component['secondaryEnabled'].set(true);
+    const primary = players.slice(0, 4).map((player) => player.id);
+    const other = players.slice(4, 8).map((player) => player.id);
+    component['manualMatchSlots'].set([...primary]);
+    component['manualSecondaryMatchSlots'].set([...other]);
+    const queue = [...component['queue']()];
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const sourceButton = root.querySelector(source === 'line' ? '[aria-label="Select or drag Player 8"]' : `#${source === 'secondary' ? 'secondary-' : ''}match-slot-${sourceIndex}`) as HTMLButtonElement;
+    const targetButton = root.querySelector(`#${secondary ? 'secondary-' : ''}match-slot-${targetIndex}`) as HTMLButtonElement;
+    expect(sourceButton.draggable).toBe(true);
+    let payload = '';
+    const dataTransfer = { setData: (_type: string, value: string) => { payload = value; }, getData: () => payload, effectAllowed: '' };
+    const dragStart = new Event('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(dragStart, 'dataTransfer', { value: dataTransfer });
+    sourceButton.dispatchEvent(dragStart);
+    const drop = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, 'dataTransfer', { value: dataTransfer });
+    targetButton.dispatchEvent(drop);
+    fixture.detectChanges();
+    const expectedPrimary = [...primary];
+    const expectedSecondary = [...other];
+    const target = secondary ? expectedSecondary : expectedPrimary;
+    const previous = target[targetIndex];
+    if (source === 'line') target[targetIndex] = players[sourceIndex].id;
+    else {
+      const sourceSlots = source === 'secondary' ? expectedSecondary : expectedPrimary;
+      target[targetIndex] = sourceSlots[sourceIndex];
+      sourceSlots[sourceIndex] = previous;
+    }
+    expect(component['matchSlots']()).toEqual(expectedPrimary);
+    expect(component['secondaryMatchSlots']()).toEqual(expectedSecondary);
+    expect(new Set([...component['matchSlots'](), ...component['secondaryMatchSlots']()]).size).toBe(8);
+    expect(component['queue']()).toEqual(queue);
+    expect(component['draggingPlayerId']()).toBe('');
+    const publish = http.expectOne((request) => request.url.endsWith('/open-play/board-state'));
+    expect(publish.request.body).toMatchObject({ nextPlayerIds: expectedPrimary, secondaryNextPlayerIds: expectedSecondary });
+    publish.flush({});
+    targetButton.dispatchEvent(dragStart);
+    targetButton.dispatchEvent(new Event('dragend', { bubbles: true }));
+    expect(component['draggingPlayerId']()).toBe('');
+  });
+
+  it('places a selected line player into a secondary slot and starts the manually edited lineup', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (let index = 0; index < 9; index++) {
+      component['guestName'].set(`Player ${index}`);
+      component['guestCategory'].set('Novice');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    component['secondaryEnabled'].set(true);
+    component['manualMatchSlots'].set(players.slice(0, 4).map((player) => player.id));
+    component['manualSecondaryMatchSlots'].set(players.slice(4, 8).map((player) => player.id));
+    component['addCourt']();
+    component['secondarySelectedCourt'].set('1');
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    (root.querySelector('[aria-label="Select or drag Player 8"]') as HTMLButtonElement).click();
+    (root.querySelector('#secondary-match-slot-0') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(component['secondaryMatchSlots']()[0]).toBe(players[8].id);
+    expect(component['selectedSwapId']()).toBe('');
+    const expected = [...component['secondaryMatchSlots']()];
+    const start = root.querySelector('.secondary-next .start-game .primary') as HTMLButtonElement;
+    expect(start.disabled).toBe(false);
+    start.click();
+    expect(component['ongoingMatches']()[0].teams.flat().map((player) => player.id)).toEqual(expected);
+    expect(component['matchSlots']()).toEqual(players.slice(0, 4).map((player) => player.id));
+  });
+
+  it('keeps locks enforced and rejects unrelated secondary drops', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (let index = 0; index < 8; index++) {
+      component['guestName'].set(`Locked player ${index}`);
+      component['guestCategory'].set('Novice');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    component['secondaryEnabled'].set(true);
+    component['manualMatchSlots'].set(players.slice(0, 4).map((player) => player.id));
+    component['manualSecondaryMatchSlots'].set(players.slice(4).map((player) => player.id));
+    const locks = [[players[0].id, players[1].id]];
+    component['playerLocks'].set(locks);
+    component['addCourt']();
+    component['secondarySelectedCourt'].set('1');
+    const before = [...component['secondaryMatchSlots']()];
+    const external = { dataTransfer: { getData: () => players[0].id }, preventDefault: vi.fn() } as unknown as DragEvent;
+    component['dropPlayer'](external, 0, true);
+    expect(component['secondaryMatchSlots']()).toEqual(before);
+    component['updateMatchSlot'](0, players[0].id, true);
+    fixture.detectChanges();
+    expect(component['playerLocks']()).toEqual(locks);
+    expect(component['validSecondaryMatchSlots']()).toBe(false);
+    expect(fixture.nativeElement.querySelector('.secondary-next [role="status"]')?.textContent).toContain('must all be selected together');
+    expect((fixture.nativeElement.querySelector('.secondary-next .start-game .primary') as HTMLButtonElement).disabled).toBe(true);
+    component['startMatch'](true);
+    expect(component['ongoingMatches']()).toHaveLength(0);
+    expect(component['secondaryMatchError']()).toContain('Locked players must be selected together');
   });
 
   it('accepts internal drag drops and ignores unrelated or unavailable players', () => {

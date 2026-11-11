@@ -26,7 +26,7 @@ export const matchingModeOptions = [
 export type MatchingMode = typeof matchingModeOptions[number]['id'];
 export const defaultMatchingMode: MatchingMode = 'wait-priority';
 
-type MatchingStrategy = (players: MatchingPlayer[], playerLocks: string[][], forcedCategory: OpenPlayCategory | null) => NextMatchSuggestion | null;
+type MatchingStrategy = (players: MatchingPlayer[], playerLocks: string[][], forcedCategory: OpenPlayCategory | null, tieBreakSeed: number) => NextMatchSuggestion | null;
 
 const matchingStrategies: Record<MatchingMode, MatchingStrategy> = {
   'wait-priority': suggestWaitPriorityMatch,
@@ -40,12 +40,33 @@ const levels: OpenPlayCategory[] = ['Novice', 'Intermediate', 'High Intermediate
 const warningMs = 30 * 60000;
 const nearWarningMs = 25 * 60000;
 
-export function suggestNextOpenPlayMatch(players: MatchingPlayer[], mode: MatchingMode = defaultMatchingMode, playerLocks: string[][] = [], forcedCategory: OpenPlayCategory | null = null): NextMatchSuggestion | null {
-  return matchingStrategies[mode](players, playerLocks, forcedCategory);
+export function suggestNextOpenPlayMatch(players: MatchingPlayer[], mode: MatchingMode = defaultMatchingMode, playerLocks: string[][] = [], forcedCategory: OpenPlayCategory | null = null, excludedPlayerIds: string[] = [], tieBreakSeed = 0): NextMatchSuggestion | null {
+  const excluded = new Set(excludedPlayerIds);
+  return matchingStrategies[mode](players.filter((player) => !excluded.has(player.id)), playerLocks, forcedCategory, tieBreakSeed);
 }
 
-function suggestWaitPriorityMatch(players: MatchingPlayer[], playerLocks: string[][] = [], forcedCategory: OpenPlayCategory | null = null): NextMatchSuggestion | null {
-  if (forcedCategory) return suggestForcedCategoryMatch(players, playerLocks, forcedCategory);
+function tieRank(players: MatchingPlayer[], seed: number): number {
+  const value = `${seed}:${players.map((player) => player.id).sort().join(':')}`;
+  let hash = 2166136261;
+  for (const character of value) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 2246822507);
+  hash ^= hash >>> 13;
+  return hash >>> 0;
+}
+
+function compareSuggestions(left: NextMatchSuggestion, right: NextMatchSuggestion, seed: number): number {
+  const leftPlayers = left.teams.flat();
+  const rightPlayers = right.teams.flat();
+  const leftWait = Math.max(...leftPlayers.map((player) => player.waitMs));
+  const rightWait = Math.max(...rightPlayers.map((player) => player.waitMs));
+  const urgency = (wait: number) => wait >= warningMs ? 2 : wait >= nearWarningMs ? 1 : 0;
+  return urgency(rightWait) - urgency(leftWait) || Number(left.mixedLines) - Number(right.mixedLines) ||
+    rightWait - leftWait || tieRank(rightPlayers, seed) - tieRank(leftPlayers, seed);
+}
+
+function suggestWaitPriorityMatch(players: MatchingPlayer[], playerLocks: string[][] = [], forcedCategory: OpenPlayCategory | null = null, tieBreakSeed = 0): NextMatchSuggestion | null {
+  if (forcedCategory) return suggestForcedCategoryMatch(players, playerLocks, forcedCategory, tieBreakSeed);
   const lockedIds = new Set(playerLocks.flat());
   const availableById = new Map(players.map((player) => [player.id, player]));
   const lockedGroups = playerLocks.filter((group) => group.length >= 2 && group.length <= 4 && group.every((id) => availableById.has(id)))
@@ -54,7 +75,7 @@ function suggestWaitPriorityMatch(players: MatchingPlayer[], playerLocks: string
   const choose = (groups: MatchingPlayer[][]) => groups.flatMap((group) => (forcedCategory ? [forcedCategory] : levels).flatMap((category) => {
     const suggestion = suggestOpenPlayMatch(group, category);
     return suggestion ? [{ ...suggestion, category, totalWaitMs: suggestion.teams.flat().reduce((sum, player) => sum + player.waitMs, 0) }] : [];
-  })).sort((left, right) => right.totalWaitMs - left.totalWaitMs)[0] ?? null;
+  })).sort((left, right) => compareSuggestions(left, right, tieBreakSeed))[0] ?? null;
 
   const regularSuggestion = choose([
     unlocked.filter((player) => player.line === 'normal'),
@@ -70,7 +91,9 @@ function suggestWaitPriorityMatch(players: MatchingPlayer[], playerLocks: string
       ...lockedGroups.filter((_, groupIndex) => groupIndex !== index),
       ...unlocked.map((player) => [player]),
     ].filter((unit) => !forcedCategory || unit.every((player) => player.category === forcedCategory || promotedIds.has(player.id)));
-    const fillers = selectUnits(units, remaining);
+    const sameLineUnits = group.every((player) => player.line === group[0].line)
+      ? units.filter((unit) => unit.every((player) => player.line === group[0].line)) : [];
+    const fillers = selectUnits(sameLineUnits, remaining) ?? selectUnits(units, remaining);
     if (!fillers) continue;
     const selected = [...group, ...fillers];
     const category = forcedCategory ?? levels.slice().reverse().find((level) => selected.some((player) => player.category === level))!;
@@ -81,7 +104,7 @@ function suggestWaitPriorityMatch(players: MatchingPlayer[], playerLocks: string
       category,
       totalWaitMs: selected.reduce((sum, player) => sum + player.waitMs, 0),
     };
-    if (!best || suggestion.totalWaitMs > best.totalWaitMs) best = suggestion;
+    if (!best || compareSuggestions(suggestion, best, tieBreakSeed) < 0) best = suggestion;
   }
   return best;
 }
@@ -92,12 +115,13 @@ interface CategoryPlan {
   levelDistance: number;
   urgency: number;
   totalWait: number;
+  highestWait: number;
   winRateGap: number;
   lineMask: number;
   positionTotal: number;
 }
 
-function suggestForcedCategoryMatch(players: MatchingPlayer[], playerLocks: string[][], forcedCategory: OpenPlayCategory): NextMatchSuggestion | null {
+function suggestForcedCategoryMatch(players: MatchingPlayer[], playerLocks: string[][], forcedCategory: OpenPlayCategory, tieBreakSeed: number): NextMatchSuggestion | null {
   const targetIndex = levels.indexOf(forcedCategory);
   const positions = new Map(players.map((player, index) => [player.id, index]));
   const averageWait = players.length ? players.reduce((sum, player) => sum + player.waitMs, 0) / players.length : 0;
@@ -119,8 +143,9 @@ function suggestForcedCategoryMatch(players: MatchingPlayer[], playerLocks: stri
       players: [...plan.players, player],
       targetCount: plan.targetCount + Number(player.category === forcedCategory),
       levelDistance: plan.levelDistance + levelDistance,
-      urgency: plan.urgency + (player.waitMs >= warningMs ? 3 : player.waitMs >= nearWarningMs ? 2 : player.waitMs > averageWait ? 1 : 0),
+      urgency: Math.max(plan.urgency, player.waitMs >= warningMs ? 3 : player.waitMs >= nearWarningMs ? 2 : player.waitMs > averageWait ? 1 : 0),
       totalWait: plan.totalWait + player.waitMs,
+      highestWait: Math.max(plan.highestWait, player.waitMs),
       winRateGap: plan.winRateGap + winRateGap,
       lineMask: plan.lineMask | (player.line === 'normal' ? 1 : 2),
       positionTotal: plan.positionTotal + (positions.get(player.id) ?? 0),
@@ -128,21 +153,26 @@ function suggestForcedCategoryMatch(players: MatchingPlayer[], playerLocks: stri
   };
   const compare = (left: CategoryPlan, right: CategoryPlan) =>
     right.targetCount - left.targetCount || left.levelDistance - right.levelDistance ||
-    right.urgency - left.urgency || right.totalWait - left.totalWait || left.winRateGap - right.winRateGap ||
+    right.urgency - left.urgency ||
     Number((left.lineMask & (left.lineMask - 1)) !== 0) - Number((right.lineMask & (right.lineMask - 1)) !== 0) ||
-    left.positionTotal - right.positionTotal;
-  const plans = new Map<string, CategoryPlan>();
-  plans.set('0:0', { players: [], targetCount: 0, levelDistance: 0, urgency: 0, totalWait: 0, winRateGap: 0, lineMask: 0, positionTotal: 0 });
-  for (const unit of units) {
-    for (const plan of [...plans.values()]) {
-      if (plan.players.length + unit.length > 4) continue;
-      const extended = unit.reduce(addPlayer, plan);
-      const key = `${extended.players.length}:${extended.lineMask}`;
-      const existing = plans.get(key);
-      if (!existing || compare(extended, existing) < 0) plans.set(key, extended);
+    right.highestWait - left.highestWait || left.winRateGap - right.winRateGap;
+  const choosePlan = (pool: MatchingPlayer[][]) => {
+    const plans = new Map<string, CategoryPlan>();
+    plans.set('0:0', { players: [], targetCount: 0, levelDistance: 0, urgency: 0, totalWait: 0, highestWait: 0, winRateGap: 0, lineMask: 0, positionTotal: 0 });
+    for (const unit of pool) {
+      for (const plan of [...plans.values()]) {
+        if (plan.players.length + unit.length > 4) continue;
+        const extended = unit.reduce(addPlayer, plan);
+        const key = `${extended.players.length}:${extended.lineMask}`;
+        const existing = plans.get(key);
+        if (!existing || (compare(extended, existing) || extended.positionTotal - existing.positionTotal) < 0) plans.set(key, extended);
+      }
     }
-  }
-  const best = [...plans.values()].filter((plan) => plan.players.length === 4).sort(compare)[0];
+    return [...plans.values()].filter((plan) => plan.players.length === 4)
+      .sort((left, right) => compare(left, right) || tieRank(right.players, tieBreakSeed) - tieRank(left.players, tieBreakSeed))[0];
+  };
+  const exactUnits = units.filter((unit) => unit.every((player) => player.category === forcedCategory));
+  const best = choosePlan(exactUnits) ?? choosePlan(units);
   if (!best) return null;
   const suggestionCategory = best.targetCount ? forcedCategory : best.players
     .map((player) => player.category)

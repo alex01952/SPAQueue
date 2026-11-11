@@ -5,19 +5,45 @@
   </header>
 
   @if (board()?.active) {
+  <div class="suggestion-grid" [class.dual]="board()?.secondaryEnabled">
   <section aria-labelledby="next-players-heading">
-    <h2 id="next-players-heading">Next Players</h2>
+    <h2 id="next-players-heading">{{ board()?.forcedCategory || 'Automatic' }}</h2>
     <div class="next-grid">
-      @for (player of nextPlayerSlots(); track $index; let index = $index) {
-        <div class="next-player">
-          <span class="slot-label">Team {{ index < 2 ? 1 : 2 }} · Player {{ index % 2 + 1 }}</span>
-          @let memberType = player?.membershipType ?? 'non-member';
-          <strong><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ player?.name || 'Open slot' }}</span></strong>
-          @if (player) { <span class="player-detail">{{ player.category }} · {{ player.line === 'normal' ? 'Regular line' : 'Winners line' }}</span> }
+      @for (teamIndex of [0, 1]; track teamIndex) {
+        <div class="next-team" role="group" [attr.aria-label]="'Team ' + (teamIndex + 1)">
+          <span class="team-label">Team {{ teamIndex + 1 }}</span>
+          @for (player of nextPlayerSlots().slice(teamIndex * 2, teamIndex * 2 + 2); track $index) {
+            <div class="next-player">
+              @let memberType = player?.membershipType ?? 'non-member';
+              <strong><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ player?.name || 'Open slot' }}</span></strong>
+              @if (player) { <span class="player-detail">{{ player.category }} · {{ player.line === 'normal' ? 'Regular line' : 'Winners line' }}</span> }
+            </div>
+          }
         </div>
       }
     </div>
   </section>
+
+  @if (board()?.secondaryEnabled) {
+    <section class="secondary-next" aria-labelledby="secondary-next-players-heading">
+      <h2 id="secondary-next-players-heading">{{ board()?.secondaryForcedCategory || 'Automatic' }}</h2>
+      <div class="next-grid">
+        @for (teamIndex of [0, 1]; track teamIndex) {
+          <div class="next-team" role="group" [attr.aria-label]="'Team ' + (teamIndex + 1)">
+            <span class="team-label">Team {{ teamIndex + 1 }}</span>
+            @for (player of secondaryPlayerSlots().slice(teamIndex * 2, teamIndex * 2 + 2); track $index) {
+              <div class="next-player">
+                @let memberType = player?.membershipType ?? 'non-member';
+                <strong><span [class.membership-name-frame]="memberType !== 'non-member'" [class.silver-frame]="memberType === 'member'" [class.gold-frame]="memberType === 'gold-member'">{{ player?.name || 'Open slot' }}</span></strong>
+                @if (player) { <span class="player-detail">{{ player.category }} &middot; {{ player.line === 'normal' ? 'Regular line' : 'Winners line' }}</span> }
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </section>
+  }
+  </div>
 
   <div class="line-grid">
     <section aria-labelledby="regular-line-heading">

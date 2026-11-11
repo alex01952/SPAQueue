@@ -21,6 +21,7 @@ interface Player {
   status: PlayerStatus;
 }
 type PlayerStatus = 'Not Arrived' | 'Active' | 'Rest' | 'Left';
+type OpenPlaySection = 'players' | 'roster' | 'courts' | 'completed';
 interface MatchPlayer { id: string; name: string; memberId: string | null; }
 interface Court { number: number; name: string; category: OpenPlayCategory; }
 interface Match {
@@ -33,11 +34,11 @@ interface Match {
   completedAt: string | null;
   court: Court | null;
 }
-interface MatchResultDraft { winner: string; team1: string; team2: string; }
+interface MatchResultDraft { winner: string; team1: string; team2: string; teams: MatchPlayer[][]; }
 interface OpenPlayAwardCandidate { memberId: string; name: string; participated: boolean; topFiveRank: number | null; participationRequestId: string | null; topFiveRequestId: string | null; }
 interface OpenPlayAwardReview { activityDate: string; candidates: OpenPlayAwardCandidate[]; selectedAwardIds: string[]; awardedAwardIds: string[]; skipped: boolean; completed: boolean; completedAt: string | null; }
 interface OpenPlaySession { id: string; active: boolean; startedAt: string; endedAt: string | null; awardReview: OpenPlayAwardReview | null; }
-interface OpenPlayDraft { players: Player[]; courts: Court[]; matches: Match[]; queue: string[]; winnersQueue: string[]; bench: Record<string, BenchClock>; unavailable: string[]; playerLocks: string[][]; matchingMode: MatchingMode; forcedCategory: OpenPlayCategory | null; nextPlayerIds: string[] | null; session: OpenPlaySession | null; benchMigrationNeeded: boolean; revision: string | null; courtNameVersion: number; queueVersion: number; }
+interface OpenPlayDraft { players: Player[]; courts: Court[]; matches: Match[]; queue: string[]; winnersQueue: string[]; bench: Record<string, BenchClock>; unavailable: string[]; playerLocks: string[][]; matchingMode: MatchingMode; forcedCategory: OpenPlayCategory | null; secondaryEnabled?: boolean; secondaryForcedCategory?: OpenPlayCategory | null; nextPlayerIds: string[] | null; secondaryNextPlayerIds?: string[] | null; tieBreakSeed?: number; session: OpenPlaySession | null; benchMigrationNeeded: boolean; revision: string | null; courtNameVersion: number; queueVersion: number; }
 interface ImportRow {
   name: string;
   matches: OpenPlayMember[];
@@ -61,11 +62,23 @@ export class OpenPlayPageComponent implements OnInit {
   private readonly apiUrl = getApiBaseUrl();
   private nextId = 0;
   private fileReadVersion = 0;
+  protected readonly sectionOptions = [
+    { id: 'players', label: 'Add players' },
+    { id: 'roster', label: 'Current roster' },
+    { id: 'courts', label: 'Virtual courts' },
+    { id: 'completed', label: 'Completed matches' },
+  ] as const;
+  protected readonly visibleSections = signal<Record<OpenPlaySection, boolean>>({ players: true, roster: true, courts: true, completed: true });
   protected readonly categories = categories;
   protected readonly members = signal<OpenPlayMember[]>([]);
   protected readonly matchingModeOptions = matchingModeOptions;
   protected readonly matchingMode = signal<MatchingMode>(defaultMatchingMode);
+  protected readonly tieBreakSeed = signal(0);
   protected readonly forcedCategory = signal<OpenPlayCategory | ''>('');
+  protected readonly secondaryEnabled = signal(false);
+  protected readonly secondaryForcedCategory = signal<OpenPlayCategory | ''>('');
+  protected readonly secondarySelectedCourt = signal('');
+  protected readonly secondaryMatchError = signal('');
   protected readonly loadingMembers = signal(true);
   protected readonly memberError = signal('');
   protected readonly message = signal('');
@@ -100,10 +113,17 @@ export class OpenPlayPageComponent implements OnInit {
   protected readonly resultError = signal('');
   protected readonly resultErrorMatchId = signal('');
   protected readonly manualMatchSlots = signal<string[] | null>(null);
+  protected readonly manualSecondaryMatchSlots = signal<string[] | null>(null);
   protected readonly resultDrafts = signal<Record<string, MatchResultDraft>>({});
   protected readonly editingMatch = signal('');
+  protected readonly pendingDeleteMatchId = signal('');
   protected readonly statuses: PlayerStatus[] = ['Not Arrived', 'Active', 'Rest', 'Left'];
   protected readonly search = signal('');
+  protected readonly rosterSearch = signal('');
+  protected readonly filteredRoster = computed(() => {
+    const query = this.normalize(this.rosterSearch());
+    return query ? this.players().filter((player) => this.normalize(player.name).includes(query)) : this.players();
+  });
   protected readonly selectedMember = signal<OpenPlayMember | null>(null);
   protected readonly profileMember = signal<{ memberId: string; name: string } | null>(null);
   protected readonly memberCategory = signal<OpenPlayCategory | ''>('');
@@ -137,7 +157,8 @@ export class OpenPlayPageComponent implements OnInit {
     return [...this.normalLine().filter((player) => !this.unavailable().includes(player.id)).map((player) => toCandidate(player, 'normal')),
       ...this.winnersLine().filter((player) => !this.unavailable().includes(player.id)).map((player) => toCandidate(player, 'winners'))];
   });
-  protected readonly nextSuggestion = computed(() => suggestNextOpenPlayMatch(this.matchingCandidates(), this.matchingMode(), this.playerLocks(), this.forcedCategory() || null));
+  protected readonly nextSuggestion = computed(() => suggestNextOpenPlayMatch(this.matchingCandidates(), this.matchingMode(), this.playerLocks(), this.forcedCategory() || null,
+    this.secondaryEnabled() ? this.manualSecondaryMatchSlots() ?? [] : [], this.tieBreakSeed()));
   protected readonly matchSlots = computed(() => {
     const eligible = new Set(this.eligiblePlayers().map((player) => player.id));
     const slots = this.manualMatchSlots() ?? this.nextSuggestion()?.teams.flat().map((player) => player.id) ?? ['', '', '', ''];
@@ -154,6 +175,12 @@ export class OpenPlayPageComponent implements OnInit {
     const eligible = new Set(this.eligiblePlayers().map((player) => player.id));
     return this.manualMatchSlots()?.map((id) => id && eligible.has(id) ? id : '') ?? null;
   }
+  protected secondaryNextPlayerIdsForSave() {
+    if (!this.secondaryEnabled()) return null;
+    const eligible = new Set(this.eligiblePlayers().map((player) => player.id));
+    const primary = new Set(this.matchSlots());
+    return this.manualSecondaryMatchSlots()?.map((id) => id && eligible.has(id) && !primary.has(id) ? id : '') ?? null;
+  }
   protected readonly matchLockConflict = computed(() => {
     const selected = new Set(this.matchSlots());
     return this.playerLocks().find((group) => group.some((id) => selected.has(id)) && !group.every((id) => selected.has(id))) ?? null;
@@ -162,12 +189,46 @@ export class OpenPlayPageComponent implements OnInit {
     player.waitMs >= 30 * 60000 && !this.matchSlots().includes(player.id),
   ).length);
   protected readonly selectedCourtDetails = computed(() => this.availableCourts().find((court) => String(court.number) === this.selectedCourt()));
+  protected readonly secondarySuggestion = computed(() => this.secondaryEnabled()
+    ? suggestNextOpenPlayMatch(this.matchingCandidates(), this.matchingMode(), this.playerLocks(), this.secondaryForcedCategory() || null, this.matchSlots(), this.tieBreakSeed())
+    : null);
+  protected readonly secondaryCategoryNotice = computed(() => {
+    const category = this.secondaryForcedCategory();
+    if (!this.secondaryEnabled() || !category || this.manualSecondaryMatchSlots()) return '';
+    const suggestion = this.secondarySuggestion();
+    if (suggestion?.teams.flat().every((player) => player.category === category)) return '';
+    const primary = new Set(this.matchSlots());
+    const available = this.matchingCandidates().filter((player) => player.category === category && !primary.has(player.id)).length;
+    return available < 4
+      ? `${available} available ${category} player(s) remain outside the primary lineup; four are needed for an all-${category} group.`
+      : `Player locks prevent an all-${category} group from the available players.`;
+  });
+  protected readonly secondaryMatchSlots = computed(() => {
+    if (!this.secondaryEnabled()) return ['', '', '', ''];
+    const eligible = new Set(this.eligiblePlayers().map((player) => player.id));
+    const primary = new Set(this.matchSlots());
+    const slots = this.manualSecondaryMatchSlots() ?? this.secondarySuggestion()?.teams.flat().map((player) => player.id) ?? ['', '', '', ''];
+    return slots.map((id) => eligible.has(id) && !primary.has(id) ? id : '');
+  });
+  protected readonly secondaryMatchLockConflict = computed(() => {
+    const selected = new Set(this.secondaryMatchSlots());
+    return this.playerLocks().find((group) => group.some((id) => selected.has(id)) && !group.every((id) => selected.has(id))) ?? null;
+  });
+  protected readonly validSecondaryMatchSlots = computed(() => {
+    const ids = this.secondaryMatchSlots();
+    return ids.every(Boolean) && new Set(ids).size === 4 && !this.secondaryMatchLockConflict();
+  });
+  protected readonly secondarySelectedCourtDetails = computed(() => this.availableCourts().find((court) => String(court.number) === this.secondarySelectedCourt()));
   protected readonly topPlayers = computed(() => this.players().map((player) => {
     const record = this.playerRecord(player);
     const games = record.wins + record.losses;
     return { player, ...record, games, percent: games ? record.wins * 100 / games : 0 };
   }).filter((entry) => entry.games > 0)
     .sort((left, right) => right.percent - left.percent || right.wins - left.wins || right.games - left.games || left.player.name.localeCompare(right.player.name)).slice(0, 5));
+
+  protected setSectionVisible(section: OpenPlaySection, visible: boolean) {
+    this.visibleSections.update((sections) => ({ ...sections, [section]: visible }));
+  }
 
   ngOnInit() {
     timer(60000, 60000).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.now.set(Date.now()));
@@ -234,8 +295,38 @@ export class OpenPlayPageComponent implements OnInit {
     this.publishNextPlayersState();
   }
 
-  protected resetNextPlayers() {
-    this.manualMatchSlots.set(null);
+  protected resetNextPlayers(secondary = false) {
+    if (secondary) {
+      if (!this.secondaryEnabled()) return;
+      this.manualMatchSlots.set([...this.matchSlots()]);
+      this.manualSecondaryMatchSlots.set(null);
+      this.secondaryMatchError.set('');
+    } else {
+      this.manualSecondaryMatchSlots.set(this.secondaryEnabled() ? [...this.secondaryMatchSlots()] : null);
+      this.manualMatchSlots.set(null);
+      this.selectedSwapId.set('');
+      this.draggingPlayerId.set('');
+      this.matchError.set('');
+    }
+    this.now.set(Date.now());
+    this.tieBreakSeed.set(Math.floor(Math.random() * 0x100000000));
+    this.publishNextPlayersState();
+  }
+
+  protected changeSecondaryEnabled(enabled: boolean) {
+    this.secondaryEnabled.set(enabled);
+    this.manualSecondaryMatchSlots.set(null);
+    this.secondarySelectedCourt.set('');
+    this.secondaryMatchError.set('');
+    this.publishNextPlayersState();
+  }
+
+  protected changeSecondaryForcedCategory(value: string) {
+    if (value !== '' && !categories.includes(value as OpenPlayCategory)) return;
+    if (this.secondaryEnabled()) this.manualMatchSlots.set([...this.matchSlots()]);
+    this.secondaryForcedCategory.set(value as OpenPlayCategory | '');
+    this.manualSecondaryMatchSlots.set(null);
+    this.secondaryMatchError.set('');
     this.publishNextPlayersState();
   }
 
@@ -243,7 +334,9 @@ export class OpenPlayPageComponent implements OnInit {
     if (!this.draftReady() || this.savingDraft()) return;
     this.http.put(`${this.apiUrl}/open-play/board-state`, {
       matchingMode: this.matchingMode(), forcedCategory: this.forcedCategory() || null,
-      nextPlayerIds: this.nextPlayerIdsForSave(), playerLocks: this.playerLocks(), unavailable: this.unavailable(), revision: this.revision,
+      tieBreakSeed: this.tieBreakSeed(),
+      secondaryEnabled: this.secondaryEnabled(), secondaryForcedCategory: this.secondaryForcedCategory() || null,
+      nextPlayerIds: this.nextPlayerIdsForSave(), secondaryNextPlayerIds: this.secondaryNextPlayerIdsForSave(), playerLocks: this.playerLocks(), unavailable: this.unavailable(), revision: this.revision,
     }, { withCredentials: true }).subscribe({
       next: () => {
         if (this.matchError().includes('live board')) this.matchError.set('');
@@ -281,14 +374,14 @@ export class OpenPlayPageComponent implements OnInit {
     if (this.isDirty()) event.preventDefault();
   }
   private revision: string | null = null;
-  private readonly savedState = signal('{"players":[],"courts":[],"matches":[],"queue":[],"winnersQueue":[],"bench":{},"unavailable":[],"playerLocks":[],"matchingMode":"wait-priority","forcedCategory":null,"nextPlayerIds":null}');
+  private readonly savedState = signal('{"players":[],"courts":[],"matches":[],"queue":[],"winnersQueue":[],"bench":{},"unavailable":[],"playerLocks":[],"matchingMode":"wait-priority","forcedCategory":null,"secondaryEnabled":false,"secondaryForcedCategory":null,"nextPlayerIds":null,"secondaryNextPlayerIds":null}');
   protected readonly benchMigrationNeeded = signal(false);
   protected readonly loadingDraft = signal(true);
   protected readonly draftReady = signal(false);
   protected readonly savingDraft = signal(false);
   protected readonly saveMessage = signal('');
   protected readonly legacyPlayers = signal<Player[]>([]);
-  protected readonly isDirty = computed(() => this.benchMigrationNeeded() || JSON.stringify({ players: this.players(), courts: this.courts(), matches: this.matches(), queue: this.queue(), winnersQueue: this.winnersQueue(), bench: this.bench(), unavailable: this.unavailable(), playerLocks: this.playerLocks(), matchingMode: this.matchingMode(), forcedCategory: this.forcedCategory() || null, nextPlayerIds: this.nextPlayerIdsForSave() }) !== this.savedState());
+  protected readonly isDirty = computed(() => this.benchMigrationNeeded() || JSON.stringify({ players: this.players(), courts: this.courts(), matches: this.matches(), queue: this.queue(), winnersQueue: this.winnersQueue(), bench: this.bench(), unavailable: this.unavailable(), playerLocks: this.playerLocks(), matchingMode: this.matchingMode(), forcedCategory: this.forcedCategory() || null, secondaryEnabled: this.secondaryEnabled(), secondaryForcedCategory: this.secondaryForcedCategory() || null, nextPlayerIds: this.nextPlayerIdsForSave(), secondaryNextPlayerIds: this.secondaryNextPlayerIdsForSave() }) !== this.savedState());
   
   protected loadDraft() {
     if (this.draftReady() && this.isDirty() && !window.confirm('Discard unsaved changes and reload the saved roster?')) return;
@@ -324,15 +417,22 @@ export class OpenPlayPageComponent implements OnInit {
         this.playerLocks.set(playerLocks);
         this.selectedLockPlayerIds.set([]);
         this.matchingMode.set(matchingMode);
+        this.tieBreakSeed.set(draft.tieBreakSeed ?? 0);
         this.forcedCategory.set(forcedCategory);
+        this.secondaryEnabled.set(draft.secondaryEnabled ?? false);
+        this.secondaryForcedCategory.set(draft.secondaryForcedCategory ?? '');
+        this.secondarySelectedCourt.set('');
+        this.secondaryMatchError.set('');
         this.benchMigrationNeeded.set(draft.benchMigrationNeeded);
-        this.savedState.set(JSON.stringify({ players, courts, matches, queue, winnersQueue, bench, unavailable, playerLocks, matchingMode, forcedCategory: forcedCategory || null, nextPlayerIds: draft.nextPlayerIds }));
+        this.savedState.set(JSON.stringify({ players, courts, matches, queue, winnersQueue, bench, unavailable, playerLocks, matchingMode, forcedCategory: forcedCategory || null, secondaryEnabled: this.secondaryEnabled(), secondaryForcedCategory: this.secondaryForcedCategory() || null, nextPlayerIds: draft.nextPlayerIds, secondaryNextPlayerIds: draft.secondaryNextPlayerIds ?? null }));
         this.selectedCourt.set('');
         this.courtError.set('');
         this.manualMatchSlots.set(draft.nextPlayerIds);
+        this.manualSecondaryMatchSlots.set(draft.secondaryNextPlayerIds ?? null);
         this.selectedSwapId.set('');
         this.resultDrafts.set({});
         this.editingMatch.set('');
+        this.pendingDeleteMatchId.set('');
         this.matchError.set('');
         this.resultError.set('');
         this.resultErrorMatchId.set('');
@@ -492,7 +592,7 @@ export class OpenPlayPageComponent implements OnInit {
     this.storageError.set('');
     this.saveMessage.set('');
     this.http.put<OpenPlayDraft>(`${this.apiUrl}/open-play/draft`, {
-      players: this.players(), courts: this.courts(), matches: this.matches(), queue: this.queue(), winnersQueue: this.winnersQueue(), bench: this.bench(), unavailable: this.unavailable(), playerLocks: this.playerLocks(), matchingMode: this.matchingMode(), forcedCategory: this.forcedCategory() || null, nextPlayerIds: this.nextPlayerIdsForSave(), revision: this.revision,
+      players: this.players(), courts: this.courts(), matches: this.matches(), queue: this.queue(), winnersQueue: this.winnersQueue(), bench: this.bench(), unavailable: this.unavailable(), playerLocks: this.playerLocks(), matchingMode: this.matchingMode(), forcedCategory: this.forcedCategory() || null, secondaryEnabled: this.secondaryEnabled(), secondaryForcedCategory: this.secondaryForcedCategory() || null, nextPlayerIds: this.nextPlayerIdsForSave(), secondaryNextPlayerIds: this.secondaryNextPlayerIdsForSave(), tieBreakSeed: this.tieBreakSeed(), revision: this.revision,
     }, { withCredentials: true }).subscribe({
       next: (draft) => {
         if (!Array.isArray(draft.matches) || !Array.isArray(draft.courts) || !Array.isArray(draft.queue) || !Array.isArray(draft.winnersQueue) || !Array.isArray(draft.unavailable) || !Array.isArray(draft.playerLocks) || (draft.nextPlayerIds !== null && !Array.isArray(draft.nextPlayerIds)) || !draft.bench || draft.courtNameVersion !== 1 || draft.queueVersion !== 4) {
@@ -512,10 +612,14 @@ export class OpenPlayPageComponent implements OnInit {
         this.playerLocks.set(draft.playerLocks);
         this.selectedLockPlayerIds.set([]);
         this.matchingMode.set(isMatchingMode(draft.matchingMode) ? draft.matchingMode : defaultMatchingMode);
+        this.tieBreakSeed.set(draft.tieBreakSeed ?? 0);
         this.forcedCategory.set(categories.includes(draft.forcedCategory as OpenPlayCategory) ? draft.forcedCategory as OpenPlayCategory : '');
+        this.secondaryEnabled.set(draft.secondaryEnabled ?? false);
+        this.secondaryForcedCategory.set(draft.secondaryForcedCategory ?? '');
         this.manualMatchSlots.set(draft.nextPlayerIds);
+        this.manualSecondaryMatchSlots.set(draft.secondaryNextPlayerIds ?? null);
         this.benchMigrationNeeded.set(false);
-        this.savedState.set(JSON.stringify({ players: draft.players, courts: draft.courts, matches: draft.matches, queue: draft.queue, winnersQueue: draft.winnersQueue, bench: draft.bench, unavailable: draft.unavailable, playerLocks: draft.playerLocks, matchingMode: this.matchingMode(), forcedCategory: this.forcedCategory() || null, nextPlayerIds: draft.nextPlayerIds }));
+        this.savedState.set(JSON.stringify({ players: draft.players, courts: draft.courts, matches: draft.matches, queue: draft.queue, winnersQueue: draft.winnersQueue, bench: draft.bench, unavailable: draft.unavailable, playerLocks: draft.playerLocks, matchingMode: this.matchingMode(), forcedCategory: this.forcedCategory() || null, secondaryEnabled: this.secondaryEnabled(), secondaryForcedCategory: this.secondaryForcedCategory() || null, nextPlayerIds: draft.nextPlayerIds, secondaryNextPlayerIds: draft.secondaryNextPlayerIds ?? null }));
         this.revision = draft.revision;
         this.savingDraft.set(false);
         this.saveMessage.set('Changes saved.');
@@ -722,14 +826,21 @@ export class OpenPlayPageComponent implements OnInit {
     return latest;
   }
 
-  protected updateMatchSlot(index: number, id: string) {
+  protected updateMatchSlot(index: number, id: string, secondary = false) {
+    if (!Number.isInteger(index) || index < 0 || index > 3 || (secondary && !this.secondaryEnabled())) return;
     if (id && !this.eligiblePlayers().some((player) => player.id === id)) return;
-    this.matchError.set('');
-    const slots = [...this.matchSlots()];
+    (secondary ? this.secondaryMatchError : this.matchError).set('');
+    const primarySlots = [...this.matchSlots()];
+    const secondarySlots = [...this.secondaryMatchSlots()];
+    const slots = secondary ? secondarySlots : primarySlots;
+    const otherSlots = secondary ? primarySlots : secondarySlots;
     const previousIndex = id ? slots.indexOf(id) : -1;
     if (previousIndex >= 0 && previousIndex !== index) slots[previousIndex] = slots[index];
+    const otherIndex = id ? otherSlots.indexOf(id) : -1;
+    if (otherIndex >= 0) otherSlots[otherIndex] = slots[index];
     slots[index] = id;
-    this.manualMatchSlots.set(slots);
+    this.manualMatchSlots.set(primarySlots);
+    if (this.secondaryEnabled()) this.manualSecondaryMatchSlots.set(secondarySlots);
   }
 
   protected toggleLockPlayer(id: string, selected: boolean) {
@@ -778,9 +889,9 @@ export class OpenPlayPageComponent implements OnInit {
     this.selectedSwapId.update((current) => current === id ? '' : id);
   }
 
-  protected applySelectedPlayer(index: number) {
+  protected applySelectedPlayer(index: number, secondary = false) {
     if (!this.selectedSwapId()) return;
-    this.updateMatchSlot(index, this.selectedSwapId());
+    this.updateMatchSlot(index, this.selectedSwapId(), secondary);
     this.selectedSwapId.set('');
     this.publishNextPlayersState();
   }
@@ -792,10 +903,10 @@ export class OpenPlayPageComponent implements OnInit {
     event.dataTransfer.effectAllowed = 'copy';
   }
 
-  protected dropPlayer(event: DragEvent, index: number) {
+  protected dropPlayer(event: DragEvent, index: number, secondary = false) {
     event.preventDefault();
     const id = event.dataTransfer?.getData('text/plain') ?? '';
-    if (id && id === this.draggingPlayerId()) this.updateMatchSlot(index, id);
+    if (id && id === this.draggingPlayerId()) this.updateMatchSlot(index, id, secondary);
     this.draggingPlayerId.set('');
     this.selectedSwapId.set('');
     this.publishNextPlayersState();
@@ -842,9 +953,9 @@ export class OpenPlayPageComponent implements OnInit {
     this.matchError.set('');
   }
 
-  protected updateSelectedCourt(value: string) {
-    this.selectedCourt.set(value);
-    this.matchError.set('');
+  protected updateSelectedCourt(value: string, secondary = false) {
+    (secondary ? this.secondarySelectedCourt : this.selectedCourt).set(value);
+    (secondary ? this.secondaryMatchError : this.matchError).set('');
   }
 
   protected courtMatch(number: number) {
@@ -893,24 +1004,27 @@ export class OpenPlayPageComponent implements OnInit {
     this.resultErrorMatchId.set('');
   }
 
-  protected startMatch() {
+  protected startMatch(secondary = false) {
+    if (secondary && !this.secondaryEnabled()) return;
+    const error = secondary ? this.secondaryMatchError : this.matchError;
+    const selectedCourt = secondary ? this.secondarySelectedCourt : this.selectedCourt;
     if (this.matches().length >= 250) {
-      this.matchError.set('The current roster has reached the 250-match limit.');
+      error.set('The current roster has reached the 250-match limit.');
       return;
     }
-    const court = this.availableCourts().find((entry) => entry.number === Number(this.selectedCourt()));
+    const court = this.availableCourts().find((entry) => entry.number === Number(selectedCourt()));
     if (!court) {
-      this.matchError.set('Choose an available court.');
+      error.set('Choose an available court.');
       return;
     }
-    const ids = this.matchSlots();
-    if (this.matchLockConflict()) {
-      this.matchError.set('Locked players must be selected together.');
+    const ids = secondary ? this.secondaryMatchSlots() : this.matchSlots();
+    if (this.playerLocks().some((group) => group.some((id) => ids.includes(id)) && !group.every((id) => ids.includes(id)))) {
+      error.set('Locked players must be selected together.');
       return;
     }
     const selected = ids.map((id) => this.eligiblePlayers().find((player) => player.id === id));
     if (new Set(ids).size !== 4 || selected.some((player) => !player)) {
-      this.matchError.set('Choose four different active players who are not already playing.');
+      error.set('Choose four different active players who are not already playing.');
       return;
     }
     const participants = (selected as Player[]).map(({ id, name, memberId }) => ({ id, name, memberId }));
@@ -921,11 +1035,12 @@ export class OpenPlayPageComponent implements OnInit {
       id: `${Date.now()}-${this.nextId++}`, teams: [participants.slice(0, 2), participants.slice(2, 4)],
       status: 'ongoing', winner: null, score: null, startedAt: new Date(now).toISOString(), completedAt: null, court: { ...court },
     }]);
-    this.manualMatchSlots.set(null);
+    if (secondary) this.manualSecondaryMatchSlots.set(null);
+    else this.manualMatchSlots.set(null);
     this.selectedSwapId.set('');
     this.draggingPlayerId.set('');
-    this.selectedCourt.set('');
-    this.matchError.set('');
+    selectedCourt.set('');
+    error.set('');
   }
 
   protected resultDraft(match: Match): MatchResultDraft {
@@ -933,6 +1048,7 @@ export class OpenPlayPageComponent implements OnInit {
       winner: match.winner ? String(match.winner) : '',
       team1: match.score ? String(match.score.team1) : '',
       team2: match.score ? String(match.score.team2) : '',
+      teams: match.teams,
     };
   }
 
@@ -940,9 +1056,38 @@ export class OpenPlayPageComponent implements OnInit {
     this.resultDrafts.update((drafts) => ({ ...drafts, [match.id]: { ...this.resultDraft(match), ...patch } }));
   }
 
+  protected resultPlayerOptions(match: Match): MatchPlayer[] {
+    return [...match.teams.flat(), ...this.players()].filter((player, index, players) =>
+      players.findIndex((entry) => this.samePlayer(entry, player)) === index,
+    );
+  }
+
+  protected updateResultPlayer(match: Match, index: number, id: string) {
+    if (match.status !== 'completed' || !Number.isInteger(index) || index < 0 || index > 3) return;
+    const player = this.resultPlayerOptions(match).find((entry) => entry.id === id);
+    if (!player) return;
+    const participants = [...this.resultDraft(match).teams.flat()];
+    const previousIndex = participants.findIndex((entry) => this.samePlayer(entry, player));
+    if (previousIndex >= 0 && previousIndex !== index) participants[previousIndex] = participants[index];
+    participants[index] = { id: player.id, name: player.name, memberId: player.memberId };
+    this.updateResult(match, { teams: [participants.slice(0, 2), participants.slice(2, 4)] });
+    this.resultError.set('');
+    this.resultErrorMatchId.set('');
+  }
+
   protected saveResult(match: Match) {
     const draft = this.resultDraft(match);
     this.resultErrorMatchId.set(match.id);
+    const teams = match.status === 'completed' ? draft.teams : match.teams;
+    const options = this.resultPlayerOptions(match);
+    if (teams.length !== 2 || teams.some((team) => team.length !== 2) || teams.flat().some((player, index, participants) =>
+      !options.some((entry) => entry.id === player.id && entry.memberId === player.memberId) ||
+      participants.some((entry, otherIndex) => otherIndex !== index && this.samePlayer(entry, player)),
+    )) {
+      this.resultError.set('Choose four different players for the two teams.');
+      return;
+    }
+    const lineupChanged = teams.flat().some((player, index) => player.id !== match.teams.flat()[index].id);
     const winner = draft.winner === '' ? null : Number(draft.winner);
     if (winner !== null && winner !== 1 && winner !== 2) {
       this.resultError.set('Select a valid winning team.');
@@ -967,7 +1112,8 @@ export class OpenPlayPageComponent implements OnInit {
       score = { team1, team2 };
     }
     const completedAt = match.completedAt ?? new Date().toISOString();
-    if (match.status === 'ongoing' || match.winner !== winner) {
+    const previousLatest = new Map(this.players().map((player) => [player.id, this.latestCompletedMatch(player)?.id]));
+    if (match.status === 'ongoing') {
       const returning = match.teams.map((team) => team.map((participant) => this.players().find((player) => this.samePlayer(player, participant)))
         .filter((player): player is Player => !!player && (player.status === 'Active' || (match.status === 'ongoing' && player.status === 'Not Arrived')) &&
           (match.status === 'ongoing' || this.latestCompletedMatch(player)?.id === match.id)));
@@ -987,12 +1133,42 @@ export class OpenPlayPageComponent implements OnInit {
       this.winnersQueue.update((queue) => [...queue.filter((id) => !returningIds.includes(id)), ...winningIds]);
     }
     this.matches.update((matches) => matches.map((entry) => entry.id === match.id ? {
-      ...entry, status: 'completed', winner, score, completedAt: entry.completedAt ?? completedAt,
+      ...entry, teams, status: 'completed', winner, score, completedAt: entry.completedAt ?? completedAt,
     } : entry));
+    if (match.status === 'completed' && (lineupChanged || match.winner !== winner)) {
+      this.reconcileResultQueues([...teams.flat(), ...match.teams.flat()], previousLatest, match.id);
+    }
     this.editingMatch.set('');
     this.resultDrafts.update((drafts) => { const updated = { ...drafts }; delete updated[match.id]; return updated; });
     this.resultError.set('');
     this.resultErrorMatchId.set('');
+  }
+
+  private reconcileResultQueues(participants: MatchPlayer[], previousLatest: Map<string, string | undefined>, matchId: string) {
+    const affected = participants
+      .map((participant) => this.players().find((player) => this.samePlayer(player, participant)))
+      .filter((player, index, players): player is Player => !!player && players.findIndex((entry) => entry?.id === player.id) === index &&
+        player.status === 'Active' &&
+        (previousLatest.get(player.id) === matchId || this.latestCompletedMatch(player)?.id === matchId));
+    const affectedIds = new Set(affected.map((player) => player.id));
+    const wonLatest = (player: Player) => {
+      const latest = this.latestCompletedMatch(player);
+      return !!latest?.winner && latest.teams[latest.winner - 1].some((entry) => this.samePlayer(player, entry));
+    };
+    this.queue.update((queue) => [...queue.filter((id) => !affectedIds.has(id)), ...affected.filter((player) => !wonLatest(player)).map((player) => player.id)]);
+    this.winnersQueue.update((queue) => [...queue.filter((id) => !affectedIds.has(id)), ...affected.filter(wonLatest).map((player) => player.id)]);
+  }
+
+  protected deleteCompletedMatch(id: string) {
+    if (this.pendingDeleteMatchId() !== id) return;
+    const match = this.completedMatches().find((entry) => entry.id === id);
+    if (!match) return;
+    const previousLatest = new Map(this.players().map((player) => [player.id, this.latestCompletedMatch(player)?.id]));
+    this.matches.update((matches) => matches.filter((entry) => entry.id !== id));
+    this.reconcileResultQueues(match.teams.flat(), previousLatest, id);
+    if (this.editingMatch() === id || this.resultErrorMatchId() === id) this.cancelResultEdit(id);
+    else this.resultDrafts.update((drafts) => { const updated = { ...drafts }; delete updated[id]; return updated; });
+    this.pendingDeleteMatchId.set('');
   }
 
   protected cancelMatch(id: string) {

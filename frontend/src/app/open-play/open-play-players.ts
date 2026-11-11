@@ -41,7 +41,8 @@ export function parseParticipants(text: string): string[] {
   for (const line of lines.slice(heading + 1)) {
     const entry = line.match(/^\s*\d+\.\s*(\S.*)\s*$/);
     if (entry) {
-      names.push(entry[1].trim());
+      const name = entry[1].replace(/\s*\([^()]*\+\s*1\b[^()]*\)\s*/g, ' ').trim();
+      if (name) names.push(name);
     } else if (line.trim()) {
       break;
     }

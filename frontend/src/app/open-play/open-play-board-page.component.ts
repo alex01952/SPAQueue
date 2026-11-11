@@ -32,7 +32,11 @@ interface OpenPlayBoard {
   playerLocks: string[][];
   matchingMode: MatchingMode;
   forcedCategory: OpenPlayCategory | null;
+  secondaryEnabled?: boolean;
+  secondaryForcedCategory?: OpenPlayCategory | null;
   nextPlayerIds: string[] | null;
+  secondaryNextPlayerIds?: string[] | null;
+  tieBreakSeed?: number;
 }
 
 @Component({
@@ -58,11 +62,38 @@ export class OpenPlayBoardPageComponent implements OnInit {
       board.matchingMode,
       board.playerLocks,
       board.forcedCategory,
+      board.secondaryEnabled ? board.secondaryNextPlayerIds ?? [] : [],
+      board.tieBreakSeed ?? 0,
+    );
+    return suggestion ? suggestion.teams.flat().map((player) => byId.get(player.id) ?? null) : [null, null, null, null];
+  });
+  protected readonly secondaryPlayerSlots = computed<(BoardPlayer | null)[]>(() => {
+    const board = this.board();
+    if (!board?.secondaryEnabled) return [null, null, null, null];
+    const players = [...board.regularLine, ...board.winnersLine];
+    const byId = new Map(players.map((player) => [player.id, player]));
+    const primaryIds = new Set(this.nextPlayerSlots().filter((player): player is BoardPlayer => !!player).map((player) => player.id));
+    if (board.secondaryNextPlayerIds) return board.secondaryNextPlayerIds.map((id) => {
+      const player = byId.get(id);
+      return player?.available && !primaryIds.has(id) ? player : null;
+    });
+    const suggestion = suggestNextOpenPlayMatch(
+      players.filter((player) => player.available), board.matchingMode, board.playerLocks,
+      board.secondaryForcedCategory ?? null,
+      [...primaryIds],
+      board.tieBreakSeed ?? 0,
     );
     return suggestion ? suggestion.teams.flat().map((player) => byId.get(player.id) ?? null) : [null, null, null, null];
   });
 
   ngOnInit() {
+    timer(0, 15 * 60 * 1000).pipe(
+      switchMap(() => this.http.post(`${this.apiUrl}/members/session/refresh`, {}, { withCredentials: true }).pipe(
+        catchError(() => EMPTY),
+      )),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe();
+
     timer(0, 5000).pipe(
       switchMap(() => this.http.get<OpenPlayBoard>(`${this.apiUrl}/open-play/board`, { withCredentials: true }).pipe(
         catchError(() => {

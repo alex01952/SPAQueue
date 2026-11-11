@@ -15,6 +15,60 @@ describe('Open Play match suggestions', () => {
     expect(result.category).toBe('Intermediate');
   });
 
+  it.each([null, 'Intermediate' as const])('prioritizes the longest individual wait over combined wait with category %s', (category) => {
+    const normal = Array.from({ length: 4 }, (_, index) => player(`regular-${index}`, { waitMs: index === 0 ? 10 * 60000 : 0 }));
+    const winners = Array.from({ length: 4 }, (_, index) => player(`winners-${index}`, { line: 'winners', waitMs: 9 * 60000 }));
+    const result = suggestNextOpenPlayMatch([...normal, ...winners], 'wait-priority', [], category)!;
+    expect(result.mixedLines).toBe(false);
+    expect(result.teams.flat().every((entry) => entry.line === 'normal')).toBe(true);
+    const secondary = suggestNextOpenPlayMatch([...normal, ...winners], 'wait-priority', [], category, ids(result.teams.flat()))!;
+    expect(secondary.mixedLines).toBe(false);
+    expect(secondary.teams.flat().every((entry) => entry.line === 'winners')).toBe(true);
+  });
+
+  it('suggests a second category from the same queue without reusing the primary lineup', () => {
+    const intermediate = Array.from({ length: 4 }, (_, index) => player(`intermediate-${index}`, { waitMs: 20 * 60000 }));
+    const high = Array.from({ length: 5 }, (_, index) => player(`high-${index}`, { category: 'High Intermediate', waitMs: (10 - index) * 60000 }));
+    const queue = [...intermediate, ...high];
+    const original = structuredClone(queue);
+    const primary = suggestNextOpenPlayMatch(queue, 'wait-priority', [], 'Intermediate')!;
+    const secondary = suggestNextOpenPlayMatch(queue, 'wait-priority', [], 'High Intermediate', ids(primary.teams.flat()))!;
+    expect(ids(primary.teams.flat())).toEqual(expect.arrayContaining(ids(intermediate)));
+    expect(ids(secondary.teams.flat())).toEqual(expect.arrayContaining(ids(high.slice(0, 4))));
+    expect(ids(secondary.teams.flat()).some((id) => ids(primary.teams.flat()).includes(id))).toBe(false);
+    expect(queue).toEqual(original);
+  });
+
+  it('uses only the forced category for secondary even when its players are at the back and have shorter waits', () => {
+    const primary = Array.from({ length: 4 }, (_, index) => player(`primary-${index}`));
+    const waiting = Array.from({ length: 12 }, (_, index) => player(`front-${index}`, { waitMs: 40 * 60000 }));
+    const high = Array.from({ length: 6 }, (_, index) => player(`back-high-${index}`, { category: 'High Intermediate', waitMs: 1000 }));
+    const queue = [...primary, ...waiting, ...high];
+    const result = suggestNextOpenPlayMatch(queue, 'wait-priority', [], 'High Intermediate', ids(primary))!;
+    expect(result.teams.flat()).toHaveLength(4);
+    expect(result.mixedLevels).toBe(false);
+    expect(result.teams.flat().every((entry) => entry.category === 'High Intermediate')).toBe(true);
+    expect(result.teams.flat().some((entry) => ids(primary).includes(entry.id))).toBe(false);
+    expect(ids(queue)).toEqual([...ids(primary), ...ids(waiting), ...ids(high)]);
+  });
+
+  it('prefers a complete exact-category group even when other target players are locked to a lower category', () => {
+    const lower = player('lower', { waitMs: 40 * 60000 });
+    const high = Array.from({ length: 5 }, (_, index) => player(`high-${index}`, { category: 'High Intermediate', waitMs: index === 0 ? 40 * 60000 : 0 }));
+    const result = suggestNextOpenPlayMatch([lower, ...high], 'wait-priority', [[lower.id, high[0].id]], 'High Intermediate')!;
+    expect(ids(result.teams.flat())).toEqual(expect.arrayContaining(ids(high.slice(1))));
+    expect(result.mixedLevels).toBe(false);
+    expect(ids(result.teams.flat())).not.toContain(high[0].id);
+  });
+
+  it('keeps locks intact and returns no secondary match when fewer than four remain', () => {
+    const players = Array.from({ length: 8 }, (_, index) => player(`player-${index}`));
+    const primaryIds = ids(players.slice(0, 4));
+    expect(suggestNextOpenPlayMatch(players, 'wait-priority', [], null, primaryIds)?.teams.flat()).toHaveLength(4);
+    expect(suggestNextOpenPlayMatch(players, 'wait-priority', [[players[0].id, players[4].id]], null, primaryIds)).toBeNull();
+    expect(suggestNextOpenPlayMatch(players.slice(0, 7), 'wait-priority', [], null, primaryIds)).toBeNull();
+  });
+
   it('routes the selectable wait-time mode through the existing strategy', () => {
     const players = Array.from({ length: 4 }, (_, index) => player(`player-${index}`, { waitMs: index * 60000 }));
     expect(suggestNextOpenPlayMatch(players, 'wait-priority')).toEqual(suggestNextOpenPlayMatch(players));
@@ -69,14 +123,32 @@ describe('Open Play match suggestions', () => {
     expect(result.mixedLines).toBe(true);
   });
 
-  it('chooses the normal line on equal total waits and ignores incomplete lines', () => {
+  it.each([null, 'Intermediate' as const])('randomizes tied complete lines reproducibly with category %s', (category) => {
     const normal = Array.from({ length: 4 }, (_, index) => player(`normal-${index}`, { waitMs: 60000 }));
     const winners = Array.from({ length: 4 }, (_, index) => player(`winner-${index}`, { line: 'winners', waitMs: 60000 }));
-    expect(suggestNextOpenPlayMatch([...normal, ...winners])!.teams.flat().every((entry) => entry.line === 'normal')).toBe(true);
-    expect(suggestNextOpenPlayMatch([...normal, ...winners.slice(0, 3)])!.teams.flat().every((entry) => entry.line === 'normal')).toBe(true);
+    const selectedLines = new Set<string>();
+    for (let seed = 0; seed < 30; seed++) {
+      const result = suggestNextOpenPlayMatch([...normal, ...winners], 'wait-priority', [], category, [], seed)!;
+      expect(result.mixedLines).toBe(false);
+      expect(suggestNextOpenPlayMatch([...normal, ...winners], 'wait-priority', [], category, [], seed)).toEqual(result);
+      selectedLines.add(result.teams[0][0].line);
+    }
+    expect(selectedLines).toEqual(new Set(['normal', 'winners']));
+    expect(suggestNextOpenPlayMatch([...normal, ...winners.slice(0, 3)], 'wait-priority', [], category)!.teams.flat().every((entry) => entry.line === 'normal')).toBe(true);
   });
 
-  it('compares valid groups of different levels by their combined waits', () => {
+  it('randomizes equal longest waits even when one line has a larger combined wait', () => {
+    const normal = Array.from({ length: 4 }, (_, index) => player(`normal-${index}`, { waitMs: index === 0 ? 10 * 60000 : 0 }));
+    const winners = Array.from({ length: 4 }, (_, index) => player(`winner-${index}`, { line: 'winners', waitMs: index === 0 ? 10 * 60000 : 9 * 60000 }));
+    for (const category of [null, 'Intermediate'] as const) {
+      const lines = new Set(Array.from({ length: 30 }, (_, seed) =>
+        suggestNextOpenPlayMatch([...normal, ...winners], 'wait-priority', [], category, [], seed)!.teams[0][0].line,
+      ));
+      expect(lines).toEqual(new Set(['normal', 'winners']));
+    }
+  });
+
+  it('compares valid groups of different levels by their longest waits', () => {
     const normal = Array.from({ length: 4 }, (_, index) => player(`normal-${index}`, { category: 'Novice', waitMs: 30000 }));
     const winners = Array.from({ length: 4 }, (_, index) => player(`winner-${index}`, { category: 'High Intermediate', line: 'winners', waitMs: 60000 }));
     expect(suggestNextOpenPlayMatch([...normal, ...winners])!.category).toBe('High Intermediate');

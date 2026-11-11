@@ -27,6 +27,22 @@ describe('Open Play players', () => {
     expect(parseParticipants('Coaches (1)\n1. Coach')).toEqual([]);
   });
 
+  it('removes parenthesized plus-one notes from imported names while preserving other parentheses', () => {
+    expect(parseParticipants([
+      'Participants (8)',
+      "1. Tony Enorme (Jeff Rey's +1)",
+      '2. Alex (Sam +1) Reyes',
+      '3. Ana (Coach)',
+      '4. Ben (Group +10)',
+      '5. Carla (Guest + 1)  ',
+      '6. (Guest +1)',
+      '7. Dan (First +1) (Second +1)',
+      '8. Eve (Guest +1',
+    ].join('\n'))).toEqual([
+      'Tony Enorme', 'Alex Reyes', 'Ana (Coach)', 'Ben (Group +10)', 'Carla', 'Dan', 'Eve (Guest +1',
+    ]);
+  });
+
   it('maps profile skill totals into the three Open Play categories', () => {
     const skills = (total: number) => Object.fromEntries(Array.from({ length: 25 }, (_, index) => [
       `skill${index}`, Math.max(0, Math.min(10, total - index * 10)),

@@ -55,7 +55,7 @@ describe('Open Play draft storage', () => {
   afterEach(() => jest.clearAllMocks());
 
   it('creates and reloads a draft, preserving linked member IDs', async () => {
-    expect(await service.getDraft('session')).toEqual({ players: [], courts: [], matches: [], queue: [], winnersQueue: [], bench: {}, unavailable: [], playerLocks: [], matchingMode: 'wait-priority', forcedCategory: null, nextPlayerIds: null, liveBoardState: null, session: null, benchMigrationNeeded: false, revision: null, courtNameVersion: 1, queueVersion: 4 });
+    expect(await service.getDraft('session')).toEqual({ players: [], courts: [], matches: [], queue: [], winnersQueue: [], bench: {}, unavailable: [], playerLocks: [], matchingMode: 'wait-priority', forcedCategory: null, secondaryEnabled: false, secondaryForcedCategory: null, nextPlayerIds: null, secondaryNextPlayerIds: null, tieBreakSeed: 0, liveBoardState: null, session: null, benchMigrationNeeded: false, revision: null, courtNameVersion: 1, queueVersion: 4 });
     const saved = await service.saveDraft('session', { players: [player], revision: null });
     expect(saved.matchingMode).toBe('wait-priority');
     expect(row?.MatchingMode).toBe('wait-priority');
@@ -83,6 +83,91 @@ describe('Open Play draft storage', () => {
     await expect(service.saveDraft('session', { players, playerLocks: [['player-0', 'player-0']], revision: saved.revision })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.saveDraft('session', { players, playerLocks: [['player-0', 'player-1'], ['player-1', 'player-2']], revision: saved.revision })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.saveDraft('session', { players, revision: saved.revision })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('keeps published player locks through reloads and match saves until explicitly unlocked', async () => {
+    const players = Array.from({ length: 4 }, (_, index) => ({
+      ...player, id: `locked-${index}`, memberId: null, status: 'Active',
+    }));
+    const saved = await service.saveDraft('session', { players, revision: null });
+    const playerLocks = [[players[0].id, players[1].id]];
+    const settings = { matchingMode: 'wait-priority', forcedCategory: null, nextPlayerIds: null, unavailable: [], revision: saved.revision };
+    await service.publishBoardState('session', { ...settings, playerLocks });
+    const reloaded = await service.getDraft('session');
+    expect(reloaded.playerLocks).toEqual(playerLocks);
+
+    const match = {
+      id: 'locked-match', teams: [players.slice(0, 2), players.slice(2, 4)], status: 'ongoing', winner: null, score: null,
+      startedAt: '2026-11-08T10:00:00Z', completedAt: null, court: null,
+    };
+    const ongoing = await service.saveDraft('session', {
+      ...reloaded, matches: [match],
+      bench: Object.fromEntries(players.map((entry) => [entry.id, { accumulatedMs: 0, since: null }])),
+    });
+    expect((await service.getDraft('session')).playerLocks).toEqual(playerLocks);
+    const completed = await service.saveDraft('session', {
+      ...ongoing, matches: [{ ...match, status: 'completed', winner: 1, completedAt: '2026-11-08T10:15:00Z' }],
+      bench: Object.fromEntries(players.map((entry) => [entry.id, { accumulatedMs: 0, since: '2026-11-08T10:15:00Z' }])),
+    });
+    expect((await service.getDraft('session')).playerLocks).toEqual(playerLocks);
+    expect((await service.getBoard('session')).playerLocks).toEqual(playerLocks);
+
+    await service.publishBoardState('session', { ...settings, revision: completed.revision, playerLocks: [] });
+    expect((await service.getDraft('session')).playerLocks).toEqual([]);
+    expect((await service.getBoard('session')).playerLocks).toEqual([]);
+  });
+
+  it('persists and publishes independent primary and secondary lineup selections', async () => {
+    const players = Array.from({ length: 8 }, (_, index) => ({ ...player, id: `lineup-${index}`, memberId: null, status: 'Active' }));
+    const nextPlayerIds = players.slice(0, 4).map((entry) => entry.id);
+    const secondaryNextPlayerIds = players.slice(4).map((entry) => entry.id);
+    const saved = await service.saveDraft('session', { players, secondaryEnabled: true, nextPlayerIds, secondaryNextPlayerIds, revision: null });
+    expect(await service.getDraft('session')).toMatchObject({ nextPlayerIds, secondaryNextPlayerIds });
+    const { secondaryNextPlayerIds: _secondary, ...olderPayload } = saved;
+    const preserved = await service.saveDraft('session', olderPayload);
+    expect(preserved.secondaryNextPlayerIds).toEqual(secondaryNextPlayerIds);
+    const started = await service.startSession('session', { revision: preserved.revision });
+    expect(started).toMatchObject({ nextPlayerIds: null, secondaryNextPlayerIds: null });
+    const settings = { matchingMode: 'wait-priority', forcedCategory: null, secondaryEnabled: true, secondaryForcedCategory: null, playerLocks: [], unavailable: [], revision: started.revision };
+    await service.publishBoardState('session', { ...settings, nextPlayerIds: null, secondaryNextPlayerIds });
+    expect(await service.getBoard('session')).toMatchObject({ nextPlayerIds: null, secondaryNextPlayerIds });
+    await service.publishBoardState('session', { ...settings, nextPlayerIds, secondaryNextPlayerIds: null });
+    expect(await service.getBoard('session')).toMatchObject({ nextPlayerIds, secondaryNextPlayerIds: null });
+    await expect(service.publishBoardState('session', { ...settings, nextPlayerIds, secondaryNextPlayerIds: [players[4].id] })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.saveDraft('session', { ...started, secondaryNextPlayerIds: Array(4).fill(players[4].id) })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('shares and preserves randomized tie-break seeds between draft and board', async () => {
+    const saved = await service.saveDraft('session', { players: [player], revision: null });
+    expect(saved.tieBreakSeed).toBe(0);
+    await service.publishBoardState('session', {
+      matchingMode: 'wait-priority', forcedCategory: null, nextPlayerIds: null, playerLocks: [], unavailable: [],
+      tieBreakSeed: 123456, revision: saved.revision,
+    });
+    expect((await service.getBoard('session')).tieBreakSeed).toBe(123456);
+    const draft = await service.getDraft('session');
+    expect(draft.tieBreakSeed).toBe(123456);
+    const { tieBreakSeed: _seed, ...olderPayload } = draft;
+    expect((await service.saveDraft('session', olderPayload)).tieBreakSeed).toBe(123456);
+    await expect(service.saveDraft('session', { ...draft, tieBreakSeed: -1 })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('defaults the secondary lineup off and persists its settings through publishing and saving', async () => {
+    const saved = await service.saveDraft('session', { players: [player], revision: null });
+    expect(saved).toMatchObject({ secondaryEnabled: false, secondaryForcedCategory: null });
+    const settings = { matchingMode: saved.matchingMode, forcedCategory: null, nextPlayerIds: null, playerLocks: [], unavailable: [], revision: saved.revision };
+    await service.publishBoardState('session', { ...settings, secondaryEnabled: true, secondaryForcedCategory: 'High Intermediate' });
+    const reloaded = await service.getDraft('session');
+    expect(reloaded).toMatchObject({ secondaryEnabled: true, secondaryForcedCategory: 'High Intermediate' });
+    expect(await service.getBoard('session')).toMatchObject({ secondaryEnabled: true, secondaryForcedCategory: 'High Intermediate' });
+    const { secondaryEnabled: _enabled, secondaryForcedCategory: _category, ...olderPayload } = reloaded;
+    const preserved = await service.saveDraft('session', olderPayload);
+    expect(preserved).toMatchObject({ secondaryEnabled: true, secondaryForcedCategory: 'High Intermediate' });
+    await service.publishBoardState('session', { ...settings, revision: preserved.revision, secondaryEnabled: false, secondaryForcedCategory: null });
+    expect(await service.getDraft('session')).toMatchObject({ secondaryEnabled: false, secondaryForcedCategory: null });
+    expect(await service.getBoard('session')).toMatchObject({ secondaryEnabled: false, secondaryForcedCategory: null });
+    await expect(service.saveDraft('session', { ...preserved, secondaryEnabled: 'yes' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.publishBoardState('session', { ...settings, revision: preserved.revision, secondaryForcedCategory: 'Expert' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('persists and validates the forced category', async () => {

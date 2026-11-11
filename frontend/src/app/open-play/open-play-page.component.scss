@@ -11,10 +11,20 @@ h2 { margin-bottom: 0; font-size: 1.25rem; }
 .player-count { display: flex; align-items: baseline; gap: 8px; color: #345b44; }
 .player-count strong { font-size: 2rem; }
 .player-count span, .draft-note, .muted, .roster-heading > span { color: var(--text-secondary); font-size: .83rem; }
-.draft-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 14px 0 24px; }
+.draft-bar { position: sticky; top: max(8px, env(safe-area-inset-top)); z-index: 10; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; min-height: 52px; box-sizing: border-box; padding: 4px 10px; margin: 14px 0 24px; background: #fffdfa; border: 1px solid #b5c5b9; border-radius: 4px; box-shadow: 0 2px 6px #243a2920; }
+.draft-bar .draft-note { flex: 1 1 100px; min-width: 0; overflow-wrap: anywhere; }
+.draft-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; min-width: 0; }
+.draft-bar button { min-height: 40px; padding: 8px 12px; white-space: nowrap; }
+.draft-bar .save-roster { min-width: 96px; }
 .draft-note { margin: 0; }
 .editor { min-width: 0; margin: 0; padding: 0; border: 0; }
+.editor [hidden] { display: none !important; }
+.section-visibility { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 14px 0; margin-bottom: 16px; border-block: 1px solid #b5a997; }
+.section-visibility > span { font-size: .82rem; font-weight: 700; }
+.section-visibility label { display: flex; align-items: center; gap: 8px; margin: 0; font-size: .82rem; }
+.section-visibility input { width: 18px; height: 18px; margin: 0; accent-color: #285d43; }
 .workspace { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 40px; align-items: start; }
+.workspace.single-column { grid-template-columns: minmax(0, 1fr); }
 .entry-section { padding: 0 0 24px; margin-bottom: 24px; border-bottom: 1px solid #cdbfae; }
 .section-heading { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
 .section-number, .row-number { color: #a36a42; font-size: .78rem; font-weight: 700; }
@@ -76,6 +86,10 @@ button:disabled, input:disabled, select:disabled { opacity: .55; cursor: not-all
 .match-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
 .slot-target { width: 100%; min-height: 76px; text-align: left; overflow-wrap: anywhere; }
 .slot-target.ready { border: 2px dashed #285d43; }
+.secondary-toggle { display: flex !important; align-items: center; gap: 8px; padding: 8px 0; }
+.secondary-toggle input { width: 18px; height: 18px; margin: 0; accent-color: #285d43; }
+.secondary-slot-label { display: block; margin: 12px 0 6px; font-size: .8rem; font-weight: 700; }
+.secondary-preview { box-sizing: border-box; }
 .match-row { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; padding: 18px 0; border-bottom: 1px solid #d9cdbf; }
 .match-summary { min-width: 0; flex: 1 1 260px; }
 .match-label { color: #245c42; font-size: .75rem; font-weight: 700; text-transform: uppercase; }
@@ -83,9 +97,14 @@ button:disabled, input:disabled, select:disabled { opacity: .55; cursor: not-all
 .teams b { color: var(--text-secondary); font-size: .8rem; }
 .match-summary p { margin: 8px 0 0; font-size: .85rem; }
 .result-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; flex: 2 1 420px; }
+.result-lineup { flex: 1 0 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; min-width: 0; }
 .winner-field { min-width: 130px; }
 .score-field { min-width: 100px; max-width: 130px; }
 .result-controls .text-button { min-height: 42px; }
+.delete-confirmation { flex: 1 0 100%; min-width: 0; padding-block: 12px; border-block: 1px solid #d9cdbf; color: #812f27; }
+.delete-confirmation p { margin-bottom: 12px; font-size: .85rem; overflow-wrap: anywhere; }
+.delete-match { color: #a33e32; }
+.secondary.delete-match { border-color: #a33e32; }
 .no-matches { margin: 18px 0; }
 .import-review { margin-top: 30px; padding-top: 24px; border-top: 2px solid #284f3b; }
 .review-row { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(180px, 1.4fr) minmax(140px, 180px); align-items: start; gap: 18px; padding: 14px 0; border-bottom: 1px solid #d9cdbf; }

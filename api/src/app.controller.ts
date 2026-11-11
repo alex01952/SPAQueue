@@ -208,6 +208,24 @@ export class AppController {
     );
   }
 
+  @Post('members/session/refresh')
+  async refreshMemberSession(
+    @Headers('cookie') cookieHeader = '',
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<MemberSessionResult> {
+    const session = await this.appService.refreshMemberSession(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+    );
+    response.cookie(this.memberSessionCookieName, session.sessionToken, {
+      httpOnly: true,
+      maxAge: Math.max(0, Date.parse(session.expiresAt) - Date.now()),
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+    });
+    return { authenticated: true, member: session.member };
+  }
+
   @Get('chat/messages')
   getClubChatMessages(
     @Headers('cookie') cookieHeader = '',

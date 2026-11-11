@@ -389,6 +389,20 @@ describe('AppController', () => {
   });
 
   describe('member authentication', () => {
+    it('renews the session cookie without exposing the token in the response', async () => {
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const member = { memberId: 'member-1', name: 'Alex' } as any;
+      jest.spyOn(appService, 'refreshMemberSession').mockResolvedValue({ sessionToken: 'existing-token', expiresAt, member });
+      const response = { cookie: jest.fn() } as any;
+      await expect(appController.refreshMemberSession('spaqueue_member_session=existing-token', response))
+        .resolves.toEqual({ authenticated: true, member });
+      expect(appService.refreshMemberSession).toHaveBeenCalledWith('existing-token');
+      expect(response.cookie).toHaveBeenCalledWith('spaqueue_member_session', 'existing-token', {
+        httpOnly: true, maxAge: expect.any(Number), sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/',
+      });
+      expect(response.cookie.mock.calls[0][2].maxAge).toBeGreaterThan(59 * 60 * 1000);
+    });
+
     it('should create and resolve a hashed server-side member session', async () => {
       const passwordHash = await (appService as any).hashPassword(
         'strong-password',

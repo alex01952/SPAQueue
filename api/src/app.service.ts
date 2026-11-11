@@ -1398,6 +1398,26 @@ export class AppService {
     }
   }
 
+  async refreshMemberSession(sessionToken: string): Promise<MemberLoginResult> {
+    const session = await this.getMemberSession(sessionToken);
+    const expiresAt = new Date(
+      Date.now() + this.memberSessionTtlHours * 60 * 60 * 1000,
+    ).toISOString();
+    try {
+      await this.getSessionsTableClient().updateEntity({
+        partitionKey: 'sessions',
+        rowKey: this.hashSessionToken(sessionToken),
+        ExpiresAt: expiresAt,
+      }, 'Merge');
+    } catch (error) {
+      if (this.isAzureNotFound(error)) {
+        throw new UnauthorizedException('Member session is invalid or expired.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return { sessionToken, expiresAt, member: session.member };
+  }
+
   async getClubChatMessages(sessionToken: string): Promise<ClubChatMessage[]> {
     await this.getMemberSession(sessionToken);
     await this.cleanupExpiredClubChatMessages();
