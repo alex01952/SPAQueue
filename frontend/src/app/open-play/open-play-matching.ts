@@ -58,18 +58,21 @@ function tieRank(players: MatchingPlayer[], seed: number): number {
   return hash >>> 0;
 }
 
-function compareSuggestions(left: NextMatchSuggestion, right: NextMatchSuggestion, seed: number): number {
+function compareSuggestions(left: NextMatchSuggestion, right: NextMatchSuggestion, seed: number, queuePositions?: Map<string, number>): number {
   const leftPlayers = left.teams.flat();
   const rightPlayers = right.teams.flat();
   const leftWait = Math.max(...leftPlayers.map((player) => player.waitMs));
   const rightWait = Math.max(...rightPlayers.map((player) => player.waitMs));
   const urgency = (wait: number) => wait >= warningMs ? 2 : wait >= nearWarningMs ? 1 : 0;
+  const groupWaitOrder = queuePositions ? right.totalWaitMs - left.totalWaitMs ||
+    leftPlayers.reduce((sum, player) => sum + (queuePositions.get(player.id) ?? 0), 0) - rightPlayers.reduce((sum, player) => sum + (queuePositions.get(player.id) ?? 0), 0) : 0;
   return urgency(rightWait) - urgency(leftWait) || Number(left.mixedLines) - Number(right.mixedLines) ||
-    rightWait - leftWait || tieRank(rightPlayers, seed) - tieRank(leftPlayers, seed);
+    rightWait - leftWait || groupWaitOrder || tieRank(rightPlayers, seed) - tieRank(leftPlayers, seed);
 }
 
 function suggestWaitPriorityMatch(players: MatchingPlayer[], playerLocks: string[][] = [], forcedCategory: OpenPlayCategory | null = null, tieBreakSeed = 0): NextMatchSuggestion | null {
   if (forcedCategory) return suggestForcedCategoryMatch(players, playerLocks, forcedCategory, tieBreakSeed);
+  const queuePositions = new Map(players.map((player, index) => [player.id, index]));
   const lockedIds = new Set(playerLocks.flat());
   const availableById = new Map(players.map((player) => [player.id, player]));
   const lockedGroups = playerLocks.filter((group) => group.length >= 2 && group.length <= 4 && group.every((id) => availableById.has(id)))
@@ -107,7 +110,7 @@ function suggestWaitPriorityMatch(players: MatchingPlayer[], playerLocks: string
       category,
       totalWaitMs: selected.reduce((sum, player) => sum + player.waitMs, 0),
     };
-    if (!best || compareSuggestions(suggestion, best, tieBreakSeed) < 0) best = suggestion;
+    if (!best || compareSuggestions(suggestion, best, tieBreakSeed, queuePositions) < 0) best = suggestion;
   }
   return best;
 }
@@ -158,7 +161,9 @@ function suggestForcedCategoryMatch(players: MatchingPlayer[], playerLocks: stri
     right.targetCount - left.targetCount || left.levelDistance - right.levelDistance ||
     right.urgency - left.urgency ||
     Number((left.lineMask & (left.lineMask - 1)) !== 0) - Number((right.lineMask & (right.lineMask - 1)) !== 0) ||
-    right.highestWait - left.highestWait || left.winRateGap - right.winRateGap;
+    right.highestWait - left.highestWait ||
+    (playerLocks.length ? right.totalWait - left.totalWait || left.positionTotal - right.positionTotal : 0) ||
+    left.winRateGap - right.winRateGap;
   const choosePlan = (pool: MatchingPlayer[][]) => {
     const plans = new Map<string, CategoryPlan>();
     plans.set('0:0', { players: [], targetCount: 0, levelDistance: 0, urgency: 0, totalWait: 0, highestWait: 0, winRateGap: 0, lineMask: 0, positionTotal: 0 });

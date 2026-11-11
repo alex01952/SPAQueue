@@ -118,6 +118,20 @@ describe('Open Play match suggestions', () => {
     }
   });
 
+  it.each([null, 'Intermediate' as const])('keeps just-finished locked players behind waiting players with category %s', (category) => {
+    for (const waitMs of [0, 20 * 60000]) {
+      const waiting = Array.from({ length: 4 }, (_, index) => player(`waiting-${index}`, { waitMs }));
+      for (const size of [2, 3, 4]) {
+        const locked = Array.from({ length: size }, (_, index) => player(`just-finished-${index}`, { waitMs: 0 }));
+        const locks = [ids(locked)];
+        for (let seed = 0; seed < 32; seed++) {
+          const result = suggestNextOpenPlayMatch([...waiting, ...locked], 'wait-priority', locks, category, [], seed)!;
+          expect(ids(result.teams.flat()).sort()).toEqual(ids(waiting).sort());
+        }
+      }
+    }
+  });
+
   it('does not suggest only the eligible members of a partly unavailable lock', () => {
     const locked = player('locked');
     const fillers = Array.from({ length: 4 }, (_, index) => player(`filler-${index}`));

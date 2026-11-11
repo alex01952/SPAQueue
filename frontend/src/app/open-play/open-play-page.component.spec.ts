@@ -796,6 +796,39 @@ describe('OpenPlayPageComponent', () => {
     expect(new Set([...component['matchSlots'](), ...reserved]).size).toBe(8);
   });
 
+  it('returns a finished locked pair to the back without giving it priority over waiting players', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (let index = 0; index < 8; index++) {
+      component['guestName'].set(`Rotation player ${index}`);
+      component['guestCategory'].set('Intermediate');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    players.forEach((player) => component['updateStatus'](player.id, 'Active'));
+    const playing = players.slice(0, 4).map((player) => player.id);
+    const waiting = players.slice(4).map((player) => player.id);
+    const lockedPair = playing.slice(0, 2);
+    component['playerLocks'].set([lockedPair]);
+    component['manualMatchSlots'].set(playing);
+    component['manualFollowingMatchSlots'].set(waiting);
+    const since = new Date().toISOString();
+    component['bench'].set(Object.fromEntries(players.map((player) => [player.id, { accumulatedMs: 20 * 60000, since }])));
+    component['addCourt']();
+    component['startMatch']();
+    component['saveResult'](component['ongoingMatches']()[0]);
+    expect(component['queue']()).toEqual([...waiting, ...playing]);
+    expect(component['playerLocks']()).toEqual([lockedPair]);
+    for (const id of lockedPair) expect(component['bench']()[id].accumulatedMs).toBe(0);
+    for (let seed = 0; seed < 32; seed++) {
+      component['tieBreakSeed'].set(seed);
+      expect(component['nextSuggestion']()!.teams.flat().map((player) => player.id).sort()).toEqual(waiting.slice().sort());
+    }
+    component['resetNextPlayers']();
+    expect(component['matchSlots']().slice().sort()).toEqual(waiting.slice().sort());
+    expect(component['followingMatchSlots']().slice().sort()).toEqual(playing.slice().sort());
+  });
+
   it('forces and persists the selected matching category', () => {
     const fixture = createPage();
     const component = fixture.componentInstance;
