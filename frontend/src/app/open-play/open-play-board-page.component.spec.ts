@@ -33,9 +33,11 @@ describe('OpenPlayBoardPageComponent', () => {
     http.expectOne((entry) => entry.url.endsWith('/open-play/board')).flush({
       active: false, regularLine: [], winnersLine: [], topFive: [], playerLocks: [],
       matchingMode: 'wait-priority', forcedCategory: null, nextPlayerIds: null,
+      activeCourts: [{ number: 1, name: 'Hidden court', startedAt: new Date().toISOString() }],
     });
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.line-grid')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.active-courts')).toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Open Play is not active');
     fixture.destroy();
   });
@@ -50,6 +52,55 @@ describe('OpenPlayBoardPageComponent', () => {
     expect(request.request.withCredentials).toBe(true);
     request.flush({ authenticated: true });
   }
+
+  it('ticks compact court timers from the saved game start without resetting on polls', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-12T10:05:00Z'));
+    const fixture = TestBed.createComponent(OpenPlayBoardPageComponent);
+    const board = {
+      active: true, regularLine: [], winnersLine: [], topFive: [], playerLocks: [],
+      matchingMode: 'wait-priority', forcedCategory: null, nextPlayerIds: null,
+      activeCourts: [{ number: 1, name: 'Arena North', startedAt: '2026-11-12T10:00:00Z' }],
+    };
+    try {
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(0);
+      flushSessionRefresh();
+      http.expectOne((entry) => entry.url.endsWith('/open-play/board')).flush(board);
+      fixture.detectChanges();
+      const strip = fixture.nativeElement.querySelector('.active-courts') as HTMLElement;
+      expect(strip.querySelector('.court-name')?.textContent).toBe('Arena North');
+      expect(strip.querySelector('[role="timer"]')?.textContent).toBe('05:00');
+      expect(strip.querySelectorAll('.active-court')).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1000);
+      fixture.detectChanges();
+      expect(strip.querySelector('[role="timer"]')?.textContent).toBe('05:01');
+      await vi.advanceTimersByTimeAsync(4000);
+      http.expectOne((entry) => entry.url.endsWith('/open-play/board')).flush(board);
+      fixture.detectChanges();
+      expect(strip.querySelector('[role="timer"]')?.textContent).toBe('05:05');
+      await vi.advanceTimersByTimeAsync(5000);
+      http.expectOne((entry) => entry.url.endsWith('/open-play/board')).flush({ ...board, activeCourts: [] });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.active-courts')).toBeNull();
+      fixture.destroy();
+      await vi.advanceTimersByTimeAsync(5000);
+      http.expectNone((entry) => entry.url.endsWith('/open-play/board'));
+    } finally {
+      fixture.destroy();
+      vi.useRealTimers();
+    }
+  });
+
+  it('formats long games and clamps invalid or future start times', () => {
+    const fixture = TestBed.createComponent(OpenPlayBoardPageComponent);
+    const component = fixture.componentInstance;
+    component['now'].set(Date.parse('2026-11-12T11:02:03Z'));
+    expect(component['courtElapsedTime']('2026-11-12T10:00:00Z')).toBe('1:02:03');
+    expect(component['courtElapsedTime']('2026-11-12T12:00:00Z')).toBe('00:00');
+    expect(component['courtElapsedTime']('invalid')).toBe('00:00');
+    fixture.destroy();
+  });
 
   it('shows both waiting groups and the admin-selected next players', async () => {
     const fixture = TestBed.createComponent(OpenPlayBoardPageComponent);
@@ -69,7 +120,7 @@ describe('OpenPlayBoardPageComponent', () => {
 
     const root = fixture.nativeElement as HTMLElement;
     expect(Array.from(root.querySelectorAll('section h2')).map((heading) => heading.textContent?.trim()))
-      .toEqual(['Automatic', 'On Deck', 'Regular Line', 'Winners Line', 'Top 5']);
+      .toEqual(['Next to Play', 'On Deck', 'Regular Line', 'Winners Line', 'Top 5']);
     expect(fixture.nativeElement.querySelector('.next-grid')?.textContent).toContain('Player one');
     expect(fixture.nativeElement.querySelector('.next-grid')?.textContent).toContain('Player four');
     expect(fixture.nativeElement.querySelector('.next-player .silver-frame')).not.toBeNull();

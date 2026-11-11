@@ -10,12 +10,13 @@ import { AuthenticatedMember } from '../member-auth.service';
 import { isGoldMembershipActive } from '../gold-membership';
 import { MemberProfileFrameComponent } from '../member-profile/member-profile-frame.component';
 import { BenchClock, benchMilliseconds, categoryFromSkills, formatBenchTime, OpenPlayCategory, parseParticipants, pauseBench, resumeBench, timeSinceGame } from './open-play-players';
-import { defaultMatchingMode, isMatchingMode, MatchingMode, matchingModeOptions, MatchingPlayer, suggestNextOpenPlayMatch, suggestOpenPlayMatch } from './open-play-matching';
+import { defaultMatchingMode, isMatchingMode, MatchingMode, matchingModeOptions, MatchingPlayer, OpenPlayGender, suggestNextOpenPlayMatch, suggestOpenPlayMatch } from './open-play-matching';
 
 type OpenPlayMember = Pick<AuthenticatedMember, 'memberId' | 'name' | 'reClubId' | 'skills' | 'goldMembershipExpiresOn'>;
 interface Player {
   id: string;
   name: string;
+  gender?: OpenPlayGender;
   category: OpenPlayCategory;
   memberId: string | null;
   status: PlayerStatus;
@@ -148,7 +149,7 @@ export class OpenPlayPageComponent implements OnInit {
   protected readonly matchingCandidates = computed(() => {
     const toCandidate = (player: Player, line: MatchingPlayer['line']): MatchingPlayer => {
       const { wins, losses } = this.playerRecord(player);
-      return { id: player.id, category: player.category, line, waitMs: this.waitMs(player), wins, games: wins + losses };
+      return { id: player.id, category: player.category, gender: player.gender ?? '', line, waitMs: this.waitMs(player), wins, games: wins + losses };
     };
     return [...this.normalLine().filter((player) => !this.unavailable().includes(player.id)).map((player) => toCandidate(player, 'normal')),
       ...this.winnersLine().filter((player) => !this.unavailable().includes(player.id)).map((player) => toCandidate(player, 'winners'))];
@@ -695,6 +696,11 @@ export class OpenPlayPageComponent implements OnInit {
   protected updateCategory(id: string, category: OpenPlayCategory) {
     if (!categories.includes(category)) return;
     this.players.update((players) => players.map((player) => player.id === id ? { ...player, category } : player));
+  }
+
+  protected updateGender(id: string, gender: OpenPlayGender) {
+    if (gender !== '' && gender !== 'Male' && gender !== 'Female') return;
+    this.players.update((players) => players.map((player) => player.id === id ? { ...player, gender } : player));
   }
 
   protected updateStatus(id: string, status: PlayerStatus) {

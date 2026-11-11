@@ -1,7 +1,10 @@
 import { OpenPlayCategory } from './open-play-players';
 
+export type OpenPlayGender = 'Male' | 'Female' | '';
+
 export interface MatchingPlayer {
   id: string;
+  gender?: OpenPlayGender;
   category: OpenPlayCategory;
   line: 'normal' | 'winners';
   waitMs: number;
@@ -253,8 +256,16 @@ export function suggestOpenPlayMatch(players: MatchingPlayer[], courtCategory: O
 
 function createSuggestion(players: MatchingPlayer[]): MatchSuggestion {
   const sorted = [...players].sort((left, right) => levels.indexOf(left.category) - levels.indexOf(right.category));
+  let teams: [MatchingPlayer[], MatchingPlayer[]] = [[sorted[0], sorted[3]], [sorted[1], sorted[2]]];
+  if (players.filter((player) => player.gender === 'Male').length === 2 && players.filter((player) => player.gender === 'Female').length === 2) {
+    const options: [MatchingPlayer[], MatchingPlayer[]][] = [teams, [[sorted[0], sorted[1]], [sorted[2], sorted[3]]], [[sorted[0], sorted[2]], [sorted[1], sorted[3]]]];
+    const skillGap = (option: [MatchingPlayer[], MatchingPlayer[]]) => Math.abs(option[0].reduce((sum, player) => sum + levels.indexOf(player.category), 0) - option[1].reduce((sum, player) => sum + levels.indexOf(player.category), 0));
+    const winRateGap = (option: [MatchingPlayer[], MatchingPlayer[]]) => Math.abs(option[0].reduce((sum, player) => sum + (player.games ? player.wins / player.games : 0.5), 0) - option[1].reduce((sum, player) => sum + (player.games ? player.wins / player.games : 0.5), 0));
+    teams = options.filter((option) => option.every((team) => team[0].gender !== team[1].gender))
+      .sort((left, right) => skillGap(left) - skillGap(right) || winRateGap(left) - winRateGap(right))[0];
+  }
   return {
-    teams: [[sorted[0], sorted[3]], [sorted[1], sorted[2]]],
+    teams,
     mixedLines: new Set(players.map((player) => player.line)).size > 1,
     mixedLevels: new Set(players.map((player) => player.category)).size > 1,
   };

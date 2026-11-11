@@ -5,10 +5,20 @@
   </header>
 
   @if (board()?.active) {
+  @if (board()?.activeCourts?.length) {
+    <div class="active-courts" aria-label="Active courts">
+      @for (court of board()!.activeCourts; track court.number) {
+        <div class="active-court">
+          <span class="court-name">{{ court.name }}</span>
+          <span class="court-timer" role="timer" [attr.aria-label]="'Elapsed game time on ' + court.name">{{ courtElapsedTime(court.startedAt) }}</span>
+        </div>
+      }
+    </div>
+  }
   <div class="suggestion-grid">
   @for (group of [0, 1]; track group) {
   <section [attr.aria-labelledby]="group === 0 ? 'next-players-heading' : 'on-deck-heading'">
-    <h2 [id]="group === 0 ? 'next-players-heading' : 'on-deck-heading'">{{ group === 0 ? (board()?.forcedCategory || 'Automatic') : 'On Deck' }}</h2>
+    <h2 [id]="group === 0 ? 'next-players-heading' : 'on-deck-heading'">{{ group === 0 ? 'Next to Play' : 'On Deck' }}</h2>
     <div class="next-grid">
       @for (teamIndex of [0, 1]; track teamIndex) {
         <div class="next-team" role="group" [attr.aria-label]="'Team ' + (teamIndex + 1)">

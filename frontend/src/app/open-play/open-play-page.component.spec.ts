@@ -280,6 +280,42 @@ describe('OpenPlayPageComponent', () => {
     expect(root.querySelector('app-member-profile-frame iframe')?.getAttribute('src')).toBe('/member-profile/member-1?embedded=true');
   });
 
+  it('lets admins set and clear imported roster genders without reshuffling saved waiting groups', async () => {
+    const players = Array.from({ length: 8 }, (_, index) => ({ id: `gender-${index}`, name: `Player ${index}`, category: 'Intermediate', memberId: null, status: 'Active' }));
+    const first = players.slice(0, 4).map((player) => player.id);
+    const following = players.slice(4).map((player) => player.id);
+    const fixture = createPage({ players, nextPlayerIds: first, followingPlayerIds: following, revision: 'saved-genders' });
+    const component = fixture.componentInstance;
+    component['queue'].set(players.map((player) => player.id));
+    const select = fixture.nativeElement.querySelector('[aria-label="Gender for Player 0"]') as HTMLSelectElement;
+    expect(select.value).toBe('');
+    for (let index = 0; index < players.length; index++) {
+      const input = fixture.nativeElement.querySelector(`[aria-label="Gender for Player ${index}"]`) as HTMLSelectElement;
+      input.value = index % 4 < 2 ? 'Male' : 'Female';
+      input.dispatchEvent(new Event('change'));
+    }
+    fixture.detectChanges();
+    expect(component['matchSlots']()).toEqual(first);
+    expect(component['followingMatchSlots']()).toEqual(following);
+    expect(component['matchingCandidates']().map((entry) => entry.gender)).toEqual(['Male', 'Male', 'Female', 'Female', 'Male', 'Male', 'Female', 'Female']);
+    component['saveDraft']();
+    const request = http.expectOne((entry) => entry.url.endsWith('/open-play/draft') && entry.method === 'PUT');
+    expect(request.request.body.players[0].gender).toBe('Male');
+    const saved = { ...request.request.body, revision: 'updated-genders', benchMigrationNeeded: false, courtNameVersion: 1, queueVersion: 4 };
+    request.flush(saved);
+    fixture.destroy();
+    const restored = createPage(saved).componentInstance;
+    expect(restored['players']()[0].gender).toBe('Male');
+    expect(restored['matchSlots']()).toEqual(first);
+    restored['resetNextPlayers']();
+    const byId = new Map(restored['players']().map((player) => [player.id, player.gender]));
+    for (const slots of [restored['matchSlots'](), restored['followingMatchSlots']()]) {
+      for (const team of [slots.slice(0, 2), slots.slice(2)]) expect(team.map((id) => byId.get(id)).sort()).toEqual(['Female', 'Male']);
+    }
+    restored['updateGender'](players[0].id, '');
+    expect(restored['players']()[0].gender).toBe('');
+  });
+
   it('awards selected participation and Top 5 points with distinct idempotency IDs', async () => {
     const fixture = createPage({ players: [], revision: 'saved-revision' });
     const component = fixture.componentInstance;

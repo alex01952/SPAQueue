@@ -47,7 +47,7 @@ button:disabled, input:disabled, select:disabled { opacity: .55; cursor: not-all
 .selected-member a, .player-name a, .matches a { font-size: .78rem; }
 .roster { min-width: 0; }
 .roster-heading { padding: 4px 0 16px; border-bottom: 1px solid #b5a997; }
-.roster-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) minmax(125px, 160px) minmax(100px, 120px) 36px; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid #d9cdbf; }
+.roster-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) minmax(125px, 160px) minmax(100px, 120px) minmax(80px, 100px) 36px; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid #d9cdbf; }
 .player-name span { color: var(--text-secondary); font-size: .78rem; }
 .playing-status { padding: 10px; color: #985027; font-size: .82rem; font-weight: 700; }
 .remove { width: 36px; height: 36px; padding: 0; border: 0; background: transparent; color: #a33e32; font-size: 1.5rem; }
@@ -115,5 +115,6 @@ button:disabled, input:disabled, select:disabled { opacity: .55; cursor: not-all
 .error { color: #812f27; background: #f9e5df; }
 .success, .legacy { color: #245c42; background: #e4f0e5; }
 .text-button { padding: 0; color: inherit; font-weight: 700; border: 0; background: transparent; text-decoration: underline; }
+@media (max-width: 1100px) { .roster-row { grid-template-columns: 24px minmax(0, 1fr) minmax(95px, 120px) 36px; gap: 8px; } .roster-row .player-name { grid-column: 2 / 4; } .roster-row select, .roster-row .playing-status { grid-row: 2; } .roster-row select:first-of-type { grid-column: 2; } .roster-row select:nth-of-type(2), .roster-row .playing-status { grid-column: 3; } .roster-row .player-gender { grid-column: 2 / 4; grid-row: 3; } .roster-row .remove { grid-column: 4; grid-row: 1; } }
 @media (max-width: 800px) { .workspace { grid-template-columns: 1fr; gap: 12px; } .entry-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; } .entry-section { margin: 0; } .match-slots { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 580px) { .open-play-shell { padding: 20px 14px 48px; } h1 { font-size: 1.9rem; } .player-count { display: grid; gap: 0; text-align: right; } .entry-column, .court-add, .queue-columns { grid-template-columns: 1fr; } .roster-row { grid-template-columns: 24px minmax(0, 1fr) minmax(95px, 120px) 36px; } .roster-row select, .roster-row .playing-status { grid-row: 2; } .roster-row select:first-of-type { grid-column: 2; } .roster-row select:nth-of-type(2), .roster-row .playing-status { grid-column: 3; } .roster-row .remove { grid-column: 4; grid-row: 1; } .review-row { grid-template-columns: 1fr; gap: 10px; } }
+@media (max-width: 580px) { .open-play-shell { padding: 20px 14px 48px; } h1 { font-size: 1.9rem; } .player-count { display: grid; gap: 0; text-align: right; } .entry-column, .court-add, .queue-columns { grid-template-columns: 1fr; } .review-row { grid-template-columns: 1fr; gap: 10px; } }

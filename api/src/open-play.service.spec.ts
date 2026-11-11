@@ -72,6 +72,21 @@ describe('Open Play draft storage', () => {
     await expect(service.saveDraft('session', { players: [player, { ...player, id: 'player-2' }], revision: saved.revision })).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('preserves optional roster genders through saves and reloads and rejects invalid values', async () => {
+    const players = [
+      { ...player, id: 'legacy', memberId: null },
+      { ...player, id: 'blank', memberId: null, gender: '' },
+      { ...player, id: 'woman', memberId: null, gender: 'Female' },
+      { ...player, id: 'man', memberId: null, gender: 'Male' },
+    ];
+    const saved = await service.saveDraft('session', { players, revision: null });
+    expect(saved.players.map((entry) => entry.gender)).toEqual([undefined, '', 'Female', 'Male']);
+    expect((await service.getDraft('session')).players).toEqual(saved.players);
+    const updated = await service.saveDraft('session', { ...saved, players: saved.players.map((entry) => ({ ...entry, gender: '' })) });
+    expect((await service.getDraft('session')).players.every((entry) => entry.gender === '')).toBe(true);
+    await expect(service.saveDraft('session', { ...updated, players: [{ ...players[0], gender: 'invalid' }] })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('persists disjoint player lock groups and rejects invalid or omitted locks', async () => {
     const players = Array.from({ length: 5 }, (_, index) => ({ ...player, id: `player-${index}`, memberId: null }));
     const playerLocks = [['player-0', 'player-1'], ['player-2', 'player-3', 'player-4']];
@@ -235,6 +250,31 @@ describe('Open Play draft storage', () => {
     await service.publishBoardState('session', { matchingMode: 'wait-priority', forcedCategory: null, nextPlayerIds: null, playerLocks: [], unavailable: [], revision: started.revision });
     expect((await service.getBoard('member-session')).forcedCategory).toBeNull();
     await expect(service.saveDraft('session', { players, nextPlayerIds: [players[0].id, players[0].id, '', ''], revision: started.revision })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('exposes only occupied court names and saved start times while the session is active', async () => {
+    const saved = await service.saveDraft('session', { players: [], revision: null });
+    const match = {
+      id: 'private-match', teams: [[{ id: 'private-player', name: 'Private Player', memberId: 'private-member' }]],
+      status: 'ongoing' as const, winner: null, score: null,
+      startedAt: '2026-11-12T10:00:00Z', completedAt: null,
+      court: { number: 2, name: 'Arena South', category: 'Novice' as const },
+    };
+    const session = { id: 'session', active: true, startedAt: match.startedAt, endedAt: null, awardReview: null };
+    const draft = { ...saved, session, matches: [
+      match,
+      { ...match, id: 'north-match', court: { ...match.court, number: 1, name: 'Arena North' } },
+      { ...match, id: 'completed-match', status: 'completed' as const, court: { ...match.court, number: 3 } },
+      { ...match, id: 'unassigned-match', court: null },
+    ] };
+    const getDraft = jest.spyOn(service, 'getDraft').mockResolvedValue(draft);
+    expect((await service.getBoard('session')).activeCourts).toEqual([
+      { number: 1, name: 'Arena North', startedAt: match.startedAt },
+      { number: 2, name: 'Arena South', startedAt: match.startedAt },
+    ]);
+    getDraft.mockResolvedValue({ ...draft, session: { ...session, active: false } });
+    expect((await service.getBoard('session')).activeCourts).toEqual([]);
+    getDraft.mockRestore();
   });
 
   it('starts one session and builds a persisted Gold participation and Top 5 review', async () => {

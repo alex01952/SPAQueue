@@ -8,6 +8,7 @@ import { isMissingTableEntity } from './azure-table-errors';
 export interface OpenPlayPlayer {
   id: string;
   name: string;
+  gender?: 'Male' | 'Female' | '';
   category: 'Novice' | 'Intermediate' | 'High Intermediate';
   memberId: string | null;
   status: 'Not Arrived' | 'Active' | 'Rest' | 'Left';
@@ -250,6 +251,10 @@ export class OpenPlayService {
     const liveBoardState = draft.liveBoardState;
     return {
       active: draft.session?.active ?? false,
+      activeCourts: draft.session?.active ? draft.matches
+        .filter((match) => match.status === 'ongoing' && match.court)
+        .map((match) => ({ number: match.court!.number, name: match.court!.name, startedAt: match.startedAt }))
+        .sort((left, right) => left.number - right.number) : [],
       regularLine: draft.session?.active ? line(draft.queue, 'normal') : [],
       winnersLine: draft.session?.active ? line(draft.winnersQueue, 'winners') : [],
       topFive: draft.session?.active ? topFive : [],
@@ -694,13 +699,14 @@ export class OpenPlayService {
       if (typeof player.id !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(player.id) || ids.has(player.id) ||
         typeof player.name !== 'string' || !player.name.trim() || player.name.trim().length > 200 ||
         !['Novice', 'Intermediate', 'High Intermediate'].includes(String(player.category)) ||
+        (player.gender !== undefined && player.gender !== '' && player.gender !== 'Male' && player.gender !== 'Female') ||
         (player.status !== undefined && !['Not Arrived', 'Active', 'Rest', 'Left'].includes(String(player.status))) ||
         (player.memberId !== null && (typeof player.memberId !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(player.memberId) || memberIds.has(player.memberId)))) {
         throw new BadRequestException('Invalid or duplicate player.');
       }
       ids.add(player.id);
       if (typeof player.memberId === 'string') memberIds.add(player.memberId);
-      return { id: player.id, name: player.name.trim(), category: player.category as OpenPlayPlayer['category'], memberId: player.memberId as string | null, status: (player.status ?? 'Active') as OpenPlayPlayer['status'] };
+      return { id: player.id, name: player.name.trim(), category: player.category as OpenPlayPlayer['category'], memberId: player.memberId as string | null, status: (player.status ?? 'Active') as OpenPlayPlayer['status'], ...(player.gender !== undefined ? { gender: player.gender as OpenPlayPlayer['gender'] } : {}) };
     });
   }
 

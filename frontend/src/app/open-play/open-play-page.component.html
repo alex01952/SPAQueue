@@ -208,6 +208,7 @@
               </div>
               <select [attr.aria-label]="'Category for ' + player.name" [ngModel]="player.category" (ngModelChange)="updateCategory(player.id, $event)">@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select>
               @if (playing) { <span class="playing-status" [attr.aria-label]="'Status for ' + player.name">In Play</span> } @else { <select [attr.aria-label]="'Status for ' + player.name" [ngModel]="player.status" (ngModelChange)="updateStatus(player.id, $event)">@for (status of statuses; track status) { <option [value]="status">{{ status }}</option> }</select> }
+              <select class="player-gender" [attr.aria-label]="'Gender for ' + player.name" [ngModel]="player.gender ?? ''" (ngModelChange)="updateGender(player.id, $event)"><option value="">Not set</option><option value="Male">Male</option><option value="Female">Female</option></select>
               <button type="button" class="remove" [attr.aria-label]="'Remove ' + player.name" title="Remove player" (click)="removePlayer(player.id)">&times;</button>
             </div>
           } @empty { <p class="muted" role="status">No players match your search.</p> }

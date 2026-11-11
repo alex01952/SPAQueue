@@ -8,6 +8,10 @@ h2 { padding: 10px 0 6px; font-size: 1rem; }
 .feed-state::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%; background: #39824f; }
 .feed-state.stale { color: #8c4a31; }
 .feed-state.stale::before { background: #b66b3c; }
+.active-courts { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 160px)); gap: 8px; padding: 8px 0; border-bottom: 1px solid #d6ddd6; }
+.active-court { display: grid; align-content: center; gap: 2px; min-width: 0; padding: 5px 8px; border-left: 2px solid #39824f; background: #edf2ed; }
+.court-name { color: #59665d; font-size: .75rem; line-height: 1.2; overflow-wrap: anywhere; }
+.court-timer { color: #252d28; font-size: 2rem; line-height: 1.05; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .suggestion-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .suggestion-grid > section, .line-grid > section { min-width: 0; }
 .next-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }

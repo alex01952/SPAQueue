@@ -26,6 +26,7 @@ interface BoardTopPlayer {
 
 interface OpenPlayBoard {
   active: boolean;
+  activeCourts?: Array<{ number: number; name: string; startedAt: string }>;
   regularLine: BoardPlayer[];
   winnersLine: BoardPlayer[];
   topFive: BoardTopPlayer[];
@@ -52,7 +53,17 @@ export class OpenPlayBoardPageComponent implements OnInit {
   private readonly apiUrl = getApiBaseUrl();
   protected readonly board = signal<OpenPlayBoard | null>(null);
   protected readonly feedState = signal('Connecting');
+  protected readonly now = signal(Date.now());
   protected readonly formatBenchTime = formatBenchTime;
+
+  protected courtElapsedTime(startedAt: string) {
+    const start = Date.parse(startedAt);
+    const seconds = Number.isFinite(start) ? Math.max(0, Math.floor((this.now() - start) / 1000)) : 0;
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor(seconds / 60) % 60;
+    const remainder = String(seconds % 60).padStart(2, '0');
+    return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${remainder}` : `${String(minutes).padStart(2, '0')}:${remainder}`;
+  }
   protected readonly nextPlayerSlots = computed<(BoardPlayer | null)[]>(() => {
     const board = this.board();
     if (!board) return [null, null, null, null];
@@ -66,6 +77,7 @@ export class OpenPlayBoardPageComponent implements OnInit {
   });
 
   ngOnInit() {
+    timer(0, 1000).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.now.set(Date.now()));
     timer(0, 15 * 60 * 1000).pipe(
       switchMap(() => this.http.post(`${this.apiUrl}/members/session/refresh`, {}, { withCredentials: true }).pipe(
         catchError(() => EMPTY),

@@ -6,6 +6,40 @@ describe('Open Play match suggestions', () => {
   });
   const ids = (players: MatchingPlayer[]) => players.map((entry) => entry.id);
 
+  it.each([
+    ['Male', 'Male', 'Female', 'Female'],
+    ['Male', 'Female', 'Male', 'Female'],
+    ['Male', 'Female', 'Female', 'Male'],
+    ['Female', 'Male', 'Male', 'Female'],
+    ['Female', 'Male', 'Female', 'Male'],
+    ['Female', 'Female', 'Male', 'Male'],
+  ] as const)('forms mixed doubles for genders %s, %s, %s, %s', (...genders) => {
+    const players = genders.map((gender, index) => player(`mixed-${index}`, { gender }));
+    for (const forcedCategory of [null, 'Intermediate'] as const) {
+      const suggestion = suggestNextOpenPlayMatch(players, 'wait-priority', [], forcedCategory)!;
+      expect(ids(suggestion.teams.flat()).sort()).toEqual(ids(players).sort());
+      for (const team of suggestion.teams) expect(team.map((entry) => entry.gender).sort()).toEqual(['Female', 'Male']);
+    }
+  });
+
+  it('retains the existing pairing when genders are blank or incomplete', () => {
+    const players = Array.from({ length: 4 }, (_, index) => player(`unknown-${index}`));
+    const original = suggestNextOpenPlayMatch(players)!;
+    expect(suggestNextOpenPlayMatch(players.map((entry) => ({ ...entry, gender: '' })))?.teams.map(ids)).toEqual(original.teams.map(ids));
+    expect(suggestNextOpenPlayMatch(players.map((entry, index) => ({ ...entry, gender: index === 0 ? 'Female' : '' })))?.teams.map(ids)).toEqual(original.teams.map(ids));
+  });
+
+  it('chooses the more balanced mixed pairing using available win rates', () => {
+    const players = [
+      player('man-high', { gender: 'Male', wins: 9, games: 10 }),
+      player('woman-high', { gender: 'Female', wins: 8, games: 10 }),
+      player('woman-low', { gender: 'Female', wins: 2, games: 10 }),
+      player('man-low', { gender: 'Male', wins: 1, games: 10 }),
+    ];
+    const result = suggestNextOpenPlayMatch(players)!;
+    expect(result.teams.map(ids)).toEqual([['man-high', 'woman-low'], ['woman-high', 'man-low']]);
+  });
+
   it('chooses the eligible line with the greater combined waiting time before selecting a court', () => {
     const normal = Array.from({ length: 4 }, (_, index) => player(`normal-${index}`, { waitMs: 10 * 60000 }));
     const winners = Array.from({ length: 4 }, (_, index) => player(`winner-${index}`, { line: 'winners', waitMs: 20 * 60000 }));
