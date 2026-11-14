@@ -5,6 +5,7 @@
   </header>
 
   @if (board()?.active) {
+  <div class="board-activity">
   @if (board()?.activeCourts?.length) {
     <div class="active-courts" aria-label="Active courts">
       @for (court of board()!.activeCourts; track court.number) {
@@ -15,6 +16,21 @@
       }
     </div>
   }
+    <section class="locks-section" aria-labelledby="locks-heading">
+      <h2 id="locks-heading">Current Locks</h2>
+      @if (lockGroups().length) {
+        <ul class="lock-list">
+          @for (group of lockGroups(); track $index) {
+            <li>
+              @for (player of group; track player.id; let last = $last) {
+                <span>{{ player.name }}{{ last ? '' : ', ' }}</span>
+              }
+            </li>
+          }
+        </ul>
+      } @else { <p class="empty">No players locked.</p> }
+    </section>
+  </div>
   <div class="suggestion-grid">
   @for (group of [0, 1]; track group) {
   <section [attr.aria-labelledby]="group === 0 ? 'next-players-heading' : 'on-deck-heading'">

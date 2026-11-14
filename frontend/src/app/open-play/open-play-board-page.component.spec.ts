@@ -120,7 +120,7 @@ describe('OpenPlayBoardPageComponent', () => {
 
     const root = fixture.nativeElement as HTMLElement;
     expect(Array.from(root.querySelectorAll('section h2')).map((heading) => heading.textContent?.trim()))
-      .toEqual(['Next to Play', 'On Deck', 'Regular Line', 'Winners Line', 'Top 5']);
+      .toEqual(['Current Locks', 'Next to Play', 'On Deck', 'Regular Line', 'Winners Line', 'Top 5']);
     expect(fixture.nativeElement.querySelector('.next-grid')?.textContent).toContain('Player one');
     expect(fixture.nativeElement.querySelector('.next-grid')?.textContent).toContain('Player four');
     expect(fixture.nativeElement.querySelector('.next-player .silver-frame')).not.toBeNull();
@@ -130,6 +130,41 @@ describe('OpenPlayBoardPageComponent', () => {
     expect(Array.from(teams[1].querySelectorAll('.next-player strong')).map((entry) => entry.textContent?.trim())).toEqual(['Player three', 'Player four']);
     expect(root.querySelector('.slot-label')).toBeNull();
     expect(fixture.nativeElement.querySelector('.feed-state')?.textContent).toContain('Live');
+    fixture.destroy();
+  });
+
+  it('shows lock groups including players on court and updates them with the board', () => {
+    const fixture = TestBed.createComponent(OpenPlayBoardPageComponent);
+    const component = fixture.componentInstance;
+    const board = {
+      active: true, regularLine: [player('waiting')], winnersLine: [], topFive: [],
+      playerLocks: [['waiting', 'playing'], ['other-1', 'other-2']],
+      lockGroups: [[{ id: 'waiting', name: 'Player waiting' }, { id: 'playing', name: 'Player playing' }],
+        [{ id: 'other-1', name: 'Other one' }, { id: 'other-2', name: 'Other two' }]],
+      matchingMode: 'wait-priority' as const, forcedCategory: null, nextPlayerIds: null,
+      activeCourts: [{ number: 1, name: 'Court 1', startedAt: '2026-11-12T10:00:00Z' }],
+    };
+    component['board'].set(board);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('.board-activity .active-courts')).not.toBeNull();
+    const groups = root.querySelectorAll('.lock-list li');
+    expect(Array.from(groups).map((group) => group.textContent?.trim())).toEqual(['Player waiting, Player playing', 'Other one, Other two']);
+    component['board'].set({ ...board, playerLocks: [], lockGroups: [], activeCourts: [] });
+    fixture.detectChanges();
+    expect(root.querySelector('.lock-list')).toBeNull();
+    expect(root.querySelector('.locks-section')?.textContent).toContain('No players locked.');
+    fixture.destroy();
+  });
+
+  it('uses waiting player names and a neutral fallback with older board responses', () => {
+    const fixture = TestBed.createComponent(OpenPlayBoardPageComponent);
+    fixture.componentInstance['board'].set({
+      active: true, regularLine: [player('waiting')], winnersLine: [], topFive: [],
+      playerLocks: [['waiting', 'playing']], matchingMode: 'wait-priority', forcedCategory: null, nextPlayerIds: null,
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.lock-list')?.textContent).toContain('Player waiting, Name unavailable');
     fixture.destroy();
   });
 

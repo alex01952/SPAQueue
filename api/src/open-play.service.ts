@@ -249,6 +249,8 @@ export class OpenPlayService {
     }).filter((entry) => entry.games > 0)
       .sort((left, right) => right.percent - left.percent || right.wins - left.wins || right.games - left.games || left.name.localeCompare(right.name)).slice(0, 5);
     const liveBoardState = draft.liveBoardState;
+    const playerLocks = liveBoardState?.playerLocks ?? draft.playerLocks;
+    const playersById = new Map(draft.players.map((player) => [player.id, player]));
     return {
       active: draft.session?.active ?? false,
       activeCourts: draft.session?.active ? draft.matches
@@ -258,7 +260,11 @@ export class OpenPlayService {
       regularLine: draft.session?.active ? line(draft.queue, 'normal') : [],
       winnersLine: draft.session?.active ? line(draft.winnersQueue, 'winners') : [],
       topFive: draft.session?.active ? topFive : [],
-      playerLocks: liveBoardState?.playerLocks ?? draft.playerLocks,
+      playerLocks,
+      lockGroups: draft.session?.active ? playerLocks.map((group) => group.flatMap((id) => {
+        const player = playersById.get(id);
+        return player ? [{ id: player.id, name: player.name }] : [];
+      })) : [],
       matchingMode: liveBoardState?.matchingMode ?? draft.matchingMode,
       forcedCategory: liveBoardState ? liveBoardState.forcedCategory : draft.forcedCategory,
       secondaryEnabled: liveBoardState?.secondaryEnabled ?? draft.secondaryEnabled,

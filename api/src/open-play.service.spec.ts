@@ -100,6 +100,26 @@ describe('Open Play draft storage', () => {
     await expect(service.saveDraft('session', { players, revision: saved.revision })).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('includes locked player names on the active board even while they are playing', async () => {
+    const players = Array.from({ length: 4 }, (_, index) => ({
+      ...player, id: `locked-${index}`, name: `Player ${index}`, memberId: null, status: 'Active',
+    }));
+    const saved = await service.saveDraft('session', { players, playerLocks: [[players[0].id, players[1].id]], revision: null });
+    expect((await service.getBoard('session')).lockGroups).toEqual([]);
+    const started = await service.startSession('session', { revision: saved.revision });
+    const match = {
+      id: 'ongoing', teams: [players.slice(0, 2), players.slice(2, 4)], status: 'ongoing', winner: null, score: null,
+      startedAt: '2026-11-08T10:00:00Z', completedAt: null, court: null,
+    };
+    await service.saveDraft('session', {
+      ...started, matches: [match],
+      bench: Object.fromEntries(players.map((entry) => [entry.id, { accumulatedMs: 0, since: null }])),
+    });
+    const board = await service.getBoard('session');
+    expect(board.regularLine).toEqual([]);
+    expect(board.lockGroups).toEqual([[{ id: 'locked-0', name: 'Player 0' }, { id: 'locked-1', name: 'Player 1' }]]);
+  });
+
   it('keeps published player locks through reloads and match saves until explicitly unlocked', async () => {
     const players = Array.from({ length: 4 }, (_, index) => ({
       ...player, id: `locked-${index}`, memberId: null, status: 'Active',

@@ -64,9 +64,10 @@ function compareSuggestions(left: NextMatchSuggestion, right: NextMatchSuggestio
   const leftWait = Math.max(...leftPlayers.map((player) => player.waitMs));
   const rightWait = Math.max(...rightPlayers.map((player) => player.waitMs));
   const urgency = (wait: number) => wait >= warningMs ? 2 : wait >= nearWarningMs ? 1 : 0;
-  const groupWaitOrder = queuePositions ? right.totalWaitMs - left.totalWaitMs ||
+  const groupWaitOrder = queuePositions ?
     leftPlayers.reduce((sum, player) => sum + (queuePositions.get(player.id) ?? 0), 0) - rightPlayers.reduce((sum, player) => sum + (queuePositions.get(player.id) ?? 0), 0) : 0;
-  return urgency(rightWait) - urgency(leftWait) || Number(left.mixedLines) - Number(right.mixedLines) ||
+  return (queuePositions ? right.totalWaitMs - left.totalWaitMs : 0) ||
+    urgency(rightWait) - urgency(leftWait) || Number(left.mixedLines) - Number(right.mixedLines) ||
     rightWait - leftWait || groupWaitOrder || tieRank(rightPlayers, seed) - tieRank(leftPlayers, seed);
 }
 
@@ -79,9 +80,10 @@ function suggestWaitPriorityMatch(players: MatchingPlayer[], playerLocks: string
     .map((group) => group.map((id) => availableById.get(id)!));
   const unlocked = players.filter((player) => !lockedIds.has(player.id));
   const choose = (groups: MatchingPlayer[][]) => groups.flatMap((group) => (forcedCategory ? [forcedCategory] : levels).flatMap((category) => {
-    const suggestion = suggestOpenPlayMatch(group, category);
+    const candidates = lockedGroups.length ? [...group].sort((left, right) => right.waitMs - left.waitMs) : group;
+    const suggestion = suggestOpenPlayMatch(candidates, category);
     return suggestion ? [{ ...suggestion, category, totalWaitMs: suggestion.teams.flat().reduce((sum, player) => sum + player.waitMs, 0) }] : [];
-  })).sort((left, right) => compareSuggestions(left, right, tieBreakSeed))[0] ?? null;
+  })).sort((left, right) => compareSuggestions(left, right, tieBreakSeed, lockedGroups.length ? queuePositions : undefined))[0] ?? null;
 
   const regularSuggestion = choose([
     unlocked.filter((player) => player.line === 'normal'),
@@ -99,7 +101,11 @@ function suggestWaitPriorityMatch(players: MatchingPlayer[], playerLocks: string
     ].filter((unit) => !forcedCategory || unit.every((player) => player.category === forcedCategory || promotedIds.has(player.id)));
     const sameLineUnits = group.every((player) => player.line === group[0].line)
       ? units.filter((unit) => unit.every((player) => player.line === group[0].line)) : [];
-    const fillers = selectUnits(sameLineUnits, remaining) ?? selectUnits(units, remaining);
+    const sameLineFillers = selectUnits(sameLineUnits, remaining);
+    const allFillers = selectUnits(units, remaining);
+    const fillers = sameLineFillers && allFillers &&
+      sameLineFillers.reduce((sum, player) => sum + player.waitMs, 0) === allFillers.reduce((sum, player) => sum + player.waitMs, 0)
+      ? sameLineFillers : allFillers;
     if (!fillers) continue;
     const selected = [...group, ...fillers];
     const category = forcedCategory ?? levels.slice().reverse().find((level) => selected.some((player) => player.category === level))!;
@@ -139,6 +145,7 @@ function suggestForcedCategoryMatch(players: MatchingPlayer[], playerLocks: stri
   const units: MatchingPlayer[][] = playerLocks
     .filter((group) => group.length >= 2 && group.length <= 4 && group.every((id) => availableById.has(id)))
     .map((group) => group.map((id) => availableById.get(id)!));
+  const hasEligibleLocks = units.length > 0;
   units.push(...players.filter((player) => !lockedIds.has(player.id)).map((player) => [player]));
 
   const addPlayer = (plan: CategoryPlan, player: MatchingPlayer): CategoryPlan => {
@@ -159,10 +166,11 @@ function suggestForcedCategoryMatch(players: MatchingPlayer[], playerLocks: stri
   };
   const compare = (left: CategoryPlan, right: CategoryPlan) =>
     right.targetCount - left.targetCount || left.levelDistance - right.levelDistance ||
+    (hasEligibleLocks ? right.totalWait - left.totalWait : 0) ||
     right.urgency - left.urgency ||
     Number((left.lineMask & (left.lineMask - 1)) !== 0) - Number((right.lineMask & (right.lineMask - 1)) !== 0) ||
     right.highestWait - left.highestWait ||
-    (playerLocks.length ? right.totalWait - left.totalWait || left.positionTotal - right.positionTotal : 0) ||
+    (hasEligibleLocks ? left.positionTotal - right.positionTotal : 0) ||
     left.winRateGap - right.winRateGap;
   const choosePlan = (pool: MatchingPlayer[][]) => {
     const plans = new Map<string, CategoryPlan>();

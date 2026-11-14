@@ -31,6 +31,7 @@ interface OpenPlayBoard {
   winnersLine: BoardPlayer[];
   topFive: BoardTopPlayer[];
   playerLocks: string[][];
+  lockGroups?: Array<Array<{ id: string; name: string }>>;
   matchingMode: MatchingMode;
   forcedCategory: OpenPlayCategory | null;
   secondaryEnabled?: boolean;
@@ -55,6 +56,13 @@ export class OpenPlayBoardPageComponent implements OnInit {
   protected readonly feedState = signal('Connecting');
   protected readonly now = signal(Date.now());
   protected readonly formatBenchTime = formatBenchTime;
+  protected readonly lockGroups = computed(() => {
+    const board = this.board();
+    if (!board) return [];
+    if (board.lockGroups) return board.lockGroups;
+    const names = new Map([...board.regularLine, ...board.winnersLine].map((player) => [player.id, player.name]));
+    return board.playerLocks.map((group) => group.map((id) => ({ id, name: names.get(id) ?? 'Name unavailable' })));
+  });
 
   protected courtElapsedTime(startedAt: string) {
     const start = Date.parse(startedAt);

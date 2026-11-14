@@ -132,6 +132,37 @@ describe('Open Play match suggestions', () => {
     }
   });
 
+  it.each([null, 'Intermediate' as const])('compares the total wait of a locked group with waiting players for category %s', (category) => {
+    const locked = Array.from({ length: 4 }, (_, index) => player(`locked-${index}`, {
+      waitMs: index === 0 ? 30 * 60000 : 0,
+      line: index === 1 ? 'winners' : 'normal',
+    }));
+    const waiting = Array.from({ length: 4 }, (_, index) => player(`waiting-${index}`, { waitMs: 10 * 60000 }));
+    const result = suggestNextOpenPlayMatch([...locked, ...waiting], 'wait-priority', [ids(locked)], category)!;
+    expect(ids(result.teams.flat()).sort()).toEqual(ids(waiting).sort());
+
+    const longerLocked = locked.map((entry, index) => ({ ...entry, waitMs: index === 0 ? 50 * 60000 : 0 }));
+    const next = suggestNextOpenPlayMatch([...longerLocked, ...waiting], 'wait-priority', [ids(longerLocked)], category)!;
+    expect(ids(next.teams.flat()).sort()).toEqual(ids(longerLocked).sort());
+  });
+
+  it.each([null, 'Intermediate' as const])('fills partial locks using the greatest total wait for category %s', (category) => {
+    const locked = [player('long-wait', { waitMs: 30 * 60000 }), player('just-finished')];
+    const sameLine = [player('normal-1'), player('normal-2')];
+    const waiting = [player('winner-1', { line: 'winners', waitMs: 20 * 60000 }), player('winner-2', { line: 'winners', waitMs: 20 * 60000 })];
+    const result = suggestNextOpenPlayMatch([...locked, ...sameLine, ...waiting], 'wait-priority', [ids(locked)], category)!;
+    expect(ids(result.teams.flat()).sort()).toEqual(ids([...locked, ...waiting]).sort());
+    expect(result.totalWaitMs).toBe(70 * 60000);
+  });
+
+  it.each([null, 'Intermediate' as const])('compares a lock against the highest-wait unlocked lineup for category %s', (category) => {
+    const locked = Array.from({ length: 4 }, (_, index) => player(`locked-${index}`, { waitMs: index === 0 ? 20 * 60000 : 0 }));
+    const waiting = [10, 1, 4, 4, 4, 4].map((minutes, index) => player(`waiting-${index}`, { waitMs: minutes * 60000 }));
+    const result = suggestNextOpenPlayMatch([...locked, ...waiting], 'wait-priority', [ids(locked)], category)!;
+    expect(result.totalWaitMs).toBe(22 * 60000);
+    expect(ids(result.teams.flat())).not.toContain('waiting-1');
+  });
+
   it('does not suggest only the eligible members of a partly unavailable lock', () => {
     const locked = player('locked');
     const fillers = Array.from({ length: 4 }, (_, index) => player(`filler-${index}`));
