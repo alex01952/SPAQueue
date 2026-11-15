@@ -36,7 +36,7 @@ export class AdminPageComponent {
     },
     {
       label: 'Registration approvals',
-      description: 'Review verified applicants and approve member access.',
+      description: 'Review and approve existing pending registrations.',
       route: '/member-registration-approvals',
     },
     {

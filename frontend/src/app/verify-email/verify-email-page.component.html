@@ -10,13 +10,15 @@
         status() === 'verifying'
           ? 'One moment'
           : status() === 'verified'
-            ? 'Registration pending approval'
+            ? 'Email verified'
             : 'Link unavailable'
       }}
     </h1>
     <p>{{ message() }}</p>
 
-    @if (status() === 'verified') {
+    @if (status() === 'verified' && canLogin()) {
+      <a routerLink="/login">Go to login</a>
+    } @else if (status() === 'verified') {
       <a routerLink="/">Return to the website</a>
     } @else if (status() === 'error') {
       <a routerLink="/login">Return to login</a>

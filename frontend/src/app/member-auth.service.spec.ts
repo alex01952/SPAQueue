@@ -103,7 +103,7 @@ describe('MemberAuthService', () => {
       method === 'POST' && url.endsWith('/members/email-verification/confirm'),
     );
     expect(confirmation.request.body).toEqual({ token: 'secure-token' });
-    confirmation.flush({ verified: true });
-    expect(auth.member()?.emailValidated).toBe(true);
+    confirmation.flush({ verified: true, canLogin: true });
+    expect(auth.member()?.emailValidated).toBe(false);
   });
 });

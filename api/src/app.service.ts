@@ -624,6 +624,7 @@ export interface EmailVerificationRequestResult {
 
 export interface EmailVerificationResult {
   verified: true;
+  canLogin: boolean;
 }
 
 @Injectable()
@@ -700,8 +701,8 @@ export class AppService {
   ).replace(/\/$/, '');
   private readonly emailVerificationTtlMinutes = Math.max(
     5,
-    Number.parseInt(process.env.EMAIL_VERIFICATION_TTL_MINUTES ?? '60', 10) ||
-      60,
+    Number.parseInt(process.env.EMAIL_VERIFICATION_TTL_MINUTES ?? '1440', 10) ||
+      1440,
   );
   private readonly memberSessionTtlHours = Math.max(
     1,
@@ -5226,22 +5227,45 @@ export class AppService {
     }
 
     const memberId = String(verification.MemberId ?? '');
+    let canLogin: boolean;
     try {
+      const member = await tableClient.getEntity('members', memberId);
+      if (!member.etag) {
+        throw new Error('Member entity is missing an ETag.');
+      }
+      const approve =
+        member.Status === 'Pending' && member.EmailValidated !== true;
+      const now = new Date().toISOString();
       await tableClient.updateEntity(
         {
           partitionKey: 'members',
           rowKey: memberId,
-          EmailValidated: true,
-          EmailValidatedAt: new Date().toISOString(),
+          ...(member.EmailValidated === true
+            ? {}
+            : { EmailValidated: true, EmailValidatedAt: now }),
+          ...(approve ? { Status: 'Approved', ApprovedAt: now } : {}),
         },
         'Merge',
+        { etag: member.etag },
       );
+      canLogin =
+        approve || member.Status === undefined || member.Status === 'Approved';
       await tableClient.deleteEntity('email-verifications', tokenHash);
     } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'statusCode' in error &&
+        error.statusCode === 412
+      ) {
+        throw new ConflictException(
+          'Your account changed while verifying. Please try the link again.',
+        );
+      }
       throw this.createMemberAuthenticationStorageException(error);
     }
 
-    return { verified: true };
+    return { verified: true, canLogin };
   }
 
   async updateMemberAccount(

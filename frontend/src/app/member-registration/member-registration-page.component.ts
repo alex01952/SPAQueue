@@ -240,7 +240,7 @@ export class MemberRegistrationPageComponent {
           this.member.password = '';
           this.member.passwordConfirmation = '';
           this.registrationMessage.set(
-            'Registration submitted. Check your email to verify your address. Your application will then be reviewed by an administrator.',
+            'Registration submitted. Check your email to verify your address and activate your account.',
           );
           this.isSubmitting.set(false);
         },

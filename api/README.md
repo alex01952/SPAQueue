@@ -80,7 +80,7 @@ CHAT_RETENTION_DAYS=30
 MEMBER_SESSION_TTL_HOURS=24
 CORS_ALLOWED_ORIGINS=https://your-app.example.com
 PUBLIC_APP_URL=https://your-app.example.com
-EMAIL_VERIFICATION_TTL_MINUTES=60
+EMAIL_VERIFICATION_TTL_MINUTES=1440
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_USER=mailer@example.com
@@ -90,11 +90,11 @@ SMTP_FROM="Sorsogon Pickleball Arena <mailer@example.com>"
 
 `CORS_ALLOWED_ORIGINS` accepts a comma-separated list of exact frontend origins. Local development origins using `localhost` or `127.0.0.1` are allowed automatically on any port.
 
-Email verification uses `PUBLIC_APP_URL` to build the secure link and Mailgun's HTTP API to deliver it (HTTPS avoids SMTP ports that some networks block). Keep `MAILGUN_API_KEY` in the hosting platform's secret store or Azure Key Vault rather than source control. Verification links expire after `EMAIL_VERIFICATION_TTL_MINUTES` and can only be used once.
+Email verification uses `PUBLIC_APP_URL` to build the secure link and Mailgun's HTTP API to deliver it (HTTPS avoids SMTP ports that some networks block). Keep `MAILGUN_API_KEY` in the hosting platform's secret store or Azure Key Vault rather than source control. Newly issued verification links expire after `EMAIL_VERIFICATION_TTL_MINUTES` (1440 minutes by default) and can only be used once. Update any existing deployment override to `1440` for a 24-hour expiry; previously issued links keep their original expiry.
 
 Member login stores password hashes and hashed, expiring session tokens in the configured table. The API sends the raw session token only as an `HttpOnly` cookie. Grant the API managed identity the `Storage Table Data Contributor` role on the storage account; image uploads also require `Storage Blob Data Contributor`.
 
-New member rows are created with `Status=Pending`. Registration sends the email verification message automatically; after verification, an administrator must approve the registration before login is allowed. Existing member rows without a `Status` property remain login-compatible and are treated as approved.
+New member rows are created with `Status=Pending`. Registration sends the email verification message automatically; verifying a previously unverified pending account approves it for login. Existing verified pending accounts still require administrator approval. Existing member rows without a `Status` property remain login-compatible and are treated as approved.
 
 Notes:
 

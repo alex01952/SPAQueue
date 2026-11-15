@@ -743,8 +743,20 @@ describe('AppController', () => {
     });
 
     it('should email a raw verification token while storing only its hash', async () => {
+      const originalTtl = process.env.EMAIL_VERIFICATION_TTL_MINUTES;
+      let service: AppService;
+      try {
+        delete process.env.EMAIL_VERIFICATION_TTL_MINUTES;
+        service = new AppService();
+      } finally {
+        if (originalTtl === undefined) {
+          delete process.env.EMAIL_VERIFICATION_TTL_MINUTES;
+        } else {
+          process.env.EMAIL_VERIFICATION_TTL_MINUTES = originalTtl;
+        }
+      }
       const createEntity = jest.fn().mockResolvedValue(undefined);
-      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+      jest.spyOn(service as any, 'getMembersTableClient').mockReturnValue({
         getEntity: jest.fn().mockResolvedValue({
           Name: 'Alex Member',
           Email: 'alex@example.com',
@@ -754,10 +766,10 @@ describe('AppController', () => {
         deleteEntity: jest.fn().mockResolvedValue(undefined),
       });
       const sendVerificationEmail = jest
-        .spyOn(appService as any, 'sendVerificationEmail')
+        .spyOn(service as any, 'sendVerificationEmail')
         .mockResolvedValue(undefined);
 
-      const result = await appService.requestEmailVerification('alex-member');
+      const result = await service.requestEmailVerification('alex-member');
 
       const verification = createEntity.mock.calls[0][0];
       const verificationUrl = sendVerificationEmail.mock.calls[0][2] as string;
@@ -765,6 +777,9 @@ describe('AppController', () => {
       expect(result).toEqual({ sent: true, email: 'al**@example.com' });
       expect(verification.partitionKey).toBe('email-verifications');
       expect(verification.MemberId).toBe('alex-member');
+      expect(Date.parse(verification.ExpiresAt) - Date.parse(verification.CreatedAt)).toBe(
+        24 * 60 * 60 * 1000,
+      );
       expect(verification.rowKey).not.toBe(token);
       expect(verification.rowKey).toHaveLength(64);
       expect(verificationUrl).toContain('/verify-email?token=');
@@ -775,35 +790,116 @@ describe('AppController', () => {
       );
     });
 
-    it('should validate the linked member and consume the verification token', async () => {
+    it('should approve an unverified pending member and allow login', async () => {
       const token = 'a'.repeat(43);
-      const updateEntity = jest.fn().mockResolvedValue(undefined);
+      const email = 'alex@example.com';
+      const memberId = Buffer.from(email).toString('base64url');
+      const member: Record<string, unknown> = {
+        etag: 'member-etag',
+        Status: 'Pending',
+        EmailValidated: false,
+        PasswordHash: await (appService as any).hashPassword('strong-password'),
+      };
+      const updateEntity = jest.fn((update: Record<string, unknown>) => {
+        Object.assign(member, update);
+        return Promise.resolve();
+      });
       const deleteEntity = jest.fn().mockResolvedValue(undefined);
       jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
-        getEntity: jest.fn().mockResolvedValue({
-          MemberId: 'alex-member',
-          ExpiresAt: '2026-05-24T10:00:00.000Z',
-        }),
+        getEntity: jest.fn((partition: string) => Promise.resolve(
+          partition === 'email-verifications'
+            ? { MemberId: memberId, ExpiresAt: '2026-05-24T10:00:00.000Z' }
+            : member,
+        )),
         updateEntity,
         deleteEntity,
       });
-
-      await expect(appService.confirmEmailVerification(token)).resolves.toEqual(
-        {
-          verified: true,
-        },
-      );
-
-      expect(updateEntity.mock.calls[0][0]).toMatchObject({
-        partitionKey: 'members',
-        rowKey: 'alex-member',
-        EmailValidated: true,
+      jest.spyOn(appService as any, 'getSessionsTableClient').mockReturnValue({
+        createEntity: jest.fn().mockResolvedValue(undefined),
       });
-      expect(updateEntity.mock.calls[0][1]).toBe('Merge');
+
+      await expect(appService.loginMember(email, 'strong-password'))
+        .rejects.toThrow('Your registration is pending approval.');
+      await expect(appService.confirmEmailVerification(token)).resolves.toEqual({
+        verified: true,
+        canLogin: true,
+      });
+
+      expect(updateEntity).toHaveBeenCalledWith({
+        partitionKey: 'members',
+        rowKey: memberId,
+        EmailValidated: true,
+        EmailValidatedAt: '2026-05-24T09:00:00.000Z',
+        Status: 'Approved',
+        ApprovedAt: '2026-05-24T09:00:00.000Z',
+      }, 'Merge', { etag: 'member-etag' });
       expect(deleteEntity).toHaveBeenCalledWith(
         'email-verifications',
         expect.any(String),
       );
+      await expect(appService.loginMember(email, 'strong-password')).resolves.toMatchObject({
+        member: { memberId, emailValidated: true },
+      });
+    });
+
+    it.each([
+      [{ Status: 'Pending', EmailValidated: true }, false],
+      [{ Status: 'Approved', EmailValidated: false }, true],
+      [{ EmailValidated: false }, true],
+      [{ Status: 'Rejected', EmailValidated: false }, false],
+    ])('preserves existing member status when verifying %j', async (member, canLogin) => {
+      const updateEntity = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn((partition: string) => Promise.resolve(
+          partition === 'email-verifications'
+            ? { MemberId: 'alex-member', ExpiresAt: '2026-05-24T10:00:00.000Z' }
+            : { ...member, etag: 'member-etag' },
+        )),
+        updateEntity,
+        deleteEntity: jest.fn().mockResolvedValue(undefined),
+      });
+
+      await expect(appService.confirmEmailVerification('a'.repeat(43))).resolves.toEqual({
+        verified: true,
+        canLogin,
+      });
+      expect(updateEntity.mock.calls[0][0]).not.toHaveProperty('Status');
+      expect(updateEntity.mock.calls[0][0]).not.toHaveProperty('ApprovedAt');
+      if (member.EmailValidated) {
+        expect(updateEntity.mock.calls[0][0]).not.toHaveProperty('EmailValidatedAt');
+      }
+    });
+
+    it('does not consume the link if the member update conflicts', async () => {
+      const deleteEntity = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn((partition: string) => Promise.resolve(
+          partition === 'email-verifications'
+            ? { MemberId: 'alex-member', ExpiresAt: '2026-05-24T10:00:00.000Z' }
+            : { Status: 'Pending', EmailValidated: false, etag: 'member-etag' },
+        )),
+        updateEntity: jest.fn().mockRejectedValue({ statusCode: 412 }),
+        deleteEntity,
+      });
+
+      await expect(appService.confirmEmailVerification('a'.repeat(43)))
+        .rejects.toThrow('Your account changed while verifying.');
+      expect(deleteEntity).not.toHaveBeenCalled();
+    });
+
+    it('does not update a member using an expired link', async () => {
+      const updateEntity = jest.fn();
+      jest.spyOn(appService as any, 'getMembersTableClient').mockReturnValue({
+        getEntity: jest.fn().mockResolvedValue({
+          MemberId: 'alex-member',
+          ExpiresAt: '2026-05-24T09:00:00.000Z',
+        }),
+        updateEntity,
+        deleteEntity: jest.fn().mockResolvedValue(undefined),
+      });
+      await expect(appService.confirmEmailVerification('a'.repeat(43)))
+        .rejects.toThrow('Verification link is invalid or expired.');
+      expect(updateEntity).not.toHaveBeenCalled();
     });
   });
 

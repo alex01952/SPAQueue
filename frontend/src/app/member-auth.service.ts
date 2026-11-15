@@ -92,19 +92,10 @@ export class MemberAuthService {
     );
   }
 
-  confirmEmailVerification(token: string): Observable<{ verified: true }> {
-    return this.http
-      .post<{ verified: true }>(
-        `${getApiBaseUrl()}/members/email-verification/confirm`,
-        { token },
-      )
-      .pipe(
-        tap(() => {
-          const member = this.authenticatedMember();
-          if (member) {
-            this.authenticatedMember.set({ ...member, emailValidated: true });
-          }
-        }),
-      );
+  confirmEmailVerification(token: string): Observable<{ verified: true; canLogin: boolean }> {
+    return this.http.post<{ verified: true; canLogin: boolean }>(
+      `${getApiBaseUrl()}/members/email-verification/confirm`,
+      { token },
+    );
   }
 }

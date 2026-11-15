@@ -335,7 +335,7 @@ Club officers can open **Player Validations** to review members of clubs they ma
 
 ## Email verification
 
-New registrations receive a single-use verification link that expires after `EMAIL_VERIFICATION_TTL_MINUTES` (60 minutes by default; minimum 5 minutes). A pending, unverified registrant can enter their email on the login page to request a replacement link. Resending invalidates their older verification links before sending the new one. Administrators cannot approve a registration until its email has been verified.
+New registrations receive a single-use verification link that expires after `EMAIL_VERIFICATION_TTL_MINUTES` (24 hours by default; minimum 5 minutes). Verification approves a previously unverified pending registration for login. Existing verified pending accounts remain pending for administrator approval. A pending, unverified registrant can enter their email on the login page to request a replacement link, invalidating older links. Existing deployment overrides must be updated to `1440` for a 24-hour expiry; previously issued links retain their original expiry.
 
 ## Run locally
 

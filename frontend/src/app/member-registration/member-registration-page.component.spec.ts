@@ -126,6 +126,7 @@ describe('MemberRegistrationPageComponent', () => {
     request.flush({ memberId: 'member-1', registered: true, verificationSent: true });
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Check your email');
+    expect(fixture.nativeElement.textContent).toContain('verify your address and activate your account');
     http.verify();
   });
 
