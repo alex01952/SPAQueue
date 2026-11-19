@@ -17,11 +17,11 @@ describe('AdminPageComponent', () => {
     const links = Array.from(compiled.querySelectorAll<HTMLAnchorElement>('.home-menu a'));
 
     expect(links.map((link) => link.querySelector('strong')?.textContent)).toEqual([
-      'Manage member roles', 'Rewards store', 'Email announcements', 'Open Play matching', 'Upload participation',
+      'Manage member roles', 'Rewards store', 'Email announcements', 'Open Play matching', 'Open Play import presets', 'Upload participation',
       'Registration approvals', 'Manage clubs', 'Manage tournaments',
     ]);
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
-      '/member-role-management', '/store-admin', '/email-announcements', '/open-play-matching',
+      '/member-role-management', '/store-admin', '/email-announcements', '/open-play-matching', '/open-play-import-presets',
       '/open-play-participation/upload', '/member-registration-approvals',
       '/club-management', '/tournament-management',
     ]);
@@ -33,11 +33,11 @@ describe('AdminPageComponent', () => {
       const route = routes.find((entry) => entry.path === path)!;
       expect(route.canActivate).toContain(memberAuthGuard);
       expect(route.canActivate).toContain(memberRoleGuard);
-      expect(route.data?.['allowedRoles']).toEqual(path === 'open-play-matching'
+      expect(route.data?.['allowedRoles']).toEqual(['open-play-matching', 'open-play-import-presets'].includes(path)
         ? ['admin', 'balance-staff']
         : ['admin']);
       if (path !== 'admin') {
-        expect(route.data?.['breadcrumbParent']).toEqual(path === 'open-play-matching'
+        expect(route.data?.['breadcrumbParent']).toEqual(['open-play-matching', 'open-play-import-presets'].includes(path)
           ? { label: 'Member Home', route: '/home' }
           : { label: 'Admin', route: '/admin' });
       }

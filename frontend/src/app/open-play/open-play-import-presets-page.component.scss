@@ -1,0 +1,7 @@
+.import-presets { margin: 24px 0; }
+.import-presets h2 { margin-bottom: 12px; }
+.preset-form, .preset-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; }
+.preset-form .field { flex: 1 1 160px; }
+.preset-list { max-height: 16rem; overflow: auto; padding: 0; }
+.preset-list li { padding: 8px 0; border-bottom: 1px solid #d9cdbf; }
+.preset-list li span { flex: 1 1 auto; }

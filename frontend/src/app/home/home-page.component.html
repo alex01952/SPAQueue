@@ -124,6 +124,14 @@
         </span>
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
+      <a routerLink="/open-play-import-presets" class="menu-item">
+        <span class="menu-index">13</span>
+        <span class="menu-copy">
+          <strong>Open Play import presets</strong>
+          <small>Manage default categories and genders for imported players.</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
     }
 
     <button
@@ -133,7 +141,7 @@
       (click)="logout()"
     >
       <span class="menu-index">{{
-        member()?.role === 'admin' || member()?.role === 'balance-staff' ? '13' : '10'
+        member()?.role === 'balance-staff' ? '14' : member()?.role === 'admin' ? '13' : '10'
       }}</span>
       <span class="menu-copy">
         <strong>{{ isLoggingOut() ? 'Logging out...' : 'Logout' }}</strong>

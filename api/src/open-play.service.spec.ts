@@ -9,11 +9,15 @@ describe('Open Play draft storage', () => {
   let row: Record<string, unknown> | undefined;
   let version: number;
   const historyRows = new Map<string, Record<string, unknown>>();
+  const presetRows = new Map<string, { partitionKey: string; rowKey: string; reClubName: string; category: string; gender: string }>();
   const missing = () => Object.assign(new Error('Missing entity'), { statusCode: 404, code: 'ResourceNotFound' });
   const table = {
     getEntity: jest.fn(),
     createEntity: jest.fn(),
     updateEntity: jest.fn(),
+    listEntities: jest.fn(),
+    upsertEntity: jest.fn(),
+    deleteEntity: jest.fn(),
   };
   const historyTable = {
     createEntity: jest.fn(async (entity: Record<string, unknown>) => {
@@ -33,8 +37,15 @@ describe('Open Play draft storage', () => {
     row = undefined;
     version = 0;
     historyRows.clear();
+    presetRows.clear();
+    table.listEntities.mockImplementation(() => ({
+      [Symbol.asyncIterator]: async function* () { yield* presetRows.values(); },
+    }));
+    table.upsertEntity.mockImplementation(async (entity) => { presetRows.set(entity.rowKey, entity); });
+    table.deleteEntity.mockImplementation(async (_partition, id) => { if (!presetRows.delete(id)) throw missing(); });
     const app = {
       getMemberSession: jest.fn(async () => ({ member: { memberId: 'admin-1', role } })),
+      getOpenPlayBoardMembers: jest.fn(async () => ({})),
       getOpenPlayGoldMembershipExpiries: jest.fn(async (_token: string, ids: string[]) => Object.fromEntries(ids.map((id) => [id, null]))),
     } as unknown as AppService;
     service = new OpenPlayService(app);
@@ -53,6 +64,47 @@ describe('Open Play draft storage', () => {
   });
 
   afterEach(() => jest.clearAllMocks());
+
+  it('lets admins and balance staff share one persistent preset per normalized Reclub name', async () => {
+    const saved = await service.saveImportPreset('admin-session', { reClubName: '  Ｐlayer   One ', category: 'Novice', gender: 'Female' });
+    expect(saved).toMatchObject({ reClubName: 'Player One', category: 'Novice', gender: 'Female' });
+    role = 'balance-staff';
+    expect(await service.getImportPresets('staff-session')).toEqual([saved]);
+    const edited = await service.saveImportPreset('staff-session', { reClubName: 'player one', category: 'Intermediate', gender: 'Male' });
+    expect(edited.id).toBe(saved.id);
+    expect(await service.getImportPresets('staff-session')).toEqual([edited]);
+    await service.deleteImportPreset('staff-session', saved.id);
+    expect(await service.getImportPresets('staff-session')).toEqual([]);
+    expect(table.upsertEntity).toHaveBeenCalledWith(expect.objectContaining({ partitionKey: 'import-presets', rowKey: saved.id }), 'Replace');
+    expect(table.listEntities).toHaveBeenCalledWith(expect.objectContaining({ queryOptions: expect.objectContaining({ filter: "PartitionKey eq 'import-presets'" }) }));
+    expect(table.deleteEntity).toHaveBeenCalledWith('import-presets', saved.id);
+  });
+
+  it('rejects unauthorized preset access and invalid data before touching storage', async () => {
+    const input = { reClubName: 'Guest', category: 'Novice', gender: 'Female' };
+    role = 'member';
+    await expect(service.getImportPresets('session')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.saveImportPreset('session', input)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.deleteImportPreset('session', 'a'.repeat(64))).rejects.toBeInstanceOf(ForbiddenException);
+    role = 'admin';
+    for (const invalid of [{ reClubName: '  ' }, { category: 'Expert' }, { gender: '' }]) {
+      await expect(service.saveImportPreset('session', { ...input, ...invalid })).rejects.toBeInstanceOf(BadRequestException);
+    }
+    await expect(service.deleteImportPreset('session', 'invalid')).rejects.toBeInstanceOf(BadRequestException);
+    expect(table.listEntities).not.toHaveBeenCalled();
+    expect(table.upsertEntity).not.toHaveBeenCalled();
+    expect(table.deleteEntity).not.toHaveBeenCalled();
+  });
+
+  it('reports an invalid stored preset without a row key', async () => {
+    table.listEntities.mockImplementationOnce(() => ({
+      [Symbol.asyncIterator]: async function* () {
+        yield { reClubName: 'Player', category: 'Novice', gender: 'Female' };
+      },
+    }));
+    await expect(service.getImportPresets('session')).rejects.toBeInstanceOf(BadGatewayException);
+    expect(service['logger'].error).toHaveBeenCalled();
+  });
 
   it('creates and reloads a draft, preserving linked member IDs', async () => {
     expect(await service.getDraft('session')).toEqual({ players: [], courts: [], matches: [], queue: [], winnersQueue: [], bench: {}, unavailable: [], playerLocks: [], matchingMode: 'wait-priority', forcedCategory: null, secondaryEnabled: false, secondaryForcedCategory: null, nextPlayerIds: null, secondaryNextPlayerIds: null, tieBreakSeed: 0, liveBoardState: null, session: null, benchMigrationNeeded: false, revision: null, courtNameVersion: 1, queueVersion: 4 });
@@ -244,32 +296,52 @@ describe('Open Play draft storage', () => {
     expect((await service.saveDraft('session', { ...olderPayload, revision: saved.revision })).forcedCategory).toBe('High Intermediate');
   });
 
-  it('persists the selected Next Players slots and returns a minimal member board', async () => {
-    const players = Array.from({ length: 4 }, (_, index) => ({ ...player, id: `board-${index}`, memberId: index === 0 ? 'member-gold' : index === 1 ? 'member-plain' : null, status: 'Active' }));
+  it('returns Reclub names on the member board without changing the saved roster or membership frames', async () => {
+    const players = [
+      { ...player, id: 'board-0', name: 'Gold Full Name', memberId: 'member-gold', status: 'Active' },
+      { ...player, id: 'board-1', name: 'Regular Full Name', memberId: 'member-plain', status: 'Active' },
+      { ...player, id: 'board-2', name: 'Legacy Full Name', memberId: 'member-legacy', status: 'Active' },
+      { ...player, id: 'board-3', name: 'Guest Name', memberId: null, status: 'Active' },
+    ];
     const accountService = service['app'] as unknown as AppService;
-    jest.spyOn(accountService, 'getOpenPlayGoldMembershipExpiries').mockResolvedValue({ 'member-gold': '2027-01-01', 'member-plain': null });
+    jest.spyOn(accountService, 'getOpenPlayBoardMembers').mockResolvedValue({
+      'member-gold': { reClubId: 'Z Gold', goldMembershipExpiresOn: '2999-01-01' },
+      'member-plain': { reClubId: 'A Regular', goldMembershipExpiresOn: null },
+      'member-legacy': { reClubId: '', goldMembershipExpiresOn: null },
+    });
     const nextPlayerIds = players.map((entry) => entry.id);
-    const saved = await service.saveDraft('session', { players, nextPlayerIds, revision: null });
+    const playerLocks = [['board-0', 'board-1']];
+    const saved = await service.saveDraft('session', { players, nextPlayerIds, playerLocks, revision: null });
     expect(saved.nextPlayerIds).toEqual(nextPlayerIds);
     expect(JSON.parse(String(row?.NextPlayerIds))).toEqual(nextPlayerIds);
     const started = await service.startSession('session', { revision: saved.revision });
     expect(started.session?.active).toBe(true);
+    const match = {
+      id: 'completed-board-match', teams: [players.slice(0, 2), players.slice(2)], status: 'completed', winner: 1, score: null,
+      startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:15:00Z', court: null,
+    };
+    const updated = await service.saveDraft('session', { ...started, matches: [match, { ...match, id: 'completed-board-2' }, { ...match, id: 'completed-board-3' }], queue: ['board-0', 'board-2', 'board-3'], winnersQueue: ['board-1'] });
+    expect(updated.players.map((entry) => entry.name)).toEqual(players.map((entry) => entry.name));
     role = 'member';
     const board = await service.getBoard('member-session');
     expect(board.active).toBe(true);
-    expect(board.regularLine.map((entry) => entry.id)).toEqual(nextPlayerIds);
-    expect(board.regularLine[0].membershipType).toBe('gold-member');
-    expect(board.regularLine[1].membershipType).toBe('member');
-    expect(board.regularLine[2].membershipType).toBe('non-member');
+    expect(board.regularLine).toMatchObject([
+      { id: 'board-0', name: 'Z Gold', membershipType: 'gold-member' },
+      { id: 'board-2', name: 'Legacy Full Name', membershipType: 'member' },
+      { id: 'board-3', name: 'Guest Name', membershipType: 'non-member' },
+    ]);
+    expect(board.winnersLine).toMatchObject([{ id: 'board-1', name: 'A Regular', membershipType: 'member' }]);
+    expect(board.topFive.map((entry) => entry.name)).toEqual(['Z Gold', 'A Regular', 'Guest Name', 'Legacy Full Name']);
+    expect(board.lockGroups).toEqual([[{ id: 'board-0', name: 'Z Gold' }, { id: 'board-1', name: 'A Regular' }]]);
     expect(board.nextPlayerIds).toEqual(nextPlayerIds);
     expect(board).not.toHaveProperty('matches');
     expect(board.regularLine[0]).not.toHaveProperty('memberId');
     role = 'admin';
-    await service.publishBoardState('session', { matchingMode: 'wait-priority', forcedCategory: 'High Intermediate', nextPlayerIds: null, playerLocks: [], unavailable: [], revision: started.revision });
+    await service.publishBoardState('session', { matchingMode: 'wait-priority', forcedCategory: 'High Intermediate', nextPlayerIds: null, playerLocks: [], unavailable: [], revision: updated.revision });
     expect((await service.getBoard('member-session')).forcedCategory).toBe('High Intermediate');
-    await service.publishBoardState('session', { matchingMode: 'wait-priority', forcedCategory: null, nextPlayerIds: null, playerLocks: [], unavailable: [], revision: started.revision });
+    await service.publishBoardState('session', { matchingMode: 'wait-priority', forcedCategory: null, nextPlayerIds: null, playerLocks: [], unavailable: [], revision: updated.revision });
     expect((await service.getBoard('member-session')).forcedCategory).toBeNull();
-    await expect(service.saveDraft('session', { players, nextPlayerIds: [players[0].id, players[0].id, '', ''], revision: started.revision })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.saveDraft('session', { players, nextPlayerIds: [players[0].id, players[0].id, '', ''], revision: updated.revision })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('exposes only occupied court names and saved start times while the session is active', async () => {
@@ -297,6 +369,38 @@ describe('Open Play draft storage', () => {
     getDraft.mockRestore();
   });
 
+  it('uses the three-decided-match minimum for the board, Gold awards, and archive', async () => {
+    const players = Array.from({ length: 6 }, (_, index) => ({
+      ...player, id: `threshold-${index}`, name: `Player ${index}`, memberId: index === 0 || index === 4 ? `gold-${index}` : null, status: 'Active',
+    }));
+    jest.spyOn(service['app'] as unknown as AppService, 'getOpenPlayGoldMembershipExpiries').mockResolvedValue({ 'gold-0': '2999-01-01', 'gold-4': '2999-01-01' });
+    const saved = await service.saveDraft('session', { players, revision: null });
+    const started = await service.startSession('session', { revision: saved.revision });
+    const match = {
+      id: 'qualifying-1', teams: [players.slice(0, 2), players.slice(2, 4)], status: 'completed', winner: 1, score: null,
+      startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:15:00Z', court: null,
+    };
+    const matches = [
+      match, { ...match, id: 'qualifying-2' }, { ...match, id: 'qualifying-3' },
+      { ...match, id: 'short-1', teams: [players.slice(4, 6), players.slice(0, 2)] },
+      { ...match, id: 'short-2', teams: [players.slice(4, 6), players.slice(0, 2)] },
+      { ...match, id: 'undecided', teams: [players.slice(4, 6), players.slice(0, 2)], winner: null },
+    ];
+    const updated = await service.saveDraft('session', { ...started, matches });
+    const board = await service.getBoard('session');
+    expect(board.topFive.map((entry) => entry.id)).toEqual(['threshold-0', 'threshold-1', 'threshold-2', 'threshold-3']);
+    expect(board.regularLine.find((entry) => entry.id === 'threshold-4')).toMatchObject({ games: 2, wins: 2 });
+    const ended = await service.endSession('session', { revision: updated.revision });
+    const candidates = ended.session!.awardReview!.candidates;
+    expect(candidates.find((entry) => entry.memberId === 'gold-0')).toMatchObject({ topFiveRank: 1, topFiveRequestId: expect.any(String) });
+    expect(candidates.find((entry) => entry.memberId === 'gold-4')).toMatchObject({ topFiveRank: null, topFiveRequestId: null, participated: true });
+    const skipped = await service.saveAwardDecision('session', { sessionId: ended.session!.id, selectedAwardIds: [], skip: true });
+    await service.archiveSession('session', { sessionId: skipped.session!.id, revision: skipped.revision });
+    const history = historyRows.get(`sessions|${skipped.session!.id}`)!;
+    expect(JSON.parse(String(history.TopFive)).map((entry: { name: string }) => entry.name))
+      .toEqual(['Player 0', 'Player 1', 'Player 2', 'Player 3']);
+  });
+
   it('starts one session and builds a persisted Gold participation and Top 5 review', async () => {
     const players = Array.from({ length: 4 }, (_, index) => ({
       ...player, id: `session-${index}`, name: `Player ${index}`, memberId: index < 3 ? `gold-${index}` : null, status: 'Active',
@@ -312,7 +416,7 @@ describe('Open Play draft storage', () => {
       id: 'session-match', teams: [players.slice(0, 2), players.slice(2, 4)], status: 'completed', winner: 1, score: null,
       startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:15:00Z', court: null,
     };
-    const afterMatch = await service.saveDraft('session', { ...started, matches: [match], revision: started.revision });
+    const afterMatch = await service.saveDraft('session', { ...started, matches: [match, { ...match, id: 'session-match-2' }, { ...match, id: 'session-match-3' }], revision: started.revision });
     const ended = await service.endSession('session', { revision: afterMatch.revision });
     expect(ended.session?.active).toBe(false);
     expect(ended.session?.awardReview?.candidates.map((entry) => entry.memberId)).toEqual(['gold-0', 'gold-1']);
@@ -366,14 +470,14 @@ describe('Open Play draft storage', () => {
       id: 'archive-match', teams: [players.slice(0, 2).map(({ id, name, memberId }) => ({ id, name, memberId })), players.slice(2).map(({ id, name, memberId }) => ({ id, name, memberId }))],
       status: 'completed', winner: 1, score: { team1: 11, team2: 3 }, startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:15:00Z', court: null,
     };
-    const afterMatch = await service.saveDraft('session', { ...started, matches: [match], revision: started.revision });
+    const afterMatch = await service.saveDraft('session', { ...started, matches: [match, { ...match, id: 'archive-match-2' }, { ...match, id: 'archive-match-3' }], revision: started.revision });
     const ended = await service.endSession('session', { revision: afterMatch.revision });
     const skipped = await service.saveAwardDecision('session', { sessionId: ended.session!.id, selectedAwardIds: [], skip: true });
 
     const archived = await service.archiveSession('session', { sessionId: skipped.session!.id, revision: skipped.revision });
     const history = historyRows.get(`sessions|${skipped.session!.id}`)!;
     expect(history.SessionId).toBe(skipped.session!.id);
-    expect(JSON.parse(String(history.MatchPart0))).toHaveLength(1);
+    expect(JSON.parse(String(history.MatchPart0))).toHaveLength(3);
     expect(JSON.parse(String(history.TopFive)).map((entry: { name: string }) => entry.name)).toEqual(expect.arrayContaining(['Player 0', 'Player 1']));
     expect(archived).toMatchObject({ players: [], matches: [], queue: [], winnersQueue: [], session: null, courts: [{ number: 1, name: 'Court 1', category: 'Novice' }] });
     expect(await service.archiveSession('session', { sessionId: skipped.session!.id, revision: skipped.revision })).toEqual(archived);

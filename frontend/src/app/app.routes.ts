@@ -105,6 +105,13 @@ export const routes: Routes = [
     title: 'Open Play Matching',
   },
   {
+    path: 'open-play-import-presets',
+    loadComponent: () => import('./open-play/open-play-import-presets-page.component').then((module) => module.OpenPlayImportPresetsPageComponent),
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin', 'balance-staff'], breadcrumbParent: { label: 'Member Home', route: '/home' } },
+    title: 'Open Play Import Presets',
+  },
+  {
     path: 'open-play-participation/upload',
     component: ParticipationUploadPageComponent,
     canActivate: [memberAuthGuard, memberRoleGuard],

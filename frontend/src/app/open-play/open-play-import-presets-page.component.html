@@ -1,0 +1,29 @@
+<main class="open-play-shell">
+  <a class="back-link" routerLink="/home">&larr; Member Home</a>
+  <header class="page-heading"><div><p class="eyebrow">Open Play</p><h1>Player import presets</h1></div></header>
+  <section class="import-presets" aria-labelledby="import-presets-heading">
+    <h2 id="import-presets-heading">Manage player import presets</h2>
+    <p class="muted">Set a default category and gender by Reclub name for future uploads and pasted lists. This does not change the current roster.</p>
+    @if (presetError()) { <p class="notice error" role="alert">{{ presetError() }}</p> }
+    @if (presetsBusy()) { <p class="muted" role="status">{{ importPresets() ? 'Updating presets...' : 'Loading presets...' }}</p> }
+    @if (importPresets(); as presets) {
+      <form class="preset-form" (ngSubmit)="saveImportPreset()">
+        <div class="field"><label for="preset-name">Reclub name</label><input id="preset-name" name="presetName" maxlength="200" required [readonly]="!!editingPresetId()" [disabled]="presetsBusy()" [ngModel]="presetName()" (ngModelChange)="presetName.set($event)" /></div>
+        <div class="field"><label for="preset-category">Category</label><select id="preset-category" name="presetCategory" required [disabled]="presetsBusy()" [ngModel]="presetCategory()" (ngModelChange)="presetCategory.set($event)"><option value="">Select category</option>@for (category of categories; track category) { <option [value]="category">{{ category }}</option> }</select></div>
+        <div class="field"><label for="preset-gender">Gender</label><select id="preset-gender" name="presetGender" required [disabled]="presetsBusy()" [ngModel]="presetGender()" (ngModelChange)="presetGender.set($event)"><option value="">Select gender</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
+        <button type="submit" class="primary" [disabled]="presetsBusy() || !presetName().trim() || !presetCategory() || !presetGender() || !!duplicatePreset()">{{ editingPresetId() ? 'Save changes' : 'Add preset' }}</button>
+        @if (editingPresetId()) { <button type="button" class="secondary" [disabled]="presetsBusy()" (click)="editImportPreset()">Cancel edit</button> }
+      </form>
+      @if (duplicatePreset(); as preset) {
+        <p class="muted">A preset already exists for {{ preset.reClubName }}. <button type="button" class="text-button" [disabled]="presetsBusy()" (click)="editImportPreset(preset)">Edit existing preset</button></p>
+      }
+      <ul class="preset-list">
+        @for (preset of presets; track preset.id) {
+          <li><strong>{{ preset.reClubName }}</strong><span>{{ preset.category }} &middot; {{ preset.gender }}</span><button type="button" class="text-button" [attr.aria-label]="'Edit preset for ' + preset.reClubName" [disabled]="presetsBusy()" (click)="editImportPreset(preset)">Edit</button><button type="button" class="text-button" [attr.aria-label]="'Remove preset for ' + preset.reClubName" [disabled]="presetsBusy()" (click)="deleteImportPreset(preset)">Remove</button></li>
+        } @empty { <li class="muted">No presets yet.</li> }
+      </ul>
+    } @else if (!presetsBusy()) {
+      <button type="button" class="secondary" (click)="loadImportPresets()">Retry</button>
+    }
+  </section>
+</main>

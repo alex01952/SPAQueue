@@ -30,6 +30,11 @@ export class AdminPageComponent {
       route: '/open-play-matching',
     },
     {
+      label: 'Open Play import presets',
+      description: 'Manage default categories and genders for imported players.',
+      route: '/open-play-import-presets',
+    },
+    {
       label: 'Upload participation',
       description: 'Upload Open Play participation files.',
       route: '/open-play-participation/upload',

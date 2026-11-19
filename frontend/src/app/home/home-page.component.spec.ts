@@ -123,6 +123,7 @@ describe('HomePageComponent', () => {
       const compiled = fixture.nativeElement as HTMLElement;
       expect(compiled.querySelector('a[href="/admin"]')).toBeNull();
       expect(!!compiled.querySelector('a[href="/open-play-matching"]')).toBe(role === 'balance-staff');
+      expect(!!compiled.querySelector('a[href="/open-play-import-presets"]')).toBe(role === 'balance-staff');
       expect(!!compiled.querySelector('a[href="/member-points"]')).toBe(role === 'balance-staff');
       expect(!!compiled.querySelector('a[href="/member-balances"]')).toBe(role === 'balance-staff');
     },

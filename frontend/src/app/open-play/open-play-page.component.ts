@@ -11,6 +11,7 @@ import { isGoldMembershipActive } from '../gold-membership';
 import { MemberProfileFrameComponent } from '../member-profile/member-profile-frame.component';
 import { BenchClock, benchMilliseconds, categoryFromSkills, formatBenchTime, OpenPlayCategory, parseParticipants, pauseBench, resumeBench, timeSinceGame } from './open-play-players';
 import { defaultMatchingMode, isMatchingMode, MatchingMode, matchingModeOptions, MatchingPlayer, OpenPlayGender, suggestNextOpenPlayMatch, suggestOpenPlayMatch } from './open-play-matching';
+import { normalizeImportName, OpenPlayImportPresetsService } from './open-play-import-presets';
 
 type OpenPlayMember = Pick<AuthenticatedMember, 'memberId' | 'name' | 'reClubId' | 'skills' | 'goldMembershipExpiresOn'>;
 interface Player {
@@ -45,10 +46,12 @@ interface ImportRow {
   matches: OpenPlayMember[];
   selection: string;
   category: OpenPlayCategory;
+  gender: OpenPlayGender;
   included: boolean;
 }
 
 const categories: OpenPlayCategory[] = ['Novice', 'Intermediate', 'High Intermediate'];
+const minimumTopFiveGames = 3;
 const draftKey = 'open-play-player-draft-v1';
 
 @Component({
@@ -59,6 +62,7 @@ const draftKey = 'open-play-player-draft-v1';
 })
 export class OpenPlayPageComponent implements OnInit {
   private readonly http = inject(HttpClient);
+  private readonly importPresetsService = inject(OpenPlayImportPresetsService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly apiUrl = getApiBaseUrl();
   private nextId = 0;
@@ -72,6 +76,7 @@ export class OpenPlayPageComponent implements OnInit {
   protected readonly visibleSections = signal<Record<OpenPlaySection, boolean>>({ players: true, roster: true, courts: true, completed: true });
   protected readonly categories = categories;
   protected readonly members = signal<OpenPlayMember[]>([]);
+  private readonly membersById = computed(() => new Map(this.members().map((member) => [member.memberId, member])));
   protected readonly matchingModeOptions = matchingModeOptions;
   protected readonly matchingMode = signal<MatchingMode>(defaultMatchingMode);
   protected readonly tieBreakSeed = signal(0);
@@ -117,9 +122,20 @@ export class OpenPlayPageComponent implements OnInit {
   protected readonly statuses: PlayerStatus[] = ['Not Arrived', 'Active', 'Rest', 'Left'];
   protected readonly search = signal('');
   protected readonly rosterSearch = signal('');
+  protected readonly rosterCounts = computed(() => {
+    const unavailable = new Set(this.unavailable());
+    const counts = { active: 0, resting: 0, unavailable: 0 };
+    for (const player of this.players()) {
+      if (unavailable.has(player.id)) counts.unavailable++;
+      else if (player.status === 'Active') counts.active++;
+      else if (player.status === 'Rest') counts.resting++;
+    }
+    return counts;
+  });
   protected readonly filteredRoster = computed(() => {
     const query = this.normalize(this.rosterSearch());
-    return query ? this.players().filter((player) => this.normalize(player.name).includes(query)) : this.players();
+    return query ? this.players().filter((player) =>
+      this.normalize(player.name).includes(query) || this.normalize(this.playerName(player)).includes(query)) : this.players();
   });
   protected readonly selectedMember = signal<OpenPlayMember | null>(null);
   protected readonly profileMember = signal<{ memberId: string; name: string } | null>(null);
@@ -127,8 +143,12 @@ export class OpenPlayPageComponent implements OnInit {
   protected readonly guestName = signal('');
   protected readonly guestCategory = signal<OpenPlayCategory | ''>('');
   protected readonly importCategory = signal<OpenPlayCategory | ''>('');
+  protected readonly pasteCategory = signal<OpenPlayCategory | ''>('');
+  protected readonly pastedParticipantText = signal('');
   protected readonly importRows = signal<ImportRow[]>([]);
-  protected readonly importFileName = signal('');
+  protected readonly importSource = signal('');
+  protected readonly importBusy = signal(false);
+  protected readonly importUnavailable = computed(() => this.loadingMembers() || !!this.memberError() || this.importBusy());
   protected readonly filteredMembers = computed(() => {
     const query = this.normalize(this.search());
     if (!query) return [];
@@ -187,7 +207,7 @@ export class OpenPlayPageComponent implements OnInit {
     const record = this.playerRecord(player);
     const games = record.wins + record.losses;
     return { player, ...record, games, percent: games ? record.wins * 100 / games : 0 };
-  }).filter((entry) => entry.games > 0)
+  }).filter((entry) => entry.games >= minimumTopFiveGames)
     .sort((left, right) => right.percent - left.percent || right.wins - left.wins || right.games - left.games || left.player.name.localeCompare(right.player.name)).slice(0, 5));
 
   protected setSectionVisible(section: OpenPlaySection, visible: boolean) {
@@ -618,6 +638,12 @@ export class OpenPlayPageComponent implements OnInit {
     this.profileMember.set({ memberId, name });
   }
 
+  protected playerName(player: { name: string; memberId: string | null } | null | undefined): string {
+    if (!player) return 'Open slot';
+    const reClubName = player.memberId ? this.membersById().get(player.memberId)?.reClubId?.trim() : '';
+    return reClubName || player.name;
+  }
+
   protected closeMemberProfile() {
     this.profileMember.set(null);
   }
@@ -648,28 +674,55 @@ export class OpenPlayPageComponent implements OnInit {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     input.value = '';
-    if (!file || !this.importCategory() || this.loadingMembers() || this.memberError()) return;
+    const category = this.importCategory();
+    if (!file || !category || this.importUnavailable()) return;
     const version = ++this.fileReadVersion;
-    const category = this.importCategory() as OpenPlayCategory;
     this.importRows.set([]);
-    this.importFileName.set(file.name);
     this.message.set('');
+    let text: string;
     try {
-      const text = await file.text();
-      if (version !== this.fileReadVersion) return;
-      const names = parseParticipants(text);
-      if (!names.length) {
-        this.message.set('No numbered players were found under a Participants section.');
-        return;
-      }
-      this.importRows.set(names.map((name) => {
-        const matches = this.members().filter((member) =>
-          !!member.reClubId?.trim() && this.normalize(member.reClubId) === this.normalize(name),
-        );
-        return { name, matches, selection: matches[0]?.memberId ?? 'guest', category, included: true };
-      }));
+      text = await file.text();
     } catch {
       if (version === this.fileReadVersion) this.message.set('Unable to read this file. Choose a text file and try again.');
+      return;
+    }
+    if (version === this.fileReadVersion) await this.prepareImport(text, category, file.name);
+  }
+
+  protected async reviewPastedParticipants() {
+    const text = this.pastedParticipantText();
+    const category = this.pasteCategory();
+    if (!text.trim() || !category || this.importUnavailable()) return;
+    this.fileReadVersion++;
+    if (await this.prepareImport(text, category, 'Pasted text') && this.pastedParticipantText() === text) {
+      this.pastedParticipantText.set('');
+    }
+  }
+
+  private async prepareImport(text: string, category: OpenPlayCategory, source: string) {
+    const names = parseParticipants(text);
+    this.importRows.set([]);
+    this.importSource.set(source);
+    this.message.set('');
+    if (!names.length) {
+      this.message.set('No numbered players were found under a Participants section.');
+      return false;
+    }
+    this.importBusy.set(true);
+    try {
+      const presets = new Map((await firstValueFrom(this.importPresetsService.list().pipe(takeUntilDestroyed(this.destroyRef)))).map((preset) => [this.normalize(preset.reClubName), preset]));
+      this.importRows.set(names.map((name) => {
+        const key = this.normalize(name);
+        const preset = presets.get(key);
+        const matches = this.members().filter((member) => !!member.reClubId?.trim() && this.normalize(member.reClubId) === key);
+        return { name, matches, selection: matches[0]?.memberId ?? 'guest', category: preset?.category ?? category, gender: preset?.gender ?? '', included: true };
+      }));
+      return true;
+    } catch {
+      this.message.set('Unable to load import presets. Try uploading the file or reviewing the pasted text again.');
+      return false;
+    } finally {
+      this.importBusy.set(false);
     }
   }
 
@@ -687,10 +740,10 @@ export class OpenPlayPageComponent implements OnInit {
     }
     this.addPlayers(rows.map((row) => {
       const member = row.matches.find((match) => match.memberId === row.selection);
-      return { name: member?.name ?? row.name, memberId: member?.memberId ?? null, category: row.category };
+        return { name: member?.name ?? row.name, memberId: member?.memberId ?? null, category: row.category, gender: row.gender };
     }));
     this.importRows.set([]);
-    this.importFileName.set('');
+    this.importSource.set('');
   }
 
   protected updateCategory(id: string, category: OpenPlayCategory) {
@@ -818,7 +871,10 @@ export class OpenPlayPageComponent implements OnInit {
 
   protected playerLockNames(ids: string[], excludeId = '') {
     return ids.filter((id) => id !== excludeId)
-      .map((id) => this.players().find((player) => player.id === id)?.name ?? id)
+      .map((id) => {
+        const player = this.players().find((entry) => entry.id === id);
+        return player ? this.playerName(player) : id;
+      })
       .join(', ');
   }
 
@@ -1175,7 +1231,7 @@ export class OpenPlayPageComponent implements OnInit {
   }
 
   private normalize(value: string) {
-    return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+    return normalizeImportName(value);
   }
 
   private restoreDraft() {

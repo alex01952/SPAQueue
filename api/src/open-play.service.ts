@@ -1,7 +1,7 @@
 import { BadGatewayException, BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { DefaultAzureCredential } from '@azure/identity';
 import { TableClient } from '@azure/data-tables';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AppService } from './app.service';
 import { isMissingTableEntity } from './azure-table-errors';
 
@@ -13,6 +13,15 @@ export interface OpenPlayPlayer {
   memberId: string | null;
   status: 'Not Arrived' | 'Active' | 'Rest' | 'Left';
 }
+
+export interface OpenPlayImportPreset {
+  id: string;
+  reClubName: string;
+  category: OpenPlayPlayer['category'];
+  gender: Exclude<NonNullable<OpenPlayPlayer['gender']>, ''>;
+}
+const importPresetPartition = 'import-presets';
+const minimumTopFiveGames = 3;
 
 export interface OpenPlayMatchPlayer { id: string; name: string; memberId: string | null; }
 export interface OpenPlayCourt { number: number; name: string; category: OpenPlayPlayer['category']; }
@@ -152,6 +161,54 @@ export class OpenPlayService {
     return this.app.getOpenPlayMembers(token);
   }
 
+  async getImportPresets(token: string): Promise<OpenPlayImportPreset[]> {
+    await this.requireAdmin(token);
+    try {
+      const presets: OpenPlayImportPreset[] = [];
+      const entities = this.getTable().listEntities<Omit<OpenPlayImportPreset, 'id'>>({
+        queryOptions: { filter: `PartitionKey eq '${importPresetPartition}'`, select: ['RowKey', 'reClubName', 'category', 'gender'] },
+      });
+      for await (const entity of entities) {
+        if (!entity.rowKey) throw new Error('Open Play import preset is missing its row key.');
+        presets.push({ id: entity.rowKey, reClubName: entity.reClubName, category: entity.category, gender: entity.gender });
+      }
+      return presets.sort((left, right) => left.reClubName.localeCompare(right.reClubName));
+    } catch (error) {
+      this.logger.error('Unable to load Open Play import presets.', error);
+      throw new BadGatewayException('Unable to load Open Play import presets.');
+    }
+  }
+
+  async saveImportPreset(token: string, input: unknown): Promise<OpenPlayImportPreset> {
+    await this.requireAdmin(token);
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('An import preset is required.');
+    const { reClubName: rawName, category, gender } = input as Record<string, unknown>;
+    const reClubName = typeof rawName === 'string' ? rawName.normalize('NFKC').trim().replace(/\s+/g, ' ') : '';
+    if (!reClubName || reClubName.length > 200) throw new BadRequestException('Enter a Reclub name of 1–200 characters.');
+    if (category !== 'Novice' && category !== 'Intermediate' && category !== 'High Intermediate') throw new BadRequestException('Select a valid category.');
+    if (gender !== 'Male' && gender !== 'Female') throw new BadRequestException('Select a valid gender.');
+    const id = createHash('sha256').update(reClubName.toLowerCase()).digest('hex');
+    try {
+      await this.getTable().upsertEntity({ partitionKey: importPresetPartition, rowKey: id, reClubName, category, gender }, 'Replace');
+      return { id, reClubName, category, gender };
+    } catch (error) {
+      this.logger.error('Unable to save the Open Play import preset.', error);
+      throw new BadGatewayException('Unable to save the Open Play import preset.');
+    }
+  }
+
+  async deleteImportPreset(token: string, id: string): Promise<void> {
+    await this.requireAdmin(token);
+    if (!/^[a-f0-9]{64}$/.test(id)) throw new BadRequestException('Invalid import preset ID.');
+    try {
+      await this.getTable().deleteEntity(importPresetPartition, id);
+    } catch (error) {
+      if (isMissingTableEntity(error)) return;
+      this.logger.error('Unable to delete the Open Play import preset.', error);
+      throw new BadGatewayException('Unable to delete the Open Play import preset.');
+    }
+  }
+
   async getDraft(token: string, adminOnly = true): Promise<OpenPlayDraft> {
     if (adminOnly) await this.requireAdmin(token);
     else await this.app.getMemberSession(token);
@@ -208,10 +265,11 @@ export class OpenPlayService {
 
   async getBoard(token: string) {
     const draft = await this.getDraft(token, false);
-    const membershipExpiries = await this.app.getOpenPlayGoldMembershipExpiries(token, draft.players.flatMap((player) => player.memberId ? [player.memberId] : []));
+    const members = await this.app.getOpenPlayBoardMembers(token, draft.players.flatMap((player) => player.memberId ? [player.memberId] : []));
+    const boardName = (player: OpenPlayPlayer) => (player.memberId && members[player.memberId]?.reClubId) || player.name;
     const membershipType = (player: OpenPlayPlayer) => !player.memberId
       ? 'non-member'
-      : hasActiveGoldMembership(membershipExpiries[player.memberId] ?? null) ? 'gold-member' : 'member';
+      : hasActiveGoldMembership(members[player.memberId]?.goldMembershipExpiresOn ?? null) ? 'gold-member' : 'member';
     const records = new Map<string, { wins: number; losses: number }>(draft.players.map((player) => [player.id, { wins: 0, losses: 0 }]));
     for (const match of draft.matches) {
       if (match.status !== 'completed' || match.winner === null) continue;
@@ -235,7 +293,7 @@ export class OpenPlayService {
       const record = records.get(player.id)!;
       const clock = draft.bench[player.id] ?? { accumulatedMs: 0, since: null };
       return [{
-        id: player.id, name: player.name, category: player.category, line: lineName,
+        id: player.id, name: boardName(player), category: player.category, line: lineName,
         waitMs: clock.accumulatedMs + (clock.since ? Math.max(0, now - Date.parse(clock.since)) : 0),
         wins: record.wins, losses: record.losses, games: record.wins + record.losses,
         available: !(liveBoardState?.unavailable ?? draft.unavailable).includes(player.id),
@@ -245,9 +303,10 @@ export class OpenPlayService {
     const topFive = draft.players.map((player) => {
       const record = records.get(player.id)!;
       const games = record.wins + record.losses;
-      return { id: player.id, name: player.name, ...record, games, percent: games ? record.wins * 100 / games : 0, membershipType: membershipType(player) };
-    }).filter((entry) => entry.games > 0)
-      .sort((left, right) => right.percent - left.percent || right.wins - left.wins || right.games - left.games || left.name.localeCompare(right.name)).slice(0, 5);
+      return { player, ...record, games, percent: games ? record.wins * 100 / games : 0 };
+    }).filter((entry) => entry.games >= minimumTopFiveGames)
+      .sort((left, right) => right.percent - left.percent || right.wins - left.wins || right.games - left.games || left.player.name.localeCompare(right.player.name))
+      .slice(0, 5).map(({ player, ...record }) => ({ id: player.id, name: boardName(player), ...record, membershipType: membershipType(player) }));
     const liveBoardState = draft.liveBoardState;
     const playerLocks = liveBoardState?.playerLocks ?? draft.playerLocks;
     const playersById = new Map(draft.players.map((player) => [player.id, player]));
@@ -263,7 +322,7 @@ export class OpenPlayService {
       playerLocks,
       lockGroups: draft.session?.active ? playerLocks.map((group) => group.flatMap((id) => {
         const player = playersById.get(id);
-        return player ? [{ id: player.id, name: player.name }] : [];
+        return player ? [{ id: player.id, name: boardName(player) }] : [];
       })) : [],
       matchingMode: liveBoardState?.matchingMode ?? draft.matchingMode,
       forcedCategory: liveBoardState ? liveBoardState.forcedCategory : draft.forcedCategory,
@@ -343,7 +402,7 @@ export class OpenPlayService {
       const record = records.get(player.id)!;
       const games = record.wins + record.losses;
       return { player, ...record, games, percent: games ? record.wins * 100 / games : 0 };
-    }).filter((entry) => entry.games > 0)
+    }).filter((entry) => entry.games >= minimumTopFiveGames)
       .sort((left, right) => right.percent - left.percent || right.wins - left.wins || right.games - left.games || left.player.name.localeCompare(right.player.name))
       .slice(0, 5);
     const rankByMemberId = new Map(ranked.flatMap((entry, index) => entry.player.memberId ? [[entry.player.memberId, index + 1] as const] : []));
@@ -489,7 +548,7 @@ export class OpenPlayService {
       const record = records.get(player.id)!;
       const games = record.wins + record.losses;
       return { memberId: player.memberId, name: player.name, category: player.category, ...record, games, percent: games ? record.wins * 100 / games : 0 };
-    }).filter((entry) => entry.games > 0)
+    }).filter((entry) => entry.games >= minimumTopFiveGames)
       .sort((left, right) => right.percent - left.percent || right.wins - left.wins || right.games - left.games || left.name.localeCompare(right.name)).slice(0, 5);
     const serializedMatches = JSON.stringify(draft.matches);
     const matchParts: string[] = [];

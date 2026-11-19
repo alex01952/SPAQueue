@@ -75,7 +75,7 @@ describe('OpenPlayPageComponent', () => {
     component['search'].set('Jenn');
     component['selectMember'](member);
     component['newCourtName'].set('Pending court');
-    component['importRows'].set([{ name: 'Imported guest', matches: [], selection: 'guest', category: 'Novice', included: true }]);
+    component['importRows'].set([{ name: 'Imported guest', matches: [], selection: 'guest', category: 'Novice', gender: '', included: true }]);
     component['addMember']();
     const players = component['players']();
     const participants = Array.from({ length: 4 }, (_, index) => ({ id: `participant-${index}`, name: `Player ${index}`, memberId: null }));
@@ -172,6 +172,56 @@ describe('OpenPlayPageComponent', () => {
     expect(restored.componentInstance['players']()[0]).toMatchObject({ memberId: 'member-1', category: 'Novice' });
   });
 
+  it('displays Reclub names throughout matching and searches them without changing saved names', async () => {
+    const players = [
+      { id: 'one', name: 'Jennifer Smith', memberId: 'member-1', category: 'Novice', status: 'Active' },
+      { id: 'two', name: 'Blank Name', memberId: 'member-blank', category: 'Novice', status: 'Active' },
+      { id: 'three', name: 'Guest Three', memberId: null, category: 'Novice', status: 'Active' },
+      { id: 'four', name: 'Guest Four', memberId: null, category: 'Novice', status: 'Active' },
+    ];
+    const fixture = createPage({ players, revision: 'display-names' });
+    const component = fixture.componentInstance;
+    component['members'].set([member, { ...member, memberId: 'member-blank', name: 'Blank Name', reClubId: '  ' }]);
+    component['queue'].set(['one', 'two', 'three']);
+    component['winnersQueue'].set(['four']);
+    component['manualMatchSlots'].set(['one', 'two', 'three', 'four']);
+    component['manualFollowingMatchSlots'].set(['one', '', '', '']);
+    component['playerLocks'].set([['one', 'two']]);
+    const match = {
+      id: 'completed', teams: [players.slice(0, 2), players.slice(2)], status: 'completed' as const,
+      winner: 1 as const, score: null, court: null, startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:15:00Z',
+    };
+    component['matches'].set([match, { ...match, id: 'completed-2' }, { ...match, id: 'completed-3' }]);
+    component['editingMatch'].set(match.id);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('#match-slot-0')?.textContent).toContain('Jenn');
+    expect(root.querySelector('#match-slot-0')?.getAttribute('aria-label')).toContain('Jenn');
+    expect(root.querySelector('#following-match-slot-0')?.textContent).toContain('Jenn');
+    expect(root.querySelector('.queue-section')?.textContent).toContain('Jenn');
+    expect(root.querySelector('.leaderboard')?.textContent).toContain('Jenn');
+    expect(root.querySelector('#open-play-roster')?.textContent).toContain('Jenn');
+    expect(root.querySelector('#open-play-roster')?.textContent).toContain('Blank Name');
+    expect(root.querySelector('#open-play-roster')?.textContent).toContain('Guest Three');
+    expect(root.querySelector('#open-play-roster')?.textContent).toContain('Jenn, Blank Name');
+    expect(root.querySelector('#open-play-completed .teams')?.textContent).toContain('Jenn');
+    expect(root.querySelector('#result-player-completed-0')?.textContent).toContain('Jenn');
+    expect(root.querySelector('#open-play-roster [aria-label="Category for Jenn"]')).not.toBeNull();
+    expect(root.textContent).not.toContain('Jennifer Smith');
+    component['search'].set('Jennifer');
+    fixture.detectChanges();
+    expect(root.querySelector('.member-result')?.textContent).toContain('Jenn');
+    expect(root.querySelector('.member-result')?.textContent).not.toContain('Jennifer Smith');
+
+    component['rosterSearch'].set('jenn');
+    fixture.detectChanges();
+    expect(root.querySelectorAll('.roster-row')).toHaveLength(1);
+    expect(component['players']()[0].name).toBe('Jennifer Smith');
+    expect(component['matches']()[0].teams[0][0].name).toBe('Jennifer Smith');
+  });
+
   it('filters registered players by partial names without changing the saved roster or matching queues', async () => {
     const players = [
       { id: 'one', name: 'Alex Park', memberId: 'member-one', category: 'Novice', status: 'Active' },
@@ -210,6 +260,35 @@ describe('OpenPlayPageComponent', () => {
     expect(component['winnersQueue']()).toEqual(winnersQueue);
     expect(component['search']()).toBe('');
     expect(component['isDirty']()).toBe(false);
+  });
+
+  it('shows whole-roster counts and updates them when availability or status changes', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (const name of ['Alex Park', 'Pat Lee', 'Sam Rivera', 'Chris Doe']) {
+      component['guestName'].set(name);
+      component['guestCategory'].set('Novice');
+      component['addGuest']();
+    }
+    const [alex, pat, , chris] = component['players']();
+    component['updateStatus'](alex.id, 'Active');
+    component['updateStatus'](pat.id, 'Rest');
+    component['updateStatus'](chris.id, 'Left');
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const counts = () => Array.from(root.querySelectorAll('.roster-counts span'), (span) => span.textContent?.trim());
+    expect(counts()).toEqual(['4 total', '1 active', '1 resting', '0 not available']);
+
+    component['manualMatchSlots'].set([alex.id, '', '', '']);
+    component['markUnavailable'](0);
+    component['rosterSearch'].set('Pat');
+    fixture.detectChanges();
+    expect(counts()).toEqual(['1 of 4 shown', '0 active', '1 resting', '1 not available']);
+
+    component['markAvailable'](alex.id);
+    component['updateStatus'](pat.id, 'Active');
+    fixture.detectChanges();
+    expect(counts()).toEqual(['1 of 4 shown', '2 active', '0 resting', '0 not available']);
   });
 
   it('updates a filtered player category and status and saves the entire roster', async () => {
@@ -437,12 +516,21 @@ describe('OpenPlayPageComponent', () => {
     fixture.destroy();
   });
 
-  it('automatically selects matched members and imports only included players with editable categories', async () => {
+  function expectPresetList() {
+    const request = http.expectOne((entry) => entry.url.endsWith('/open-play/import-presets') && entry.method === 'GET');
+    expect(request.request.withCredentials).toBe(true);
+    return request;
+  }
+
+  it('applies upload presets by Reclub name and allows category and gender overrides before adding', async () => {
     const fixture = createPage();
     const component = fixture.componentInstance;
     component['importCategory'].set('Intermediate');
     const input = { files: [{ name: 'players.txt', text: async () => 'Coaches (1)\n1. Coach\nParticipants (3)\n1. Jenn\n2. Guest\n3. Excluded\nRequested (1)\n1. Waiting' }], value: 'players.txt' };
-    await component['readFile']({ target: input } as unknown as Event);
+    const reading = component['readFile']({ target: input } as unknown as Event);
+    await Promise.resolve();
+    expectPresetList().flush([{ id: 'one', reClubName: '  JENN  ', category: 'Novice', gender: 'Female' }]);
+    await reading;
     expect(component['importRows']()).toHaveLength(3);
     expect(component['pendingImport']()).toBe(false);
     expect(component['importRows']()[0].selection).toBe('member-1');
@@ -451,7 +539,7 @@ describe('OpenPlayPageComponent', () => {
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     const profileButton = Array.from(root.querySelectorAll<HTMLButtonElement>('.matches button'))
-      .find((button) => button.textContent?.includes('Jennifer Smith'));
+      .find((button) => button.textContent?.includes('Jenn'));
     expect(profileButton).toBeTruthy();
     profileButton!.click();
     fixture.detectChanges();
@@ -460,15 +548,91 @@ describe('OpenPlayPageComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('app-member-profile-frame')).toBeNull();
     expect((fixture.nativeElement.querySelector('select[aria-label="Identity for Jenn"]') as HTMLSelectElement).value).toBe('member-1');
+    expect(root.querySelector<HTMLSelectElement>('[aria-label="Category for imported Jenn"]')?.value).toBe('Novice');
+    const gender = root.querySelector<HTMLSelectElement>('[aria-label="Gender for imported Jenn"]')!;
+    expect(gender.value).toBe('Female');
+    gender.value = 'Male';
+    gender.dispatchEvent(new Event('change'));
     component['updateImport'](0, { category: 'High Intermediate' });
     component['updateImport'](2, { included: false });
     component['addImport']();
     expect(component['players']()).toEqual([
-      expect.objectContaining({ name: 'Jennifer Smith', memberId: 'member-1', category: 'High Intermediate', status: 'Not Arrived' }),
-      expect.objectContaining({ name: 'Guest', memberId: null, category: 'Intermediate', status: 'Not Arrived' }),
+      expect.objectContaining({ name: 'Jennifer Smith', memberId: 'member-1', category: 'High Intermediate', gender: 'Male', status: 'Not Arrived' }),
+      expect.objectContaining({ name: 'Guest', memberId: null, category: 'Intermediate', gender: '', status: 'Not Arrived' }),
     ]);
+    fixture.detectChanges();
+    expect(root.querySelector('.roster-row .player-name strong')?.textContent).toContain('Jenn');
+    expect(root.querySelector('.roster-row .player-name strong')?.textContent).not.toContain('Jennifer Smith');
     component['updateCategory'](component['players']()[1].id, 'Novice');
     expect(component['players']()[1].category).toBe('Novice');
+  });
+
+  it('reviews a pasted Reclub list and adds selected players without uploading a file', async () => {
+    const fixture = createPage();
+    await fixture.whenStable();
+    const root = fixture.nativeElement as HTMLElement;
+    const category = root.querySelector<HTMLSelectElement>('#paste-category')!;
+    const text = root.querySelector<HTMLTextAreaElement>('#import-text')!;
+    const review = root.querySelector<HTMLButtonElement>('section[aria-labelledby="paste-heading"] button')!;
+    expect(review.disabled).toBe(true);
+
+    text.value = 'Coaches (1)\n1. Coach\nParticipants (3)\n1. Jenn\n2. Guest\n3. Excluded\nRequested (1)\n1. Waiting';
+    text.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(review.disabled).toBe(true);
+    category.value = 'Intermediate';
+    category.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(review.disabled).toBe(false);
+    review.click();
+    expectPresetList().flush([{ id: 'guest', reClubName: 'GUEST', category: 'High Intermediate', gender: 'Female' }]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const preview = root.querySelector<HTMLElement>('.import-review')!;
+    expect(preview.textContent).toContain('Pasted text');
+    expect(preview.querySelectorAll('.review-row')).toHaveLength(3);
+    expect(preview.querySelector<HTMLSelectElement>('[aria-label="Identity for Jenn"]')?.value).toBe('member-1');
+    expect(fixture.componentInstance['players']()).toEqual([]);
+    preview.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[2].click();
+    fixture.detectChanges();
+    preview.querySelector<HTMLButtonElement>('.review-actions .primary')!.click();
+    expect(fixture.componentInstance['players']()).toEqual([
+      expect.objectContaining({ name: 'Jennifer Smith', memberId: 'member-1', category: 'Intermediate' }),
+      expect.objectContaining({ name: 'Guest', memberId: null, category: 'High Intermediate', gender: 'Female' }),
+    ]);
+  });
+
+  it('shows the format error and keeps invalid pasted text available for correction', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    const invalidText = 'Requested (1)\n1. Waiting';
+    component['pasteCategory'].set('Novice');
+    component['pastedParticipantText'].set(invalidText);
+    component['reviewPastedParticipants']();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent)
+      .toContain('No numbered players were found under a Participants section.');
+    expect(fixture.nativeElement.querySelector('.import-review')).toBeNull();
+    expect(component['pastedParticipantText']()).toBe(invalidText);
+  });
+
+  it('does not let an earlier file read replace a pasted review', async () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    component['importCategory'].set('Intermediate');
+    const fileRead = component['readFile']({ target: { files: [{ name: 'players.txt', text: async () => 'Participants (1)\n1. File Guest' }], value: '' } } as unknown as Event);
+    component['pasteCategory'].set('Novice');
+    component['pastedParticipantText'].set('Participants (1)\n1. Pasted Guest');
+    const pastedReview = component['reviewPastedParticipants']();
+    expectPresetList().flush([]);
+    await fileRead;
+    await pastedReview;
+
+    expect(component['importRows']()).toEqual([expect.objectContaining({ name: 'Pasted Guest', category: 'Novice' })]);
   });
 
   it('defaults to the first match while allowing another matching member to be selected', async () => {
@@ -476,7 +640,10 @@ describe('OpenPlayPageComponent', () => {
     const component = fixture.componentInstance;
     component['members'].set([member, { ...member, memberId: 'member-2', name: 'Another Jennifer' }]);
     component['importCategory'].set('Intermediate');
-    await component['readFile']({ target: { files: [{ name: 'players.txt', text: async () => 'Participants (1)\n1. Jenn' }], value: '' } } as unknown as Event);
+    const reading = component['readFile']({ target: { files: [{ name: 'players.txt', text: async () => 'Participants (1)\n1. Jenn' }], value: '' } } as unknown as Event);
+    await Promise.resolve();
+    expectPresetList().flush([]);
+    await reading;
     expect(component['importRows']()[0].selection).toBe('member-1');
     component['updateImport'](0, { selection: 'member-2' });
     component['addImport']();
@@ -489,7 +656,10 @@ describe('OpenPlayPageComponent', () => {
     const fixture = createPage();
     const component = fixture.componentInstance;
     component['importCategory'].set('Novice');
-    await component['readFile']({ target: { files: [{ name: 'players.txt', text: async () => 'Participants (1)\n1. Jenn' }], value: '' } } as unknown as Event);
+    const reading = component['readFile']({ target: { files: [{ name: 'players.txt', text: async () => 'Participants (1)\n1. Jenn' }], value: '' } } as unknown as Event);
+    await Promise.resolve();
+    expectPresetList().flush([]);
+    await reading;
     component['updateImport'](0, { selection: 'guest' });
     component['addImport']();
     component['guestName'].set('Visitor');
@@ -499,6 +669,19 @@ describe('OpenPlayPageComponent', () => {
       expect.objectContaining({ name: 'Jenn', memberId: null, category: 'Novice' }),
       expect.objectContaining({ name: 'Visitor', memberId: null, category: 'High Intermediate' }),
     ]);
+  });
+
+  it('keeps pasted text available to retry if presets cannot be loaded', async () => {
+    const component = createPage().componentInstance;
+    component['pasteCategory'].set('Novice');
+    const text = 'Participants (1)\n1. Guest';
+    component['pastedParticipantText'].set(text);
+    const review = component['reviewPastedParticipants']();
+    expectPresetList().flush({}, { status: 502, statusText: 'Bad Gateway' });
+    await review;
+    expect(component['importRows']()).toEqual([]);
+    expect(component['pastedParticipantText']()).toBe(text);
+    expect(component['message']()).toContain('Unable to load import presets');
   });
 
   it('blocks imports when the member directory cannot load', () => {
@@ -1724,14 +1907,38 @@ describe('OpenPlayPageComponent', () => {
       winner: 1 as 1 | 2, score: null, startedAt: '2026-11-08T11:00:00Z', completedAt: '2026-11-08T11:15:00Z', court: null,
     }]));
     fixture.detectChanges();
-    expect(component['topPlayers']().map((entry) => entry.player.name)).toEqual(['Five', 'Six', 'One', 'Two', 'Four']);
+    expect(component['topPlayers']().map((entry) => entry.player.name)).toEqual(['One', 'Two', 'Four', 'Three']);
     expect(component['winPercentage'](players[0])).toBe(80);
     expect(component['winPercentage'](players[6])).toBeNull();
-    expect(fixture.nativeElement.querySelectorAll('.leaderboard li')).toHaveLength(5);
+    expect(fixture.nativeElement.querySelectorAll('.leaderboard li')).toHaveLength(4);
     const match = component['matches']()[0];
     component['updateResult'](match, { winner: '2' });
     component['saveResult'](match);
     expect(component['winPercentage'](players[0])).toBe(60);
+  });
+
+  it('requires three decided matches for Top 5 while leaving player records unchanged', () => {
+    const fixture = createPage();
+    const component = fixture.componentInstance;
+    for (const name of ['One', 'Two', 'Three', 'Four']) {
+      component['guestName'].set(name);
+      component['guestCategory'].set('Novice');
+      component['addGuest']();
+    }
+    const players = component['players']();
+    const match = {
+      id: 'decided-1', teams: [players.slice(0, 2), players.slice(2)], status: 'completed' as const,
+      winner: 1 as const, score: null, court: null, startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:15:00Z',
+    };
+    component['matches'].set([match, { ...match, id: 'decided-2' }, { ...match, id: 'undecided', winner: null }]);
+    fixture.detectChanges();
+    expect(component['topPlayers']()).toEqual([]);
+    expect(component['playerRecord'](players[0])).toEqual({ wins: 2, losses: 0 });
+    expect(fixture.nativeElement.querySelector('.leaderboard')?.textContent).toContain('No players qualify yet');
+    component['matches'].update((matches) => [...matches, { ...match, id: 'decided-3' }]);
+    fixture.detectChanges();
+    expect(component['topPlayers']()).toHaveLength(4);
+    expect(fixture.nativeElement.querySelector('.leaderboard')?.textContent).toContain('3 completed matches');
   });
 
   it('prepares an overdue cross-line suggestion without starting a match', () => {

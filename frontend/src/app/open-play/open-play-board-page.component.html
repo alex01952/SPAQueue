@@ -78,13 +78,14 @@
     </section>
     <section aria-labelledby="top-five-heading">
       <h2 id="top-five-heading">Top 5</h2>
+      <p class="empty">Minimum 3 completed matches with a winner.</p>
       @if (board()?.topFive?.length) {
         <ol class="top-list">
           @for (player of board()!.topFive; track player.id) {
             <li><span class="board-player-name"><strong><span [class.membership-name-frame]="player.membershipType !== 'non-member'" [class.silver-frame]="player.membershipType === 'member'" [class.gold-frame]="player.membershipType === 'gold-member'">{{ player.name }}</span></strong></span><span>{{ player.percent | number:'1.0-1' }}%</span><span>{{ player.wins }} wins · {{ player.games }} games</span></li>
           }
         </ol>
-      } @else { <p class="empty">No completed games.</p> }
+      } @else { <p class="empty">No players qualify yet.</p> }
     </section>
   </div>
   } @else if (board()) {

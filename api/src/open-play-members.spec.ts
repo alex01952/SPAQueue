@@ -36,13 +36,18 @@ describe('Open Play member directory', () => {
     } });
   });
 
-  it('returns only requested Gold expiry dates and caches the directory lookup', async () => {
+  it('reads only board member fields and shares the cached lookup with Gold expiry requests', async () => {
+    role = 'member';
+    entities[0].ReclubId = ' Jenn ';
+    expect(await service.getOpenPlayBoardMembers('session', ['one', 'missing'])).toEqual({
+      one: { reClubId: 'Jenn', goldMembershipExpiresOn: '2027-01-01' },
+      missing: { reClubId: '', goldMembershipExpiresOn: null },
+    });
     expect(await service.getOpenPlayGoldMembershipExpiries('session', ['one', 'missing'])).toEqual({ one: '2027-01-01', missing: null });
-    expect(await service.getOpenPlayGoldMembershipExpiries('session', ['one'])).toEqual({ one: '2027-01-01' });
     expect(table.listEntities).toHaveBeenCalledTimes(1);
     expect(table.listEntities).toHaveBeenCalledWith({ queryOptions: {
       filter: "PartitionKey eq 'members'",
-      select: ['RowKey', 'GoldMembershipExpiresOn'],
+      select: ['RowKey', 'ReclubId', 'GoldMembershipExpiresOn'],
     } });
   });
 

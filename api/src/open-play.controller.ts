@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Headers, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Headers, HttpCode, Param, Post, Put } from '@nestjs/common';
 import { OpenPlayService } from './open-play.service';
 
 @Controller('open-play')
@@ -15,6 +15,23 @@ export class OpenPlayController {
   @Header('Cache-Control', 'private, no-store')
   getMembers(@Headers('cookie') cookie = '') {
     return this.openPlay.getMembers(this.token(cookie));
+  }
+
+  @Get('import-presets')
+  @Header('Cache-Control', 'private, no-store')
+  getImportPresets(@Headers('cookie') cookie = '') {
+    return this.openPlay.getImportPresets(this.token(cookie));
+  }
+
+  @Put('import-presets')
+  saveImportPreset(@Body() input: unknown, @Headers('cookie') cookie = '') {
+    return this.openPlay.saveImportPreset(this.token(cookie), input);
+  }
+
+  @Delete('import-presets/:id')
+  @HttpCode(204)
+  deleteImportPreset(@Param('id') id: string, @Headers('cookie') cookie = '') {
+    return this.openPlay.deleteImportPreset(this.token(cookie), id);
   }
 
   @Get('draft')

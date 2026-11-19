@@ -630,7 +630,7 @@ export interface EmailVerificationResult {
 @Injectable()
 export class AppService {
   private readonly logger = new Logger(AppService.name);
-  private goldMembershipExpiryCache: { expiresAt: number; values: Map<string, string | null> } | null = null;
+  private openPlayBoardMemberCache: { expiresAt: number; values: Map<string, { reClubId: string; goldMembershipExpiresOn: string | null }> } | null = null;
   private readonly monthNames = [
     'January',
     'February',
@@ -1599,27 +1599,37 @@ export class AppService {
   }
 
   async getOpenPlayGoldMembershipExpiries(sessionToken: string, memberIds: string[]) {
+    const members = await this.getOpenPlayBoardMembers(sessionToken, memberIds);
+    return Object.fromEntries(Object.entries(members).map(([memberId, member]) => [memberId, member.goldMembershipExpiresOn]));
+  }
+
+  async getOpenPlayBoardMembers(sessionToken: string, memberIds: string[]) {
     await this.getMemberSession(sessionToken);
     const now = Date.now();
-    if (!this.goldMembershipExpiryCache || this.goldMembershipExpiryCache.expiresAt <= now) {
-      const values = new Map<string, string | null>();
+    let cache = this.openPlayBoardMemberCache;
+    if (!cache || cache.expiresAt <= now) {
+      const values = new Map<string, { reClubId: string; goldMembershipExpiresOn: string | null }>();
       try {
         const entities = this.getMembersTableClient().listEntities({
           queryOptions: {
             filter: "PartitionKey eq 'members'",
-            select: ['RowKey', 'GoldMembershipExpiresOn'],
+            select: ['RowKey', 'ReclubId', 'GoldMembershipExpiresOn'],
           },
         });
         for await (const entity of entities) {
           const memberId = String(entity.rowKey ?? '');
-          if (memberId) values.set(memberId, String(entity.GoldMembershipExpiresOn ?? '') || null);
+          if (memberId) values.set(memberId, {
+            reClubId: String(entity.ReclubId ?? '').trim(),
+            goldMembershipExpiresOn: String(entity.GoldMembershipExpiresOn ?? '') || null,
+          });
         }
       } catch (error) {
         throw this.createMemberAuthenticationStorageException(error);
       }
-      this.goldMembershipExpiryCache = { expiresAt: now + 60_000, values };
+      cache = this.openPlayBoardMemberCache = { expiresAt: now + 60_000, values };
     }
-    return Object.fromEntries([...new Set(memberIds)].map((memberId) => [memberId, this.goldMembershipExpiryCache!.values.get(memberId) ?? null]));
+    const values = cache.values;
+    return Object.fromEntries([...new Set(memberIds)].map((memberId) => [memberId, values.get(memberId) ?? { reClubId: '', goldMembershipExpiresOn: null }]));
   }
 
   async getClubs(sessionToken: string): Promise<ClubSummary[]> {
