@@ -1,0 +1,61 @@
+<main class="contacts-shell">
+  <a routerLink="/admin">Back to Admin</a>
+  <header>
+    <p class="eyebrow">Administration</p>
+    <h1>Member contacts</h1>
+    <p>Search by member name or Reclub name to view and export contact details.</p>
+  </header>
+
+  <form class="search" (submit)="$event.preventDefault(); search()">
+    <label for="contact-search">Search members</label>
+    <div>
+      <input id="contact-search" type="search" placeholder="Name or Reclub name"
+        [value]="searchText()" (input)="searchText.set($any($event.target).value)" />
+      <button type="submit">Search</button>
+    </div>
+  </form>
+
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+  @if (loading()) {
+    <p aria-live="polite">Searching members...</p>
+  } @else if (searched() && !members().length) {
+    <p>No members match that search.</p>
+  }
+  @if (displayedMembers().length) {
+      <div class="actions">
+        <label><input type="checkbox" [checked]="allSelected()" [indeterminate]="someSelected()"
+          (change)="toggleAll($any($event.target).checked)" /> Select all {{ displayedMembers().length }} shown</label>
+        <button type="button" [disabled]="!selectedIds().size" (click)="exportCsv()">Export selected ({{ selectedIds().size }})</button>
+      </div>
+      <section class="results" aria-label="Member contact search results">
+        @for (member of displayedMembers(); track member.memberId) {
+          <article>
+            <label class="selection">
+              <input type="checkbox" [checked]="selectedIds().has(member.memberId)"
+                (change)="toggleMember(member, $any($event.target).checked)"
+                [attr.aria-label]="'Select ' + member.name" />
+            </label>
+            <button type="button" class="profile" (click)="profileMember.set(member)">
+              @if (member.profileImageUrl) {
+                <img [src]="member.profileImageUrl" [alt]="member.name" />
+              } @else {
+                <span class="avatar" aria-hidden="true">{{ member.name.charAt(0).toUpperCase() }}</span>
+              }
+              <span><strong>{{ member.name }}</strong><small>View profile</small></span>
+            </button>
+            <dl>
+              <div><dt>Reclub name</dt><dd>{{ member.reClubId || 'Not provided' }}</dd></div>
+              <div><dt>Contact number</dt><dd>{{ member.contactNo || 'Not provided' }}</dd></div>
+              <div><dt>Email</dt><dd>{{ member.email || 'Not provided' }}</dd></div>
+              <div><dt>Emergency contact number</dt><dd>{{ member.emergencyContact || 'Not provided' }}</dd></div>
+            </dl>
+          </article>
+        }
+      </section>
+  }
+  @if (profileMember(); as member) {
+    <app-member-profile-frame [memberId]="member.memberId" [memberName]="member.name" (closed)="profileMember.set(null)" />
+  }
+</main>

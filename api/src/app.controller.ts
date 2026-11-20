@@ -33,6 +33,7 @@ import type {
   MemberProfileImageUploadInput,
   MemberDirectoryEntry,
   MemberAccountDetails,
+  MemberContact,
   MemberProfileUpdateInput,
   MemberRoleUpdateResult,
   PendingMemberRegistration,
@@ -76,6 +77,18 @@ export class AppController {
   private readonly memberSessionCookieName = 'spaqueue_member_session';
 
   constructor(private readonly appService: AppService) {}
+
+  @Get('admin/member-contacts')
+  @Header('Cache-Control', 'private, no-store')
+  searchMemberContacts(
+    @Headers('cookie') cookieHeader = '',
+    @Query('search') search: unknown = '',
+  ): Promise<MemberContact[]> {
+    return this.appService.searchMemberContacts(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      search,
+    );
+  }
 
   @Get('admin/email-announcements/recipients')
   @Header('Cache-Control', 'private, no-store')

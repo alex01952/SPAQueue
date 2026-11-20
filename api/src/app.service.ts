@@ -202,6 +202,16 @@ export interface MemberRegistrationResult {
   verificationSent: true;
 }
 
+export interface MemberContact {
+  memberId: string;
+  name: string;
+  reClubId: string;
+  profileImageUrl: string;
+  contactNo: string;
+  email: string;
+  emergencyContact: string;
+}
+
 export type MemberRegistrationStatus = 'Pending' | 'Approved';
 
 export interface PendingMemberRegistration {
@@ -1657,6 +1667,43 @@ export class AppService {
   ): Promise<AnnouncementRecipient[]> {
     await this.requireAdminSession(sessionToken);
     return this.resolveAnnouncementRecipients({ mode: 'all' }, true);
+  }
+
+  async searchMemberContacts(sessionToken: string, search: unknown): Promise<MemberContact[]> {
+    await this.requireAdminSession(sessionToken);
+    if (typeof search !== 'string' || !search.trim()) {
+      throw new BadRequestException('Enter a member name or Reclub name.');
+    }
+    const term = search.trim().toLowerCase();
+
+    const members: MemberContact[] = [];
+    try {
+      const entities = this.getMembersTableClient().listEntities({
+        queryOptions: {
+          filter: "PartitionKey eq 'members'",
+          select: ['RowKey', 'Name', 'ReclubId', 'ProfileImageUrl', 'ContactNo', 'Email', 'EmergencyContact', 'Status', 'EmailValidated'],
+        },
+      });
+      for await (const entity of entities) {
+        const memberId = String(entity.rowKey ?? '');
+        const name = String(entity.Name ?? '').trim();
+        const reClubId = String(entity.ReclubId ?? '');
+        if (!memberId || !name || entity.Status !== 'Approved' || entity.EmailValidated !== true) continue;
+        if (!name.toLowerCase().includes(term) && !reClubId.toLowerCase().includes(term)) continue;
+        members.push({
+          memberId,
+          name,
+          reClubId,
+          profileImageUrl: String(entity.ProfileImageUrl ?? ''),
+          contactNo: String(entity.ContactNo ?? ''),
+          email: String(entity.Email ?? ''),
+          emergencyContact: String(entity.EmergencyContact ?? ''),
+        });
+      }
+    } catch (error) {
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+    return members.sort((left, right) => left.name.localeCompare(right.name));
   }
 
   async previewAnnouncement(

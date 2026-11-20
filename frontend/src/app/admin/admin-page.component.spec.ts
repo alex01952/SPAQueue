@@ -17,15 +17,15 @@ describe('AdminPageComponent', () => {
     const links = Array.from(compiled.querySelectorAll<HTMLAnchorElement>('.home-menu a'));
 
     expect(links.map((link) => link.querySelector('strong')?.textContent)).toEqual([
-      'Manage member roles', 'Rewards store', 'Email announcements', 'Open Play matching', 'Open Play import presets', 'Upload participation',
+      'Member contacts', 'Manage member roles', 'Rewards store', 'Email announcements', 'Open Play matching', 'Open Play import presets', 'Upload participation',
       'Registration approvals', 'Manage clubs', 'Manage tournaments',
     ]);
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
-      '/member-role-management', '/store-admin', '/email-announcements', '/open-play-matching', '/open-play-import-presets',
+      '/member-contacts', '/member-role-management', '/store-admin', '/email-announcements', '/open-play-matching', '/open-play-import-presets',
       '/open-play-participation/upload', '/member-registration-approvals',
       '/club-management', '/tournament-management',
     ]);
-    expect(links[1].textContent).toContain('view all redemptions');
+    expect(links[2].textContent).toContain('view all redemptions');
     expect(compiled.querySelector('a[href="/home"]')?.textContent).toContain('Back to Member Home');
     expect(routes.some((route) => route.path === 'queue-dashboard')).toBe(false);
 

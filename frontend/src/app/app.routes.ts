@@ -40,6 +40,13 @@ export const routes: Routes = [
     title: 'Admin',
   },
   {
+    path: 'member-contacts',
+    loadComponent: () => import('./member-contacts/member-contacts-page.component').then((module) => module.MemberContactsPageComponent),
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'], breadcrumbParent: { label: 'Admin', route: '/admin' } },
+    title: 'Member Contacts',
+  },
+  {
     path: 'member-role-management',
     loadComponent: () => import('./member-role-management/member-role-management-page.component').then((module) => module.MemberRoleManagementPageComponent),
     canActivate: [memberAuthGuard, memberRoleGuard],

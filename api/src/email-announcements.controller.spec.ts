@@ -8,6 +8,7 @@ import { AppService } from './app.service';
 describe('Announcement HTTP endpoints', () => {
   let app: INestApplication;
   const service = {
+    searchMemberContacts: jest.fn().mockResolvedValue([]),
     getAnnouncementRecipients: jest.fn().mockResolvedValue([]),
     previewAnnouncement: jest.fn().mockResolvedValue({ recipientCount: 50 }),
     sendAnnouncement: jest.fn().mockResolvedValue({ accepted: 50 }),
@@ -67,5 +68,15 @@ describe('Announcement HTTP endpoints', () => {
       'admin-token',
       'request-id',
     );
+  });
+
+  it('forwards contact search and prevents caching', async () => {
+    await request(app.getHttpServer<Server>())
+      .get('/admin/member-contacts')
+      .query({ search: 'Alice & Bob' })
+      .set('Cookie', 'spaqueue_member_session=admin-token')
+      .expect('Cache-Control', 'private, no-store')
+      .expect(200);
+    expect(service.searchMemberContacts).toHaveBeenCalledWith('admin-token', 'Alice & Bob');
   });
 });

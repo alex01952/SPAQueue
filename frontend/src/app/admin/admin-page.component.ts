@@ -10,6 +10,11 @@ import { RouterLink } from '@angular/router';
 export class AdminPageComponent {
   protected readonly menuItems = [
     {
+      label: 'Member contacts',
+      description: 'Search and export member contact details.',
+      route: '/member-contacts',
+    },
+    {
       label: 'Manage member roles',
       description: 'Assign member, club owner, balance staff, and admin access.',
       route: '/member-role-management',

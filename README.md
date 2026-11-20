@@ -37,7 +37,9 @@ This uses the existing table without schema changes, reservation entities, or da
 
 ## Member and admin menus
 
-Member Home groups administrator-only destinations under **Admin** (`/admin`): **Rewards store**, **Email announcements**, **Open Play matching**, **Upload participation**, **Registration approvals**, **Manage clubs**, and **Manage tournaments**. Open **Member Home → Admin → Rewards store** to configure rewards/merchant emails and view all redemptions. The Admin page and its destinations require an authenticated `admin` account; other roles cannot open them directly.
+Member Home groups administrator-only destinations under **Admin** (`/admin`), including **Member contacts**, **Manage member roles**, **Rewards store**, **Email announcements**, **Upload participation**, **Registration approvals**, **Manage clubs**, and **Manage tournaments**. Open **Member Home → Admin → Rewards store** to configure rewards/merchant emails and view all redemptions. The Admin page and its administrator-only destinations require an authenticated `admin` account; Open Play matching and import presets are also available to balance staff.
+
+**Member contacts** (`/member-contacts`) lets admins search approved, email-verified members by name or Reclub name, open their profiles, and export selected results as CSV. Selected members remain visible and selected across searches until unchecked or the page is left; select all applies to everyone shown. The CSV includes names, Reclub names, phone numbers, emails, and emergency contact numbers; potentially spreadsheet-executable values are prefixed with an apostrophe. The admin-only `GET /admin/member-contacts?search=...` endpoint disables caching and requires a nonempty search.
 
 **Member points** and **Member balances** remain on Member Home for both admins and balance staff. **My points & rewards** remains on Member Home for all members. Existing destination URLs continue to work, and admin destinations include an **Admin** breadcrumb for returning to the grouped menu.
 
