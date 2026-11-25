@@ -27,7 +27,7 @@ describe('Email announcement page', () => {
       .expectOne((request) => request.url.endsWith('/email-announcements/recipients'))
       .flush(members);
     http
-      .expectOne((request) => request.url.endsWith('/clubs'))
+      .expectOne((request) => request.url.endsWith('/clubs/options'))
       .flush([{ clubId: 'club-one', name: 'First club' }]);
     fixture.detectChanges();
   }

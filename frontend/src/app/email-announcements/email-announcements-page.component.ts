@@ -74,7 +74,7 @@ export class EmailAnnouncementsPageComponent implements OnInit {
     this.error.set('');
     forkJoin({
       members: this.http.get<Recipient[]>(`${this.base}/recipients`, { withCredentials: true }),
-      clubs: this.http.get<Club[]>(`${getApiBaseUrl()}/clubs`, { withCredentials: true }),
+      clubs: this.http.get<Club[]>(`${getApiBaseUrl()}/clubs/options`, { withCredentials: true }),
     }).subscribe({
       next: ({ members, clubs }) => {
         this.members.set(members);
