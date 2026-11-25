@@ -1,4 +1,6 @@
-const tournamentDocumentPaths = [
+const documentPaths = [
+  /^\/gold-membership\/document\/?$/i,
+  /^\/gold-membership\/applications\/[^/]+\/[^/]+\/receipt\/?$/i,
   /^\/admin\/tournaments\/[^/]+\/registrations\/[^/]+\/player-ids\/[^/]+\/?$/i,
   /^\/admin\/tournament-archive\/[^/]+\/terms\/?$/i,
   /^\/admin\/tournament-archive\/[^/]+\/registrations\/[^/]+\/(?:payment-proofs|player-ids)\/[^/]+\/?$/i,
@@ -14,5 +16,5 @@ export function shouldServeSpaFallback(
   path: string,
 ) {
   return method === 'GET' && (acceptHeader ?? '').includes('text/html') &&
-    !tournamentDocumentPaths.some((pattern) => pattern.test(path));
+    !documentPaths.some((pattern) => pattern.test(path));
 }

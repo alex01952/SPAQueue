@@ -10,6 +10,8 @@ describe('SPA fallback policy', () => {
         '/tournaments/event-1/roster',
       ),
     ).toBe(true);
+    expect(shouldServeSpaFallback('GET', 'text/html', '/gold-membership')).toBe(true);
+    expect(shouldServeSpaFallback('GET', 'text/html', '/gold-membership-applications')).toBe(true);
   });
 
   it('should let frontend API requests reach Nest controllers', () => {
@@ -28,6 +30,8 @@ describe('SPA fallback policy', () => {
     '/tournaments/event-1/terms',
     '/tournaments/event-1/registrations/team-1/payment-proofs/player-1',
     '/tournaments/event-1/protests/protest-1/evidence/0',
+    '/gold-membership/document',
+    '/gold-membership/applications/member-1/application-1/receipt',
   ])('lets browser document navigation reach the API: %s', (path) => {
     expect(shouldServeSpaFallback('GET', 'text/html,application/xhtml+xml,*/*', path)).toBe(false);
   });
