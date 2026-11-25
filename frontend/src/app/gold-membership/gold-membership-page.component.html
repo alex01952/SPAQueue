@@ -1,0 +1,99 @@
+<main class="rewards-shell gold-shell">
+  <a [routerLink]="adminPage ? '/admin' : '/home'">{{ adminPage ? 'Back to Admin' : 'Back to Member Home' }}</a>
+  <header class="gold-heading">
+    <div><p class="eyebrow">Gold membership</p><h1>{{ adminPage ? 'Gold membership applications' : 'Become a Gold member' }}</h1></div>
+    <button type="button" [disabled]="loading() || saving()" (click)="load()">Refresh</button>
+  </header>
+  @if (message()) { <p class="success" role="status">{{ message() }}</p> }
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (loading()) { <p role="status">Loading Gold membership information...</p> }
+  @if (state(); as data) {
+    <section class="benefits">
+      <h2>Benefits and membership rate</h2>
+      @if (data.documentAvailable) {
+        <a [href]="baseUrl + '/document'" target="_blank" rel="noopener">View Gold membership benefits and rate (PDF)</a>
+      } @else {
+        <p>The benefits and rate document has not been uploaded yet.</p>
+      }
+      @if (adminPage) {
+        <p>Upload or replace the PDF members read before applying. Maximum 10 MB.</p>
+        <label>Benefits and rate PDF <input #documentInput type="file" accept="application/pdf" [disabled]="saving() || loading()" (change)="selectFile($event, 'document')"></label>
+        <button type="button" [disabled]="saving() || loading() || !documentFile" (click)="uploadDocument(documentInput)">{{ saving() ? 'Saving...' : 'Upload document' }}</button>
+      }
+    </section>
+    @if (adminPage) {
+      <section>
+        <div class="list-heading"><h2>Applications</h2><label>Status <select [(ngModel)]="status" [disabled]="loading() || saving()" (ngModelChange)="load()"><option value="Pending">Pending</option><option value="Approved">Approved</option><option value="Declined">Declined</option><option value="all">All</option></select></label></div>
+        @if (!loading() && !applications().length) { <p>No applications match this status.</p> }
+        @for (application of applications(); track application.id) {
+          <article class="history-entry">
+            <div class="list-heading"><h3>{{ application.reClubId || application.name }}</h3><span class="status" [class.approved]="application.status === 'Approved'" [class.declined]="application.status === 'Declined'">{{ application.status }}</span></div>
+            <p>{{ application.name }} &middot; Submitted {{ application.submittedAt | date:'medium' }}</p>
+            @if (application.paymentMethod === 'arena-counter') {
+              <p><strong>Paid at arena counter</strong></p>
+            } @else {
+              <a [href]="receiptUrl(application)" target="_blank" rel="noopener">View payment receipt</a>
+            }
+            @if (application.reviewedAt) { <p>Reviewed {{ application.reviewedAt | date:'medium' }}</p> }
+            @if (application.expiresOn) { <p>Gold expiry: {{ application.expiresOn }}</p> }
+            @if (application.declineReason) { <p class="reason">Decline reason: {{ application.declineReason }}</p> }
+            @if (application.status === 'Pending') {
+              <div><button type="button" [disabled]="saving() || loading()" (click)="chooseReview(application, 'approve')">Approve</button><button type="button" [disabled]="saving() || loading()" (click)="chooseReview(application, 'decline')">Decline</button></div>
+            }
+            @if (selected(); as reviewSelection) {
+              @if (reviewSelection.application.id === application.id) {
+                <div class="review-confirmation">
+                  @if (reviewSelection.decision === 'approve') {
+                    <p>Grant {{ application.reClubId || application.name }} one year of Gold membership from today?</p>
+                    @if (application.paymentMethod === 'arena-counter') { <p>Verify their arena counter payment before approving.</p> }
+                  } @else {
+                    <label>Decline reason <textarea [(ngModel)]="declineReason" maxlength="1000" rows="3" [disabled]="saving()"></textarea></label>
+                  }
+                  <button type="button" [disabled]="saving() || loading()" (click)="review()">{{ saving() ? 'Saving...' : reviewSelection.decision === 'approve' ? 'Confirm approval' : 'Confirm decline' }}</button>
+                  <button type="button" [disabled]="saving()" (click)="selected.set(null)">Cancel</button>
+                </div>
+              }
+            }
+          </article>
+        }
+      </section>
+    } @else {
+      @if (data.activeGold) {
+        <section class="benefits"><h2>You are a Gold member</h2><p>Your membership is active through {{ data.goldMembershipExpiresOn }} (UTC).</p></section>
+      }
+      @if (data.application; as application) {
+        <section>
+          <h2>Your latest application</h2>
+          <p><span class="status" [class.approved]="application.status === 'Approved'" [class.declined]="application.status === 'Declined'">{{ application.status }}</span></p>
+          <p>Submitted {{ application.submittedAt | date:'medium' }}</p>
+          @if (application.paymentMethod === 'arena-counter') {
+            <p><strong>Paid at arena counter</strong></p>
+          } @else {
+            <a [href]="receiptUrl(application)" target="_blank" rel="noopener">View your payment receipt</a>
+          }
+          @if (application.status === 'Pending') { <p>Your application is awaiting admin review. Gold membership starts only after approval.</p> }
+          @if (application.declineReason) { <p class="reason">Decline reason: {{ application.declineReason }}</p><p>You may apply again after resolving the issue with your payment.</p> }
+          @if (application.expiresOn) { <p>Approved Gold expiry: {{ application.expiresOn }}</p> }
+        </section>
+      }
+      @if (!data.activeGold && data.application?.status !== 'Pending') {
+        <section>
+          <h2>Apply for Gold membership</h2>
+          <p>Read the benefits and rate document, pay as instructed, then upload your payment receipt or select Paid at arena counter. Approval grants one year of Gold membership from the approval date.</p>
+          @if (!data.documentAvailable) { <p>Please wait for an admin to upload the benefits and rate document before applying.</p> }
+          <fieldset class="payment-method" [disabled]="saving() || loading() || !data.documentAvailable">
+            <legend>Payment method</legend>
+            <label><input type="radio" name="paymentMethod" value="receipt" [(ngModel)]="paymentMethod"> Upload payment receipt</label>
+            <label><input type="radio" name="paymentMethod" value="arena-counter" [(ngModel)]="paymentMethod"> Paid at arena counter</label>
+          </fieldset>
+          @if (paymentMethod === 'receipt') {
+            <label>Payment receipt (PDF, JPEG, PNG or WebP; maximum 10 MB) <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" [disabled]="saving() || loading() || !data.documentAvailable" (change)="selectFile($event, 'receipt')"></label>
+          } @else {
+            <p>No receipt upload is required. An admin will verify your arena counter payment before approving.</p>
+          }
+          <button type="button" [disabled]="saving() || loading() || !data.documentAvailable || (paymentMethod === 'receipt' && !receipt)" (click)="submit()">{{ saving() ? 'Submitting...' : 'Submit application' }}</button>
+        </section>
+      }
+    }
+  }
+</main>

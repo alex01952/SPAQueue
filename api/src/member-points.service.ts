@@ -631,6 +631,98 @@ export class MemberPointsService {
     }
   }
 
+  async staffRedemptions(
+    token: string,
+    from?: string,
+    to?: string,
+    status = 'all',
+    continuation?: string,
+  ) {
+    await this.requireStaff(token);
+    const date = (value: string | undefined) => {
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+      const parsed = new Date(`${value}T00:00:00.000Z`);
+      return Number.isFinite(parsed.getTime()) &&
+        parsed.toISOString().slice(0, 10) === value &&
+        Number(value.slice(0, 4)) < 9999
+        ? parsed
+        : null;
+    };
+    const start = date(from);
+    const end = date(to);
+    if (!start || !end || start > end)
+      throw new BadRequestException('Enter a valid from and to date in order.');
+    if (!['all', 'used', 'unused'].includes(status))
+      throw new BadRequestException('Invalid redemption status.');
+    if (
+      continuation !== undefined &&
+      (typeof continuation !== 'string' || continuation.length > 10_000)
+    )
+      throw new BadRequestException('Invalid redemption continuation token.');
+    const startUtc = new Date(start.getTime() - 8 * 60 * 60 * 1000).toISOString();
+    const endUtc = new Date(end.getTime() + 16 * 60 * 60 * 1000).toISOString();
+    try {
+      const page = await this.getTable()
+        .listEntities<Record<string, unknown>>({
+          queryOptions: {
+            filter: `RowKey ge 'redemption:' and RowKey lt 'redemption;' and Type eq 'redemption' and CreatedAt ge '${startUtc}' and CreatedAt lt '${endUtc}'`,
+          },
+        })
+        .byPage({ maxPageSize: 50, continuationToken: continuation })
+        .next();
+      const entities = page.done ? [] : page.value;
+      return {
+        records: entities
+          .filter((entity) =>
+            status === 'all' ? true : (entity.Used === true) === (status === 'used'),
+          )
+          .map((entity) => ({
+            ...this.transactionView(entity),
+            memberId: String(entity.partitionKey),
+            memberName: String(entity.MemberName),
+            memberEmail: String(entity.MemberEmail),
+            used: entity.Used === true,
+            usedAt: typeof entity.UsedAt === 'string' ? entity.UsedAt : '',
+            usedByName: typeof entity.UsedByName === 'string' ? entity.UsedByName : '',
+          })),
+        continuationToken: page.done ? null : (page.value.continuationToken ?? null),
+      };
+    } catch (error) {
+      this.storageError(error);
+    }
+  }
+
+  async markRedemptionUsed(token: string, memberId: string, transactionId: string) {
+    const actor = await this.requireStaff(token);
+    this.validateMemberId(memberId);
+    if (!/^redemption:\d{13}:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(transactionId))
+      throw new BadRequestException('Invalid redemption reference.');
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const row = await this.getOptional(transactionId, memberId);
+      if (!row || row.Type !== 'redemption')
+        throw new BadRequestException('Redemption not found.');
+      if (row.Used === true) return { used: true };
+      try {
+        await this.getTable().updateEntity(
+          {
+            partitionKey: memberId,
+            rowKey: transactionId,
+            Used: true,
+            UsedAt: new Date().toISOString(),
+            UsedBy: actor.memberId,
+            UsedByName: actor.name,
+          },
+          'Merge',
+          { etag: row.etag },
+        );
+        return { used: true };
+      } catch (error) {
+        if (this.code(error) !== 412) this.storageError(error);
+      }
+    }
+    throw new ConflictException('The redemption changed concurrently. Please retry.');
+  }
+
   private rewardInput(
     input: unknown,
   ): Record<string, unknown> & { requestId: string } {

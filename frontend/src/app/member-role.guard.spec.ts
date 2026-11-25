@@ -33,8 +33,10 @@ describe('Balance staff route permissions', () => {
   it('allows balance staff on balance and points management but not admin-only routes', async () => {
     expect(await evaluate('member-balances')).toBe(true);
     expect(await evaluate('member-points')).toBe(true);
+    expect(await evaluate('redemptions')).toBe(true);
     expect(await evaluate('open-play-matching')).toBe(true);
-    const others = routes.filter((route) => !['member-balances', 'member-points', 'open-play-matching'].includes(route.path ?? '') && route.canActivate?.includes(memberRoleGuard));
+    expect(await evaluate('open-play-import-presets')).toBe(true);
+    const others = routes.filter((route) => !['member-balances', 'member-points', 'redemptions', 'open-play-matching', 'open-play-import-presets'].includes(route.path ?? '') && route.canActivate?.includes(memberRoleGuard));
     expect(others.length).toBeGreaterThan(0);
     for (const route of others) {
       const result = await evaluate(route.path!);
@@ -46,11 +48,13 @@ describe('Balance staff route permissions', () => {
     role.set('admin');
     expect(await evaluate('member-balances')).toBe(true);
     expect(await evaluate('member-points')).toBe(true);
+    expect(await evaluate('redemptions')).toBe(true);
     expect(await evaluate('admin')).toBe(true);
     for (const denied of ['member', 'club-owner'] as const) {
       role.set(denied);
       expect(await evaluate('member-balances')).not.toBe(true);
       expect(await evaluate('member-points')).not.toBe(true);
+      expect(await evaluate('redemptions')).not.toBe(true);
       expect(await evaluate('open-play-matching')).not.toBe(true);
       expect(await evaluate('admin')).not.toBe(true);
     }
@@ -58,6 +62,7 @@ describe('Balance staff route permissions', () => {
     authenticated.set(false);
     expect(await evaluate('member-balances')).not.toBe(true);
     expect(await evaluate('member-points')).not.toBe(true);
+    expect(await evaluate('redemptions')).not.toBe(true);
     expect(await evaluate('open-play-matching')).not.toBe(true);
     expect(await evaluate('admin')).not.toBe(true);
   });

@@ -1,0 +1,60 @@
+<section class="leaderboard" aria-labelledby="leaderboard-title">
+  <header class="leaderboard-heading">
+    <div>
+      <p class="eyebrow">Open Play · Hall of achievement</p>
+      <h2 id="leaderboard-title">Arena leaderboard</h2>
+    </div>
+    <span class="top-twenty">TOP 20 <span>Earned on court</span></span>
+  </header>
+  <p class="rules">Ranked by win percentage from archived matches. At least 15 completed games with a recorded winner are required per period. Numeric scores are optional. Dates use Philippine time.</p>
+  @if (loading()) { <p role="status">Loading leaderboard...</p> }
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+    <button type="button" (click)="load()">Try again</button>
+  }
+  @if (leaderboard(); as data) {
+    <div class="leaderboard-grid">
+      @for (period of [{ label: 'Monthly', subtitle: 'Standouts of the month', date: data.month, entries: data.monthly }, { label: 'Annual', subtitle: 'A year of great games', date: data.year, entries: data.annual }]; track period.label) {
+        <section class="leaderboard-period">
+          <header class="period-heading">
+            <div><p class="period-kicker">{{ period.subtitle }}</p><h3>{{ period.label }} leaders</h3></div>
+            <span class="period-date">{{ period.date }}</span>
+          </header>
+          @if (!period.entries.length) {
+            <div class="empty-period"><span class="empty-medal" aria-hidden="true">&#9734;</span><p>No members have qualified for this period yet.</p><span>Your next game could bring you closer.</span></div>
+          } @else {
+            <div class="podium" aria-label="Top three players">
+              @for (entry of period.entries.slice(0, 3); track $index) {
+                <article class="podium-player" [class.champion]="$index === 0" [class.silver]="$index === 1" [class.bronze]="$index === 2">
+                  @if (entry.profileImageUrl && !failedImages().has(entry.profileImageUrl)) {
+                    <img class="podium-avatar" [src]="apiBaseUrl + entry.profileImageUrl" alt="" decoding="async" (error)="onImageError(entry.profileImageUrl)">
+                  } @else {
+                    <span class="podium-avatar avatar-placeholder" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0z"/></svg>
+                    </span>
+                  }
+                  <p class="achievement-label">{{ $index === 0 ? 'Champion' : $index === 1 ? 'Runner-up' : 'Third place' }}</p>
+                  <h4>{{ entry.name }}</h4>
+                  <strong class="podium-percent">{{ entry.percent | number:'1.1-1' }}<span>%</span></strong>
+                  <span class="stat-label">win rate</span>
+                  <p class="podium-record">{{ entry.wins }} wins <span aria-hidden="true">·</span> {{ entry.games }} games</p>
+                </article>
+              }
+            </div>
+            <div class="table-wrap">
+              <table>
+                <caption class="sr-only">{{ period.label }} leaderboard for {{ period.date }}</caption>
+                <thead><tr><th scope="col">Rank</th><th scope="col">Player</th><th scope="col">W</th><th scope="col">L</th><th scope="col">Games</th><th scope="col">Win %</th></tr></thead>
+                <tbody>
+                  @for (entry of period.entries; track $index) {
+                    <tr [class.top-ranked]="$index < 3"><td><span class="rank-badge" [class.gold]="$index === 0">{{ $index + 1 }}</span></td><th scope="row">{{ entry.name }}</th><td>{{ entry.wins }}</td><td>{{ entry.losses }}</td><td>{{ entry.games }}</td><td class="win-percent">{{ entry.percent | number:'1.1-1' }}%</td></tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </section>
+      }
+    </div>
+  }
+</section>

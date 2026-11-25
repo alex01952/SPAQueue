@@ -16,6 +16,8 @@ describe('Rewards endpoints', () => {
     redeem: jest.fn(),
     retryEmails: jest.fn(),
     adminRedemptions: jest.fn(),
+    staffRedemptions: jest.fn(),
+    markRedemptionUsed: jest.fn(),
   };
   const store = { list: jest.fn(), save: jest.fn(), uploadImage: jest.fn() };
   beforeEach(async () => {
@@ -137,5 +139,23 @@ describe('Rewards endpoints', () => {
     points.adminRedemptions.mockRejectedValue(new ForbiddenException());
     await request(server).get('/admin/redemptions').expect(403);
     expect(points.adminRedemptions).toHaveBeenCalledWith('', undefined);
+  });
+
+  it('forwards staff redemption filters and mark-used requests', async () => {
+    points.staffRedemptions.mockResolvedValue({ records: [], continuationToken: null });
+    await request(server)
+      .get('/redemptions?from=2026-10-30&to=2026-10-31&status=unused&continuation=next')
+      .set('Cookie', cookie)
+      .expect('Cache-Control', 'private, no-store')
+      .expect(200);
+    expect(points.staffRedemptions).toHaveBeenCalledWith(
+      'token', '2026-10-30', '2026-10-31', 'unused', 'next',
+    );
+    await request(server)
+      .post('/redemptions/player/redemption%3Aref/used')
+      .set('Cookie', cookie)
+      .expect('Cache-Control', 'private, no-store')
+      .expect(201);
+    expect(points.markRedemptionUsed).toHaveBeenCalledWith('token', 'player', 'redemption:ref');
   });
 });

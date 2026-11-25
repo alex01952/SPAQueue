@@ -1,0 +1,46 @@
+<main class="rewards-shell">
+  <a routerLink="/home">Back to Member Home</a>
+  <h1>Reward redemptions</h1>
+  <p>Find redemptions by purchase date in Philippine time. Mark a reward as used when it has been collected.</p>
+  <form (ngSubmit)="load()">
+    <fieldset [disabled]="loading() || saving()">
+      <label>From date <input type="date" name="from" [(ngModel)]="from" required /></label>
+      <label>To date <input type="date" name="to" [(ngModel)]="to" required /></label>
+      <label>Status
+        <select name="status" [(ngModel)]="status">
+          <option value="all">All</option>
+          <option value="unused">Unused</option>
+          <option value="used">Used</option>
+        </select>
+      </label>
+      <button type="submit">Show redemptions</button>
+    </fieldset>
+  </form>
+  @if (loading()) { <p role="status">Loading redemptions...</p> }
+  @if (saving()) { <p role="status">Marking redemption as used...</p> }
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (message()) { <p class="success" role="status">{{ message() }}</p> }
+  @if (loaded()) {
+    <p>{{ records().length }} redemptions found.</p>
+    @if (!records().length) { <p>No redemptions found for these filters.</p> }
+    @for (record of records(); track record.memberId + ':' + record.transactionId) {
+      <article class="history-entry">
+        <h2>{{ record.itemName }}</h2>
+        <dl class="redemption-details">
+          <dt>Member</dt><dd>{{ record.memberName }} ({{ record.memberEmail }})</dd>
+          <dt>Member ID</dt><dd>{{ record.memberId }}</dd>
+          <dt>Tokens spent</dt><dd>{{ record.tokens }}</dd>
+          <dt>Redeemed</dt><dd>{{ record.createdAt | date:'medium':'+0800' }} (Philippine time)</dd>
+          <dt>Reference</dt><dd>{{ record.transactionId }}</dd>
+          <dt>Status</dt><dd>{{ record.used ? 'Used' : 'Unused' }}</dd>
+          @if (record.usedAt) {
+            <dt>Marked used</dt><dd>{{ record.usedAt | date:'medium':'+0800' }} by {{ record.usedByName }}</dd>
+          }
+        </dl>
+        @if (!record.used) {
+          <button type="button" (click)="markUsed(record)" [disabled]="loading() || saving()">Mark as used</button>
+        }
+      </article>
+    }
+  }
+</main>

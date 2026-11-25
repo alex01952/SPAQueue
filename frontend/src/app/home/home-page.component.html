@@ -85,9 +85,25 @@
       </span>
       <span class="menu-arrow" aria-hidden="true">&rarr;</span>
     </a>
+    <a routerLink="/open-play-leaderboard" class="menu-item">
+      <span class="menu-index">10</span>
+      <span class="menu-copy">
+        <strong>Open Play leaderboard</strong>
+        <small>See monthly and annual leaders from archived matches.</small>
+      </span>
+      <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+    </a>
+    <a routerLink="/gold-membership" class="menu-item">
+      <span class="menu-index">11</span>
+      <span class="menu-copy">
+        <strong>Gold membership</strong>
+        <small>View benefits, apply with a receipt or arena counter payment, and track your application.</small>
+      </span>
+      <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+    </a>
     @if (member()?.role === 'admin' || member()?.role === 'balance-staff') {
       <a routerLink="/member-points" class="menu-item">
-        <span class="menu-index">10</span>
+        <span class="menu-index">12</span>
         <span class="menu-copy">
           <strong>Member points</strong>
           <small>Award Gold member points and review activity history.</small>
@@ -95,10 +111,18 @@
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
       <a routerLink="/member-balances" class="menu-item">
-        <span class="menu-index">11</span>
+        <span class="menu-index">13</span>
         <span class="menu-copy">
           <strong>Member balances</strong>
           <small>Manage balances and email unpaid balance reminders.</small>
+        </span>
+        <span class="menu-arrow" aria-hidden="true">&rarr;</span>
+      </a>
+      <a routerLink="/redemptions" class="menu-item">
+        <span class="menu-index">14</span>
+        <span class="menu-copy">
+          <strong>Reward redemptions</strong>
+          <small>Track and mark redeemed rewards as used.</small>
         </span>
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
@@ -106,7 +130,7 @@
 
     @if (member()?.role === 'admin') {
       <a routerLink="/admin" class="menu-item">
-        <span class="menu-index">12</span>
+        <span class="menu-index">15</span>
         <span class="menu-copy">
           <strong>Admin</strong>
           <small>Rewards store, announcements, approvals, and club administration.</small>
@@ -117,7 +141,7 @@
 
     @if (member()?.role === 'balance-staff') {
       <a routerLink="/open-play-matching" class="menu-item">
-        <span class="menu-index">12</span>
+        <span class="menu-index">15</span>
         <span class="menu-copy">
           <strong>Open Play matching</strong>
           <small>Manage the Open Play roster, sessions, and Gold member point review.</small>
@@ -125,7 +149,7 @@
         <span class="menu-arrow" aria-hidden="true">&rarr;</span>
       </a>
       <a routerLink="/open-play-import-presets" class="menu-item">
-        <span class="menu-index">13</span>
+        <span class="menu-index">16</span>
         <span class="menu-copy">
           <strong>Open Play import presets</strong>
           <small>Manage default categories and genders for imported players.</small>
@@ -141,7 +165,7 @@
       (click)="logout()"
     >
       <span class="menu-index">{{
-        member()?.role === 'balance-staff' ? '14' : member()?.role === 'admin' ? '13' : '10'
+        member()?.role === 'balance-staff' ? '17' : member()?.role === 'admin' ? '16' : '12'
       }}</span>
       <span class="menu-copy">
         <strong>{{ isLoggingOut() ? 'Logging out...' : 'Logout' }}</strong>

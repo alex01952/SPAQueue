@@ -560,6 +560,77 @@ describe('Manual member points', () => {
       expect(result.continuationToken).toBe('next-page');
     });
 
+    describe('Staff redemption tracking', () => {
+      const id = 'redemption:0000000000001:00000000-0000-4000-8000-000000000001';
+      const redemption = {
+        partitionKey: 'player', rowKey: id, Type: 'redemption', ItemName: 'Voucher',
+        MemberName: 'Player', MemberEmail: 'player@example.com',
+        MerchantBcc: 'private@example.com', Tokens: 15,
+        CreatedAt: '2026-10-30T16:00:00.000Z', etag: 'original',
+      };
+
+      it.each<MemberRole>(['member', 'club-owner'])('denies %s before reading or updating', async (denied) => {
+        role = denied;
+        await expect(service.staffRedemptions('token', '2026-10-31', '2026-10-31')).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(service.markRedemptionUsed('token', 'player', id)).rejects.toBeInstanceOf(ForbiddenException);
+        expect(table.listEntities).not.toHaveBeenCalled();
+        expect(table.getEntity).not.toHaveBeenCalled();
+      });
+
+      it.each<MemberRole>(['admin', 'balance-staff'])('allows %s, filters legacy unused records, and hides merchant recipients', async (allowed) => {
+        role = allowed;
+        rows.set(key('player', id), redemption);
+        rows.set(key('other', id), { ...redemption, partitionKey: 'other', Used: true });
+        const unused = await service.staffRedemptions('token', '2026-10-31', '2026-10-31', 'unused', 'next');
+        expect(unused.records).toHaveLength(1);
+        expect(unused.records[0]).toMatchObject({ memberId: 'player', used: false });
+        expect(unused.records[0]).not.toHaveProperty('merchantBcc');
+        expect(unused.continuationToken).toBe('next-page');
+        expect(table.listEntities).toHaveBeenCalledWith({
+          queryOptions: { filter: "RowKey ge 'redemption:' and RowKey lt 'redemption;' and Type eq 'redemption' and CreatedAt ge '2026-10-30T16:00:00.000Z' and CreatedAt lt '2026-10-31T16:00:00.000Z'" },
+        });
+        const used = await service.staffRedemptions('token', '2026-10-31', '2026-10-31', 'used');
+        expect(used.records).toHaveLength(1);
+        expect(used.records[0]).toMatchObject({ memberId: 'other', used: true });
+      });
+
+      it('validates filters and references before accessing storage', async () => {
+        await expect(service.staffRedemptions('token', '2026-02-30', '2026-03-01')).rejects.toBeInstanceOf(BadRequestException);
+        await expect(service.staffRedemptions('token', '2026-11-01', '2026-10-31')).rejects.toBeInstanceOf(BadRequestException);
+        await expect(service.staffRedemptions('token', '2026-10-31', '2026-10-31', 'bad')).rejects.toBeInstanceOf(BadRequestException);
+        await expect(service.markRedemptionUsed('token', "bad'id", id)).rejects.toBeInstanceOf(BadRequestException);
+        await expect(service.markRedemptionUsed('token', 'player', 'invalid')).rejects.toBeInstanceOf(BadRequestException);
+        expect(table.listEntities).not.toHaveBeenCalled();
+        expect(table.getEntity).not.toHaveBeenCalled();
+      });
+
+      it('marks a redemption once with staff audit details and preserves the snapshot', async () => {
+        rows.set(key('player', id), redemption);
+        await expect(service.markRedemptionUsed('token', 'player', id)).resolves.toEqual({ used: true });
+        expect(rows.get(key('player', id))).toMatchObject({
+          Used: true, UsedBy: 'staff', UsedByName: 'Staff Member',
+          UsedAt: '2026-10-31T02:00:00.000Z', MerchantBcc: 'private@example.com',
+        });
+        await service.markRedemptionUsed('token', 'player', id);
+        expect(table.updateEntity).toHaveBeenCalledTimes(1);
+      });
+
+      it('retries an ETag conflict without overwriting concurrent email changes', async () => {
+        rows.set(key('player', id), redemption);
+        table.updateEntity.mockRejectedValueOnce(Object.assign(new Error('changed'), { statusCode: 412 }));
+        await service.markRedemptionUsed('token', 'player', id);
+        expect(table.updateEntity).toHaveBeenCalledTimes(2);
+        expect(rows.get(key('player', id))?.Used).toBe(true);
+      });
+
+      it('rejects missing redemptions and surfaces storage errors', async () => {
+        await expect(service.markRedemptionUsed('token', 'player', id)).rejects.toBeInstanceOf(BadRequestException);
+        rows.set(key('player', id), redemption);
+        table.updateEntity.mockRejectedValueOnce(new Error('unavailable'));
+        await expect(service.markRedemptionUsed('token', 'player', id)).rejects.toBeInstanceOf(BadGatewayException);
+      });
+    });
+
     it('uses bounded pages and retains continuation tokens for empty storage pages', async () => {
       role = 'admin';
       const byPage = jest.fn().mockReturnValue({

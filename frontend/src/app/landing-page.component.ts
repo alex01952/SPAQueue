@@ -1,9 +1,10 @@
 import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { OpenPlayLeaderboardComponent } from './open-play/open-play-leaderboard.component';
 
 @Component({
   selector: 'app-landing-page',
-  imports: [RouterLink],
+  imports: [RouterLink, OpenPlayLeaderboardComponent],
   templateUrl: './landing-page.component.html',
   styleUrl: './landing-page.component.scss',
 })

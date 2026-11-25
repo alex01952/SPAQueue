@@ -45,6 +45,8 @@ import type {
 } from './email-announcements';
 import { buildTeams } from './matching-selection';
 import { normalizeRewardEmailList } from './reward-email-recipients';
+import { isMissingTableEntity } from './azure-table-errors';
+import { goldMembershipAnniversary } from './gold-membership';
 import {
   generateTournamentSchedule,
   randomizeTournamentPools,
@@ -266,6 +268,13 @@ export interface MemberDirectoryEntry {
   profileImageUrl: string;
   location?: string;
 }
+
+export interface OpenPlayLeaderboardMember {
+  reClubId: string;
+  profileImageId: string;
+}
+
+const leaderboardProfileImageIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(gif|jpg|png|webp)$/i;
 
 export interface ClubSummary {
   clubId: string;
@@ -641,6 +650,8 @@ export interface EmailVerificationResult {
 export class AppService {
   private readonly logger = new Logger(AppService.name);
   private openPlayBoardMemberCache: { expiresAt: number; values: Map<string, { reClubId: string; goldMembershipExpiresOn: string | null }> } | null = null;
+  private readonly leaderboardMemberCache = new Map<string, { expiresAt: number; profile: OpenPlayLeaderboardMember | null }>();
+  private leaderboardMemberCacheGeneration = 0;
   private readonly monthNames = [
     'January',
     'February',
@@ -1271,6 +1282,8 @@ export class AppService {
         Skills: JSON.stringify(member.skills),
         CreatedAt: new Date().toISOString(),
       });
+      this.leaderboardMemberCache.delete(emailKey);
+      this.leaderboardMemberCacheGeneration++;
     } catch (error) {
       if (this.isAzureConflict(error)) {
         throw new ConflictException(
@@ -1640,6 +1653,113 @@ export class AppService {
     }
     const values = cache.values;
     return Object.fromEntries([...new Set(memberIds)].map((memberId) => [memberId, values.get(memberId) ?? { reClubId: '', goldMembershipExpiresOn: null }]));
+  }
+
+  async getOpenPlayLeaderboardMembers(memberIds: string[]): Promise<Map<string, OpenPlayLeaderboardMember>> {
+    const ids = [...new Set(memberIds)];
+    for (const id of ids) this.validateMemberId(id);
+    const now = Date.now();
+    for (const [id, entry] of this.leaderboardMemberCache) {
+      if (entry.expiresAt <= now) this.leaderboardMemberCache.delete(id);
+    }
+    const result = new Map<string, OpenPlayLeaderboardMember>();
+    const missingIds = ids.filter((id) => {
+      const cached = this.leaderboardMemberCache.get(id);
+      if (!cached) return true;
+      if (cached.profile) result.set(id, cached.profile);
+      return false;
+    });
+    if (missingIds.length) {
+      const generation = this.leaderboardMemberCacheGeneration;
+      try {
+        const table = this.getMembersTableClient();
+        const profiles = await Promise.all(missingIds.map(async (id): Promise<OpenPlayLeaderboardMember | null> => {
+          try {
+            const entity = await table.getEntity('members', id, {
+              queryOptions: { select: ['ReclubId', 'ProfileImageUrl'] },
+            });
+            return {
+              reClubId: String(entity.ReclubId ?? '').trim(),
+              profileImageId: this.getLeaderboardProfileImageId(id, String(entity.ProfileImageUrl ?? '').trim()),
+            };
+          } catch (error) {
+            if (!isMissingTableEntity(error)) throw error;
+            this.logger.warn('An archived Open Play member is no longer available.');
+            return null;
+          }
+        }));
+        const expiresAt = Date.now() + 60_000;
+        missingIds.forEach((id, index) => {
+          const profile = profiles[index];
+          if (profile) result.set(id, profile);
+          if (generation === this.leaderboardMemberCacheGeneration) {
+            this.leaderboardMemberCache.set(id, { expiresAt, profile });
+          }
+        });
+      } catch (error) {
+        throw this.createMemberAuthenticationStorageException(error);
+      }
+    }
+    return result;
+  }
+
+  private getLeaderboardProfileImageId(memberId: string, imageUrl: string): string {
+    if (!imageUrl) return '';
+    try {
+      const url = new URL(imageUrl);
+      const prefix = `/${this.azureContainerName}/member-profile-images/${memberId}/`;
+      const path = decodeURIComponent(url.pathname);
+      const imageId = path.startsWith(prefix) ? path.slice(prefix.length) : '';
+      if (this.azureStorageAccount && this.azureContainerName && url.protocol === 'https:' &&
+        url.hostname === `${this.azureStorageAccount}.blob.core.windows.net` &&
+        !url.port && !url.username && !url.password && !url.search && !url.hash &&
+        leaderboardProfileImageIdPattern.test(imageId)) {
+        return imageId;
+      }
+    } catch {
+      this.logger.warn('An Open Play leaderboard profile image has an invalid storage location.');
+      return '';
+    }
+    this.logger.warn('An Open Play leaderboard profile image has an unsupported storage location.');
+    return '';
+  }
+
+  private getLeaderboardProfileImageBlobClient(memberId: string, imageId: string): BlockBlobClient {
+    if (!this.azureStorageAccount || !this.azureContainerName) throw new Error('Profile image storage is not configured.');
+    return new BlobServiceClient(
+      `https://${this.azureStorageAccount}.blob.core.windows.net`,
+      new DefaultAzureCredential(),
+      { retryOptions: { maxTries: 1, tryTimeoutInMs: this.azureUploadTimeoutMs } },
+    ).getContainerClient(this.azureContainerName).getBlockBlobClient(`member-profile-images/${memberId}/${imageId}`);
+  }
+
+  async getOpenPlayLeaderboardImage(memberId: string, imageId: string): Promise<{ buffer: Buffer; contentType: string }> {
+    this.validateMemberId(memberId);
+    if (!this.azureStorageAccount || !this.azureContainerName ||
+      !leaderboardProfileImageIdPattern.test(imageId)) {
+      throw new NotFoundException('Leaderboard profile image was not found.');
+    }
+    try {
+      const blob = this.getLeaderboardProfileImageBlobClient(memberId, imageId);
+      const properties = await blob.getProperties({ abortSignal: AbortSignal.timeout(this.azureUploadTimeoutMs) });
+      const length = properties.contentLength;
+      if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 1 ||
+        length > 5 * 1024 * 1024 || !properties.etag) throw new Error('Invalid leaderboard image size or ETag.');
+      const buffer = await blob.downloadToBuffer(0, length, {
+        conditions: { ifMatch: properties.etag },
+        abortSignal: AbortSignal.timeout(this.azureUploadTimeoutMs),
+      });
+      const extension = imageId.slice(imageId.lastIndexOf('.') + 1).toLowerCase();
+      const contentType = extension === 'jpg' ? 'image/jpeg' : `image/${extension}`;
+      return { buffer, contentType };
+    } catch (error) {
+      if (this.isAzureNotFound(error) && typeof error === 'object' && error !== null && 'code' in error && error.code === 'BlobNotFound') {
+        this.logger.warn('An Open Play leaderboard profile image was not found.');
+        throw new NotFoundException('Leaderboard profile image was not found.');
+      }
+      this.logger.error('Unable to load an Open Play leaderboard profile image.', error);
+      throw new BadGatewayException('Unable to load the leaderboard profile image.');
+    }
   }
 
   async getClubs(sessionToken: string): Promise<ClubSummary[]> {
@@ -4630,13 +4750,7 @@ export class AppService {
     }
     let goldMembershipExpiresOn: string | null;
     if (expiresOn === undefined) {
-      const anniversary = new Date(Date.now());
-      const month = anniversary.getUTCMonth();
-      anniversary.setUTCFullYear(anniversary.getUTCFullYear() + 1);
-      if (anniversary.getUTCMonth() !== month) {
-        anniversary.setUTCDate(0);
-      }
-      goldMembershipExpiresOn = anniversary.toISOString().slice(0, 10);
+      goldMembershipExpiresOn = goldMembershipAnniversary();
     } else if (expiresOn === null) {
       goldMembershipExpiresOn = null;
     } else {
@@ -5377,6 +5491,8 @@ export class AppService {
         'Merge',
       );
 
+      this.leaderboardMemberCache.delete(memberId);
+      this.leaderboardMemberCacheGeneration++;
       if (playerStatsChanged) {
         await this.deletePlayerProfileValidations(memberId);
       }

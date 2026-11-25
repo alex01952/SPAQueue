@@ -83,6 +83,14 @@ Player locks keep a group together; they do not grant queue priority. After a ma
 
 The roster shows each player's session win percentage. **Top 5** requires at least three completed matches with a winner and ranks eligible players by win percentage, then wins, games and name; it is not an all-time ranking. This minimum applies to the matching screen, board, Top 5 award eligibility and session archives. Matches ended without a winner do not count toward the minimum.
 
+The public landing page and **Member Home → Open Play leaderboard** (`/open-play-leaderboard`) show the top 20 linked members for the current month and calendar year. Each period requires at least **15 completed matches with a recorded winner**; numeric scores are optional. Matches without a winner and unlinked guests are excluded. Results are grouped by member ID across archived sessions and use match completion dates in Philippine time. Rankings use win percentage, then wins, games, and the latest archived name snapshot as a tie-breaker. The displayed name is the member's current Reclub name; missing Reclub names and unavailable member accounts use a placeholder rather than a real name.
+
+The leaderboard is the main feature on the public homepage, with achievement highlights and circular profile pictures for each period's top three and full ranking tables below. A generic avatar appears when an image is unavailable. Member sign-in stays accessible in the sticky header, including on mobile.
+
+`GET /open-play/leaderboard` is public and returns Reclub names, safe image paths and aggregate wins, losses, games and percentages, without member IDs or original photo-storage URLs. The leaderboard is cached in the existing `OpenPlayHistory` table; the first request for a month, after a new archive, or after a ranking-rule version change scans the archived sessions and refreshes the cache, while subsequent requests read the cache without rescanning. Archiving atomically updates a version marker alongside the session, so concurrent archives invalidate stale results. Historical archives require no migration. Changes made directly to archived table rows outside the application do not invalidate this cache.
+
+Current Reclub names and photos are fetched separately from the cached match statistics and cached for up to 60 seconds per API instance. A profile edit invalidates that instance's cache; updates on other instances appear after their caches expire. Public image requests serve only the current ranked members' uploaded photos from the configured `OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT` and `OP_PARTICIPATION_AZURE_CONTAINER`, without exposing storage paths that contain account identifiers. Browsers may cache photos for 60 seconds; monthly and annual entries reuse the same image where possible. The API identity needs blob-read access. Missing, inaccessible or externally hosted profile images use the generic avatar; this endpoint does not fetch arbitrary external URLs.
+
 Admins can configure up to 32 virtual courts, each with a name and a Novice, Intermediate, or High Intermediate category. When no name is entered, a numbered name such as `Court 1` is used; existing unnamed courts also receive numbered names. New matches require an available court; occupied courts cannot be removed, recategorized, or double-booked until their match ends or is canceled. The category labels the court and does not restrict player selection. Completed matches retain their court name, number and category even if the court is later changed or removed; older matches remain unassigned, though ongoing matches can be assigned to an available court. Court configuration is saved with the shared roster using **Save changes**.
 
 ## Balance staff and email reminders
@@ -162,7 +170,9 @@ The same admin page includes **All redemptions**, with the member's name/email a
 
 Existing rewards with one `MerchantEmail` continue working. Recipient lists remain strings in Azure Table Storage: `MerchantEmail` holds the normalized To list, with `MerchantCc` and `MerchantBcc` added on save and copied into new redemption snapshots. Missing copy fields on older rewards/redemptions mean no copies; no migration is required. Merchant recipient fields, including BCC, are available only in admin catalog/history responses, not member catalog/history responses.
 
-The list reads all member partitions in `MemberPoints` using bounded pages of up to 50 records. Use **Load more redemptions** to continue, and **Refresh redemptions** to restart. Azure orders these records by member partition, then newest redemption within that member; this is **not** a global newest-first feed. Cross-partition filtering can scan nonmatching entities and return an empty page with a continuation token; continue loading when offered. No new table/index or migration is required. Only admins can access this cross-member view; balance staff and regular members cannot.
+The admin list reads all member partitions in `MemberPoints` using bounded pages of up to 50 records. Use **Load more redemptions** to continue, and **Refresh redemptions** to restart. Azure orders these records by member partition, then newest redemption within that member; this is **not** a global newest-first feed. Cross-partition filtering can scan nonmatching entities and return an empty page with a continuation token; continue loading when offered. Only admins can access this detailed view.
+
+Admins and balance staff can open **Member Home → Reward redemptions** (`/redemptions`) to track collections. The inclusive purchase-date range defaults to today in Philippine time; choose all, used, or unused and submit the filters. The page reads all matching storage pages before displaying them newest first, so broad date ranges can take longer. Staff can mark a redemption as used; the recorded staff member and time are retained, and this action does not affect tokens or email delivery. Existing redemptions without a used flag are unused. The tracking view does not expose merchant recipient addresses. No migration or additional table is required.
 
 ### Redemption emails and recovery
 
@@ -185,6 +195,11 @@ Member-session APIs (the member ID always comes from the session):
 - `POST /my-rewards/redemptions/:transactionId/email` accepts `{ confirmResend: true }` to explicitly retry incomplete notifications, even after Gold expiry.
 - `GET /store` lists enabled catalog entries without exposing merchant addresses.
 
+Admin and balance-staff APIs:
+
+- `GET /redemptions?from=YYYY-MM-DD&to=YYYY-MM-DD&status=all|used|unused&continuation=...` returns filtered `{ records, continuationToken }` pages; dates are inclusive Philippine-time purchase dates. Continue even when a page is empty if it has a continuation token.
+- `POST /redemptions/:memberId/:transactionId/used` marks a redemption used, recording the staff member and time. Repeating the request is safe.
+
 Admin-session APIs:
 
 - `GET /admin/redemptions?continuation=...` returns `{ records, continuationToken }` across all members, including original merchant/member details and notification states.
@@ -194,6 +209,32 @@ Admin-session APIs:
 - `POST /admin/store-images` uploads multipart field `image` and returns `{ imageUrl }`.
 
 ## Gold (paid) memberships
+
+### Member applications
+
+Signed-in members can open **Member Home → Gold membership** (`/gold-membership`) to read the benefits and rate PDF, upload a payment receipt or select **Paid at arena counter**, and track their application. Counter payments require no receipt upload; the chosen payment method is shown to admins, who must verify payment before approving. Members without active Gold membership, including expired members, can apply. Signup is enabled after an admin uploads the PDF. Receipts accept PDF, JPEG, PNG or WebP files up to **10 MB**. Only one pending application is allowed per member, and a request ID prevents duplicate submissions after an interrupted request.
+
+Admins can open **Admin → Gold membership applications** (`/gold-membership-applications`) to upload/replace the benefits and rate PDF, list applications (Pending by default, with Approved, Declined and All filters), view receipts or identify counter payments, and approve or decline applications. Approval grants **one calendar year from the approval date**, using the existing inclusive UTC expiry rule and leap-day handling. Declines require a reason visible to the applicant; a declined or expired member can apply again using either payment method. Balance staff and other members cannot administer applications or view someone else's receipt.
+
+The latest application is saved in the existing member entity's `GoldMembershipApplication` field. Approval updates this field and `GoldMembershipExpiresOn` together in one ETag-guarded merge, so a concurrent review cannot double-approve, undo a decision, or overwrite a newer membership change. Each application records submission/review dates and the reviewing admin ID. Reapplication replaces the previous application in the list; this is not a full historical application ledger. Existing manual membership controls remain available. This flow does not send emails.
+
+Create a **private** blob container in `OP_PARTICIPATION_AZURE_STORAGE_ACCOUNT`, and set `GOLD_MEMBERSHIP_AZURE_CONTAINER` (default **`spaprivate`**, which may reuse the existing private tournament-ID container). It must not be the shared `OP_PARTICIPATION_AZURE_CONTAINER` and must not allow anonymous blob or container reads. Grant the API identity **Storage Blob Data Contributor** access. Receipts and PDFs are uploaded under `gold-membership/` and served through authenticated, non-cacheable endpoints; no blob URLs, SAS tokens or browser storage credentials are exposed. The service refuses uploads and downloads if the container is public. Replaced PDFs, earlier receipts and uploads left after failed writes are retained privately rather than automatically deleted.
+
+The current PDF reference uses the `gold-membership-settings` partition in the existing members table. No new table or member migration is required; the API identity needs the existing **Storage Table Data Contributor** permission.
+
+Authenticated endpoints:
+- `GET /gold-membership`: own application, active membership and document availability.
+- `POST /gold-membership/applications`: multipart `requestId` (UUID), `paymentMethod` (`receipt` or `arena-counter`), and `receipt` (required only for `receipt`; do not attach a file for `arena-counter`). Omitting `paymentMethod` defaults to `receipt` for existing clients; stored applications without this field remain receipt-based.
+- `GET /gold-membership/document`: benefits and rate PDF.
+- `GET /gold-membership/applications/:memberId/:applicationId/receipt`: applicant/admin receipt access.
+
+Admin-only endpoints:
+- `PUT /gold-membership/document`: multipart `document` PDF, up to 10 MB.
+- `GET /gold-membership/applications?status=Pending`: latest applications; also accepts `Approved`, `Declined` or `all`.
+- `PATCH /gold-membership/applications/:memberId/:applicationId/approve`: approve once.
+- `PATCH /gold-membership/applications/:memberId/:applicationId/decline`: `{ "reason": "..." }`, up to 1,000 characters.
+
+### Manual membership management
 
 Admins can open a member from **Members / Club directory** and use **Gold membership** on their profile to grant, renew, or remove paid membership. This is separate from account roles and does not grant administrator or staff permissions.
 

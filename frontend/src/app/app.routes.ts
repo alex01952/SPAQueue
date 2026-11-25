@@ -54,6 +54,19 @@ export const routes: Routes = [
     title: 'Manage Member Roles',
   },
   {
+    path: 'gold-membership',
+    loadComponent: () => import('./gold-membership/gold-membership-page.component').then((module) => module.GoldMembershipPageComponent),
+    canActivate: [memberAuthGuard],
+    title: 'Gold Membership',
+  },
+  {
+    path: 'gold-membership-applications',
+    loadComponent: () => import('./gold-membership/gold-membership-page.component').then((module) => module.GoldMembershipPageComponent),
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin'], adminApplications: true, breadcrumbParent: { label: 'Admin', route: '/admin' } },
+    title: 'Gold Membership Applications',
+  },
+  {
     path: 'my-rewards',
     loadComponent: () => import('./rewards/my-rewards-page.component').then((module) => module.MyRewardsPageComponent),
     canActivate: [memberAuthGuard],
@@ -65,6 +78,13 @@ export const routes: Routes = [
     canActivate: [memberAuthGuard, memberRoleGuard],
     data: { allowedRoles: ['admin'], breadcrumbParent: { label: 'Admin', route: '/admin' } },
     title: 'Rewards Store Administration',
+  },
+  {
+    path: 'redemptions',
+    loadComponent: () => import('./rewards/redemptions-page.component').then((module) => module.RedemptionsPageComponent),
+    canActivate: [memberAuthGuard, memberRoleGuard],
+    data: { allowedRoles: ['admin', 'balance-staff'] },
+    title: 'Reward Redemptions',
   },
   {
     path: 'member-points',
@@ -90,6 +110,11 @@ export const routes: Routes = [
     loadComponent: () => import('./open-play/open-play-board-page.component').then((module) => module.OpenPlayBoardPageComponent),
     canActivate: [memberAuthGuard],
     title: 'Open Play Board',
+  },
+  {
+    path: 'open-play-leaderboard',
+    loadComponent: () => import('./open-play/open-play-leaderboard.component').then((module) => module.OpenPlayLeaderboardPageComponent),
+    title: 'Open Play Leaderboard',
   },
   {
     path: 'masters-of-the-arena',

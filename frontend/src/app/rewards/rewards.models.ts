@@ -61,3 +61,18 @@ export interface AdminRedemptionHistory {
   records: AdminRedemption[];
   continuationToken: string | null;
 }
+
+export interface StaffRedemption extends RewardRecord {
+  transactionId: string;
+  memberId: string;
+  memberName: string;
+  memberEmail: string;
+  used: boolean;
+  usedAt: string;
+  usedByName: string;
+}
+
+export interface StaffRedemptionHistory {
+  records: StaffRedemption[];
+  continuationToken: string | null;
+}

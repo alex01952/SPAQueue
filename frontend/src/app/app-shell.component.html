@@ -1,5 +1,5 @@
 <div class="app-shell">
-  @if (!isEmbeddedProfile()) {
+  @if (!isEmbeddedProfile() && !isLandingPage()) {
     <header class="global-brand">
       <a routerLink="/" aria-label="Sorsogon Pickleball Club home">
         <img [src]="logoUrl" alt="Sorsogon Pickleball Club logo" />

@@ -78,6 +78,8 @@ describe('HomePageComponent', () => {
       'Open Play board',
       'My balances',
       'My points & rewards',
+      'Open Play leaderboard',
+      'Gold membership',
       'Logout',
     ]);
     expect(routes).toEqual([
@@ -90,6 +92,8 @@ describe('HomePageComponent', () => {
       '/open-play-board',
       '/my-balances',
       '/my-rewards',
+      '/open-play-leaderboard',
+      '/gold-membership',
     ]);
   });
 
@@ -103,6 +107,7 @@ describe('HomePageComponent', () => {
     expect(links.find((link) => link.getAttribute('href') === '/admin')?.textContent).toContain('Admin');
     expect(hrefs).toContain('/member-points');
     expect(hrefs).toContain('/member-balances');
+    expect(hrefs).toContain('/redemptions');
     for (const route of [
       '/store-admin', '/email-announcements', '/queue-dashboard',
       '/open-play-participation/upload', '/member-registration-approvals',
@@ -112,7 +117,7 @@ describe('HomePageComponent', () => {
     }
     expect(Array.from(compiled.querySelectorAll('.menu-index')).map(
       (item) => item.textContent?.trim(),
-    )).toEqual(Array.from({ length: 13 }, (_, index) => String(index + 1).padStart(2, '0')));
+    )).toEqual(Array.from({ length: 16 }, (_, index) => String(index + 1).padStart(2, '0')));
   });
 
   it.each(['member', 'club-owner', 'balance-staff'] as const)(
@@ -126,6 +131,7 @@ describe('HomePageComponent', () => {
       expect(!!compiled.querySelector('a[href="/open-play-import-presets"]')).toBe(role === 'balance-staff');
       expect(!!compiled.querySelector('a[href="/member-points"]')).toBe(role === 'balance-staff');
       expect(!!compiled.querySelector('a[href="/member-balances"]')).toBe(role === 'balance-staff');
+      expect(!!compiled.querySelector('a[href="/redemptions"]')).toBe(role === 'balance-staff');
     },
   );
 

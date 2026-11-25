@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Header, Headers, HttpCode, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Headers, HttpCode, Param, Post, Put, StreamableFile } from '@nestjs/common';
 import { OpenPlayService } from './open-play.service';
 
 @Controller('open-play')
@@ -44,6 +44,20 @@ export class OpenPlayController {
   @Header('Cache-Control', 'private, no-store')
   getBoard(@Headers('cookie') cookie = '') {
     return this.openPlay.getBoard(this.token(cookie));
+  }
+
+  @Get('leaderboard')
+  @Header('Cache-Control', 'no-store')
+  getLeaderboard() {
+    return this.openPlay.getLeaderboard();
+  }
+
+  @Get('leaderboard/images/:period/:rank/:imageKey')
+  @Header('Cache-Control', 'private, max-age=60')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async getLeaderboardImage(@Param('period') period: string, @Param('rank') rank: string, @Param('imageKey') imageKey: string) {
+    const image = await this.openPlay.getLeaderboardImage(period, rank, imageKey);
+    return new StreamableFile(image.buffer, { type: image.contentType });
   }
 
   @Put('board-state')

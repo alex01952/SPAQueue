@@ -10,6 +10,11 @@ import { RouterLink } from '@angular/router';
 export class AdminPageComponent {
   protected readonly menuItems = [
     {
+      label: 'Gold membership applications',
+      description: 'Manage the benefits and rate document, review receipts, and approve Gold membership.',
+      route: '/gold-membership-applications',
+    },
+    {
       label: 'Member contacts',
       description: 'Search and export member contact details.',
       route: '/member-contacts',

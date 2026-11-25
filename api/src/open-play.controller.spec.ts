@@ -7,7 +7,7 @@ import { corsOptions } from './cors.config';
 
 describe('Open Play draft endpoints', () => {
   let app: INestApplication;
-  const service = { getDraft: jest.fn(), getBoard: jest.fn(), publishBoardState: jest.fn(), startSession: jest.fn(), endSession: jest.fn(), saveAwardDecision: jest.fn(), recordAwardProgress: jest.fn(), completeAwardReview: jest.fn(), archiveSession: jest.fn(), saveDraft: jest.fn(), getMembers: jest.fn() };
+  const service = { getDraft: jest.fn(), getBoard: jest.fn(), getLeaderboard: jest.fn(), getLeaderboardImage: jest.fn(), publishBoardState: jest.fn(), startSession: jest.fn(), endSession: jest.fn(), saveAwardDecision: jest.fn(), recordAwardProgress: jest.fn(), completeAwardReview: jest.fn(), archiveSession: jest.fn(), saveDraft: jest.fn(), getMembers: jest.fn() };
 
   beforeEach(async () => {
     const module = await Test.createTestingModule({
@@ -83,6 +83,23 @@ describe('Open Play draft endpoints', () => {
     await request(app.getHttpServer()).get('/open-play/members').set('Cookie', 'spaqueue_member_session=token')
       .expect('Cache-Control', 'private, no-store').expect(200, []);
     expect(service.getMembers).toHaveBeenCalledWith('token');
+  });
+
+  it('serves the leaderboard without a member session', async () => {
+    const leaderboard = { month: '2026-11', year: '2026', monthly: [], annual: [] };
+    service.getLeaderboard.mockResolvedValue(leaderboard);
+    await request(app.getHttpServer()).get('/open-play/leaderboard')
+      .expect('Cache-Control', 'no-store').expect(200, leaderboard);
+    expect(service.getLeaderboard).toHaveBeenCalledWith();
+  });
+
+  it('serves a leaderboard image without exposing its storage location', async () => {
+    service.getLeaderboardImage.mockResolvedValue({ buffer: Buffer.from('image'), contentType: 'image/png' });
+    const response = await request(app.getHttpServer()).get('/open-play/leaderboard/images/monthly/1/photo.png')
+      .expect('Cache-Control', 'private, max-age=60').expect('X-Content-Type-Options', 'nosniff')
+      .expect('Content-Type', 'image/png').expect(200);
+    expect(response.body).toEqual(Buffer.from('image'));
+    expect(service.getLeaderboardImage).toHaveBeenCalledWith('monthly', '1', 'photo.png');
   });
 
   it('returns authorization failures', async () => {

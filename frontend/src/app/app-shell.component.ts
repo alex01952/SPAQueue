@@ -35,6 +35,7 @@ export class AppShellComponent {
     route: string;
   } | null>(null);
   private readonly currentRoutePath = signal('');
+  protected readonly isLandingPage = computed(() => this.currentRoutePath() === '/');
   protected readonly showBreadcrumbs = computed(
     () =>
       !this.isEmbeddedProfile() &&

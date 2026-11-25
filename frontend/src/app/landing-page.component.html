@@ -1,18 +1,21 @@
+<header class="landing-header">
+  <a class="landing-brand" routerLink="/" aria-label="Sorsogon Pickleball Club home">
+    <img [src]="logoUrl" alt="" />
+    <span>Sorsogon<br />Pickleball Club</span>
+  </a>
+  <nav class="header-actions" aria-label="Member access">
+    <a class="join-link" routerLink="/register">Join the club</a>
+    <a class="primary-action" routerLink="/login">Member sign in <span aria-hidden="true">&rarr;</span></a>
+  </nav>
+</header>
 <main class="landing-page">
-  <section class="landing-hero">
-    <div class="hero-copy">
-      <p class="eyebrow">Sorsogon Pickleball Club</p>
-      <h1>Find your game. Find your people. Improve together.</h1>
-      <p class="hero-lede">A community platform for better games, stronger partnerships, and a more connected pickleball life.</p>
-      <div class="hero-actions">
-        <a class="primary-action" routerLink="/login">Member sign in <span aria-hidden="true">&rarr;</span></a>
-        <a class="secondary-action" routerLink="/register">Join the club</a>
-      </div>
+  <section class="leaderboard-feature">
+    <div class="feature-intro">
+      <p class="eyebrow">The court is yours. The recognition is earned.</p>
+      <h1>Earn your place.<br /><span>Celebrate your game.</span></h1>
+      <p>Every win tells a story. Meet the players making their mark at the Arena.</p>
     </div>
-    <div class="hero-mark" aria-hidden="true">
-      <img [src]="logoUrl" alt="" />
-      <span>Play more.<br />Connect more.</span>
-    </div>
+    <app-open-play-leaderboard />
   </section>
 
   <section class="vision-section content-section">

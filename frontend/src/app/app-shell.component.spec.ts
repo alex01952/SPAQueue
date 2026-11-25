@@ -12,6 +12,7 @@ describe('AppShellComponent breadcrumbs', () => {
       imports: [AppShellComponent],
       providers: [
         provideRouter([
+          { path: '', component: EmptyPageComponent, title: 'Sorsogon Pickleball Club' },
           { path: 'home', component: EmptyPageComponent, title: 'Member Home' },
           { path: 'members', component: EmptyPageComponent, title: 'Members' },
           {
@@ -28,9 +29,14 @@ describe('AppShellComponent breadcrumbs', () => {
     const fixture = TestBed.createComponent(AppShellComponent);
     const router = TestBed.inject(Router);
 
+    await router.navigateByUrl('/');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.global-brand')).toBeNull();
+
     await router.navigateByUrl('/home');
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.breadcrumbs')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.global-brand')).not.toBeNull();
 
     await router.navigateByUrl('/members');
     fixture.detectChanges();

@@ -1,6 +1,8 @@
-import { BadGatewayException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AppService } from './app.service';
-import { OpenPlayService } from './open-play.service';
+import { OpenPlayService, type OpenPlayMatch } from './open-play.service';
+import type { TransactionAction } from '@azure/data-tables';
+import { createHash } from 'node:crypto';
 
 describe('Open Play draft storage', () => {
   const player = { id: 'player-1', name: 'Jenn', category: 'Novice', memberId: 'member-1' };
@@ -8,6 +10,7 @@ describe('Open Play draft storage', () => {
   let role: string;
   let row: Record<string, unknown> | undefined;
   let version: number;
+  let leaderboardMembers: Map<string, { reClubId: string; profileImageId: string }>;
   const historyRows = new Map<string, Record<string, unknown>>();
   const presetRows = new Map<string, { partitionKey: string; rowKey: string; reClubName: string; category: string; gender: string }>();
   const missing = () => Object.assign(new Error('Missing entity'), { statusCode: 404, code: 'ResourceNotFound' });
@@ -30,12 +33,35 @@ describe('Open Play draft storage', () => {
       if (!entity) throw missing();
       return { ...entity };
     }),
+    upsertEntity: jest.fn(async (entity: Record<string, unknown>) => {
+      historyRows.set(`${entity.partitionKey}|${entity.rowKey}`, { ...entity, etag: String(++version) });
+    }),
+    listEntities: jest.fn(() => ({
+      [Symbol.asyncIterator]: async function* () {
+        for (const entity of historyRows.values()) {
+          if (entity.partitionKey === 'sessions' && /^[0-9a-f]/.test(String(entity.rowKey))) yield { ...entity };
+        }
+      },
+    })),
+    submitTransaction: jest.fn(async (actions: TransactionAction[]) => {
+      for (const action of actions) {
+        const entity = action[1];
+        const existing = historyRows.get(`${entity.partitionKey}|${entity.rowKey}`);
+        if (action[0] === 'create' && existing) throw Object.assign(new Error('Exists'), { statusCode: 409 });
+        if (action[0] === 'update' && existing?.etag !== action[3]?.etag) throw Object.assign(new Error('Changed'), { statusCode: 412 });
+      }
+      for (const action of actions) {
+        const entity = action[1];
+        historyRows.set(`${entity.partitionKey}|${entity.rowKey}`, { ...entity, etag: String(++version) });
+      }
+    }),
   };
 
   beforeEach(() => {
     role = 'admin';
     row = undefined;
     version = 0;
+    leaderboardMembers = new Map();
     historyRows.clear();
     presetRows.clear();
     table.listEntities.mockImplementation(() => ({
@@ -47,6 +73,11 @@ describe('Open Play draft storage', () => {
       getMemberSession: jest.fn(async () => ({ member: { memberId: 'admin-1', role } })),
       getOpenPlayBoardMembers: jest.fn(async () => ({})),
       getOpenPlayGoldMembershipExpiries: jest.fn(async (_token: string, ids: string[]) => Object.fromEntries(ids.map((id) => [id, null]))),
+      getOpenPlayLeaderboardMembers: jest.fn(async (ids: string[]) => new Map(ids.flatMap((id) => {
+        const profile = leaderboardMembers.get(id);
+        return profile ? [[id, profile] as const] : [];
+      }))),
+      getOpenPlayLeaderboardImage: jest.fn(async () => ({ buffer: Buffer.from('photo'), contentType: 'image/jpeg' })),
     } as unknown as AppService;
     service = new OpenPlayService(app);
     jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
@@ -63,7 +94,7 @@ describe('Open Play draft storage', () => {
     });
   });
 
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => { jest.clearAllMocks(); jest.useRealTimers(); });
 
   it('lets admins and balance staff share one persistent preset per normalized Reclub name', async () => {
     const saved = await service.saveImportPreset('admin-session', { reClubName: '  Ｐlayer   One ', category: 'Novice', gender: 'Female' });
@@ -474,6 +505,9 @@ describe('Open Play draft storage', () => {
     const ended = await service.endSession('session', { revision: afterMatch.revision });
     const skipped = await service.saveAwardDecision('session', { sessionId: ended.session!.id, selectedAwardIds: [], skip: true });
 
+    await service.getLeaderboard();
+    expect(historyTable.listEntities).toHaveBeenCalledTimes(1);
+    historyTable.submitTransaction.mockRejectedValueOnce(Object.assign(new Error('Version race'), { statusCode: 409 }));
     const archived = await service.archiveSession('session', { sessionId: skipped.session!.id, revision: skipped.revision });
     const history = historyRows.get(`sessions|${skipped.session!.id}`)!;
     expect(history.SessionId).toBe(skipped.session!.id);
@@ -481,7 +515,133 @@ describe('Open Play draft storage', () => {
     expect(JSON.parse(String(history.TopFive)).map((entry: { name: string }) => entry.name)).toEqual(expect.arrayContaining(['Player 0', 'Player 1']));
     expect(archived).toMatchObject({ players: [], matches: [], queue: [], winnersQueue: [], session: null, courts: [{ number: 1, name: 'Court 1', category: 'Novice' }] });
     expect(await service.archiveSession('session', { sessionId: skipped.session!.id, revision: skipped.revision })).toEqual(archived);
-    expect(historyRows.size).toBe(1);
+    await service.getLeaderboard();
+    await service.getLeaderboard();
+    expect(historyTable.listEntities).toHaveBeenCalledTimes(2);
+    expect(historyRows.size).toBe(3);
+    expect(historyTable.submitTransaction).toHaveBeenCalledTimes(2);
+    expect(historyTable.submitTransaction).toHaveBeenLastCalledWith([
+      ['create', expect.objectContaining({ rowKey: skipped.session!.id })],
+      ['create', expect.objectContaining({ rowKey: '~leaderboard-version', Version: expect.any(String) })],
+    ]);
+  });
+
+  it('ranks archived matches with winners by member and Philippine completion date with a 15-game minimum', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-11-25T02:00:00Z'));
+    const makeMatches = (name: string, memberId: string, date: string, count: number, scored = true) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `match-${index}`, teams: [
+          [{ id: 'one', name, memberId }, { id: 'two', name: 'Guest', memberId: null }],
+          [{ id: 'three', name: 'Guest 2', memberId: null }, { id: 'four', name: 'Guest 3', memberId: null }],
+        ],
+        status: 'completed', winner: 1, score: scored ? { team1: 11, team2: 5 } : null,
+        startedAt: date, completedAt: date, court: null,
+      }));
+    const putArchive = (id: string, matches: unknown[]) => {
+      const json = JSON.stringify(matches);
+      const mid = Math.floor(json.length / 2);
+      historyRows.set(`sessions|${id}`, {
+        partitionKey: 'sessions', rowKey: id, MatchPartCount: 2,
+        MatchPart0: json.slice(0, mid), MatchPart1: json.slice(mid),
+      });
+    };
+    for (let index = 0; index < 21; index++) {
+      putArchive(`a${index}`, makeMatches(`Player ${String(index).padStart(2, '0')}`, `member-${index}`, '2026-10-31T16:00:00.000Z', 15));
+      leaderboardMembers.set(`member-${index}`, {
+        reClubId: `Reclub ${String(index).padStart(2, '0')}`,
+        profileImageId: index === 0 ? '00000000-0000-4000-8000-000000000001.jpg' : '',
+      });
+    }
+    leaderboardMembers.set('annual', { reClubId: 'Annual Ace', profileImageId: '' });
+    putArchive('b1', [
+      ...makeMatches('Annual only', 'annual', '2026-11-10T00:00:00.000Z', 14),
+      ...makeMatches('Annual only', 'annual', '2026-10-31T15:59:59.000Z', 1).map((match) => ({ ...match, id: 'october' })),
+      ...makeMatches('Annual only', 'annual', '2026-11-11T00:00:00.000Z', 1, false).map((match) => ({ ...match, id: 'no-result', winner: null })),
+    ]);
+    putArchive('c1', makeMatches('Last year', 'last-year', '2025-12-31T15:59:59.000Z', 15));
+    const result = await service.getLeaderboard();
+    expect(result.month).toBe('2026-11');
+    expect(result.year).toBe('2026');
+    expect(result.monthly).toHaveLength(20);
+    const imageId = '00000000-0000-4000-8000-000000000001.jpg';
+    const imageKey = createHash('sha256').update(imageId).digest('hex');
+    expect(result.monthly[0]).toEqual({
+      name: 'Reclub 00', profileImageUrl: `/open-play/leaderboard/images/monthly/1/${imageKey}`,
+      wins: 15, losses: 0, games: 15, percent: 100,
+    });
+    expect(result.monthly.some((entry) => entry.name === 'Annual Ace')).toBe(false);
+    expect(result.annual).toHaveLength(20);
+    expect(result.annual[0]).toMatchObject({ name: 'Annual Ace', games: 15 });
+    expect(result.annual.find((entry) => entry.name === 'Reclub 00')?.profileImageUrl).toBe(result.monthly[0].profileImageUrl);
+    expect(JSON.stringify(result)).not.toContain('member-');
+    expect(JSON.stringify(result)).not.toContain(imageId);
+    expect(JSON.stringify(result)).not.toContain('Player 00');
+    expect(JSON.stringify(result)).not.toContain('Guest');
+    expect(await service.getLeaderboardImage('monthly', '1', imageKey)).toEqual({ buffer: Buffer.from('photo'), contentType: 'image/jpeg' });
+    expect(service['app'].getOpenPlayLeaderboardImage).toHaveBeenCalledWith('member-0', imageId);
+    await expect(service.getLeaderboardImage('monthly', '0', imageKey)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getLeaderboardImage('annual', '1', imageKey)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getLeaderboardImage('monthly', '1', 'f'.repeat(64))).rejects.toBeInstanceOf(NotFoundException);
+    expect(service['app'].getOpenPlayLeaderboardImage).toHaveBeenCalledTimes(1);
+    leaderboardMembers.set('member-0', { reClubId: 'Updated Reclub', profileImageId: imageId });
+    expect((await service.getLeaderboard()).monthly[0].name).toBe('Updated Reclub');
+    expect(historyTable.listEntities).toHaveBeenCalledTimes(1);
+  });
+
+  it('rebuilds if an archive is committed while scanning and reports invalid history', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-11-25T02:00:00Z'));
+    historyTable.listEntities.mockImplementationOnce(() => ({
+      [Symbol.asyncIterator]: async function* () {
+        historyRows.set('sessions|~leaderboard-version', { Version: 'new-version', etag: '2' });
+        yield* [];
+      },
+    }));
+    await service.getLeaderboard();
+    expect(historyTable.listEntities).toHaveBeenCalledTimes(2);
+    expect(historyRows.get('sessions|~leaderboard-cache:2026-11')?.Version).toBe('new-version');
+    historyRows.set('sessions|~leaderboard-version', { Version: 'newer-version', etag: '3' });
+    historyRows.set('sessions|bad', { partitionKey: 'sessions', rowKey: 'bad', MatchPartCount: 2, MatchPart0: '[]' });
+    await expect(service.getLeaderboard()).rejects.toBeInstanceOf(BadGatewayException);
+  });
+
+  it('counts winners without scores, excludes missing winners, and replaces caches from the old rules', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-11-25T02:00:00Z'));
+    const memberId = Buffer.from('private@example.com').toString('base64url');
+    const matches = (count: number, name: string, won: boolean, date: string): OpenPlayMatch[] =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `match-${index}`, teams: [
+          [{ id: 'one', name, memberId }, { id: 'two', name: 'Guest', memberId: null }],
+          [{ id: 'three', name: 'Guest 2', memberId: null }, { id: 'four', name: 'Guest 3', memberId: null }],
+        ],
+        status: 'completed', winner: won ? 1 : 2,
+        score: null,
+        startedAt: date, completedAt: date, court: null,
+      }));
+    const first = matches(10, 'Old name', true, '2026-11-01T10:00:00.000Z');
+    const second = matches(5, 'New name', false, '2026-11-02T10:00:00.000Z');
+    second.push({ ...second[0], id: 'no-result', winner: null });
+    for (const [id, games] of [['a1', first], ['a2', second]] as const) {
+      historyRows.set(`sessions|${id}`, { partitionKey: 'sessions', rowKey: id, MatchPartCount: 1, MatchPart0: JSON.stringify(games) });
+    }
+    historyRows.set('sessions|~leaderboard-cache:2026-11', {
+      partitionKey: 'sessions', rowKey: '~leaderboard-cache:2026-11', Version: '',
+      RulesVersion: 2, Result: JSON.stringify({ month: '2026-11', year: '2026', monthly: [], annual: [] }),
+    });
+    leaderboardMembers.set(memberId, { reClubId: 'Reclub Ace', profileImageId: '' });
+    const leaderboard = await service.getLeaderboard();
+    expect(leaderboard.monthly).toEqual([{ name: 'Reclub Ace', profileImageUrl: '', wins: 10, losses: 5, games: 15, percent: 10 * 100 / 15 }]);
+    expect(leaderboard.annual).toEqual(leaderboard.monthly);
+    leaderboardMembers.set(memberId, { reClubId: '', profileImageId: '' });
+    expect((await service.getLeaderboard()).monthly[0].name).toBe('Reclub name not set');
+    leaderboardMembers.delete(memberId);
+    const missing = await service.getLeaderboard();
+    expect(missing.monthly[0].name).toBe('Member unavailable');
+    expect(JSON.stringify(missing)).not.toContain('New name');
+    expect(JSON.stringify(missing)).not.toContain(memberId);
+    expect(JSON.stringify(missing)).not.toContain('private@example.com');
+    expect(historyTable.listEntities).toHaveBeenCalledTimes(1);
+    jest.spyOn(service['app'], 'getOpenPlayLeaderboardMembers').mockRejectedValueOnce(new Error('Member storage unavailable'));
+    await expect(service.getLeaderboard()).rejects.toBeInstanceOf(BadGatewayException);
   });
 
   it('rejects non-admin access and reports missing tables as failures', async () => {

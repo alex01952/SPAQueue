@@ -1,9 +1,10 @@
-import { BadGatewayException, BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DefaultAzureCredential } from '@azure/identity';
-import { TableClient } from '@azure/data-tables';
+import { TableClient, type TransactionAction } from '@azure/data-tables';
 import { createHash, randomUUID } from 'node:crypto';
 import { AppService } from './app.service';
 import { isMissingTableEntity } from './azure-table-errors';
+import { isGoldMembershipActive as hasActiveGoldMembership } from './gold-membership';
 
 export interface OpenPlayPlayer {
   id: string;
@@ -22,6 +23,9 @@ export interface OpenPlayImportPreset {
 }
 const importPresetPartition = 'import-presets';
 const minimumTopFiveGames = 3;
+const leaderboardMinimumGames = 15;
+const leaderboardRulesVersion = 3;
+const leaderboardVersionKey = '~leaderboard-version';
 
 export interface OpenPlayMatchPlayer { id: string; name: string; memberId: string | null; }
 export interface OpenPlayCourt { number: number; name: string; category: OpenPlayPlayer['category']; }
@@ -109,10 +113,35 @@ export interface OpenPlayHistoryRecord {
   awardReview: OpenPlayAwardReview;
 }
 
-function hasActiveGoldMembership(expiresOn: string | null, now = Date.now()) {
-  if (!expiresOn || !/^\d{4}-\d{2}-\d{2}$/.test(expiresOn)) return false;
-  const expiry = new Date(`${expiresOn}T00:00:00Z`);
-  return Number.isFinite(expiry.getTime()) && expiry.toISOString().slice(0, 10) === expiresOn && now < expiry.getTime() + 86_400_000;
+interface LeaderboardEntry {
+  name: string;
+  profileImageUrl: string;
+  wins: number;
+  losses: number;
+  games: number;
+  percent: number;
+}
+
+interface LeaderboardStatsEntry {
+  memberId: string;
+  wins: number;
+  losses: number;
+  games: number;
+  percent: number;
+}
+
+interface LeaderboardSnapshot {
+  month: string;
+  year: string;
+  monthly: LeaderboardStatsEntry[];
+  annual: LeaderboardStatsEntry[];
+}
+
+export interface Leaderboard {
+  month: string;
+  year: string;
+  monthly: LeaderboardEntry[];
+  annual: LeaderboardEntry[];
 }
 
 @Injectable()
@@ -120,6 +149,8 @@ export class OpenPlayService {
   private readonly logger = new Logger(OpenPlayService.name);
   private table?: TableClient;
   private historyTable?: TableClient;
+  private leaderboardRequest?: Promise<Leaderboard>;
+  private leaderboardSnapshotRequest?: Promise<LeaderboardSnapshot>;
 
   constructor(private readonly app: AppService) {}
 
@@ -159,6 +190,153 @@ export class OpenPlayService {
 
   getMembers(token: string) {
     return this.app.getOpenPlayMembers(token);
+  }
+
+  private async leaderboardVersion() {
+    try {
+      return await this.getHistoryTable().getEntity<Record<string, unknown>>('sessions', leaderboardVersionKey);
+    } catch (error) {
+      if (isMissingTableEntity(error)) return null;
+      throw error;
+    }
+  }
+
+  async getLeaderboard(): Promise<Leaderboard> {
+    if (!this.leaderboardRequest) {
+      this.leaderboardRequest = this.loadLeaderboard().finally(() => { this.leaderboardRequest = undefined; });
+    }
+    return this.leaderboardRequest;
+  }
+
+  private async loadLeaderboard(): Promise<Leaderboard> {
+    try {
+      const snapshot = await this.getLeaderboardSnapshot();
+      const memberIds = [...new Set([...snapshot.monthly, ...snapshot.annual].map((entry) => entry.memberId))];
+      const profiles = await this.app.getOpenPlayLeaderboardMembers(memberIds);
+      const imageUrls = new Map<string, string>();
+      const publicEntries = (entries: LeaderboardStatsEntry[], period: 'monthly' | 'annual'): LeaderboardEntry[] =>
+        entries.map(({ memberId, wins, losses, games, percent }, index) => {
+          const profile = profiles.get(memberId);
+          let profileImageUrl = imageUrls.get(memberId) ?? '';
+          if (!profileImageUrl && profile?.profileImageId) {
+            const imageKey = createHash('sha256').update(profile.profileImageId).digest('hex');
+            profileImageUrl = `/open-play/leaderboard/images/${period}/${index + 1}/${imageKey}`;
+            imageUrls.set(memberId, profileImageUrl);
+          }
+          return {
+            name: profile ? profile.reClubId || 'Reclub name not set' : 'Member unavailable',
+            profileImageUrl,
+            wins, losses, games, percent,
+          };
+        });
+      return {
+        month: snapshot.month,
+        year: snapshot.year,
+        monthly: publicEntries(snapshot.monthly, 'monthly'),
+        annual: publicEntries(snapshot.annual, 'annual'),
+      };
+    } catch (error) {
+      this.logger.error('Unable to load Open Play leaderboard.', error);
+      throw new BadGatewayException('Unable to load the Open Play leaderboard.');
+    }
+  }
+
+  async getLeaderboardImage(period: string, rank: string, imageKey: string): Promise<{ buffer: Buffer; contentType: string }> {
+    if ((period !== 'monthly' && period !== 'annual') || !/^(?:[1-9]|1[0-9]|20)$/.test(rank) || !/^[a-f0-9]{64}$/.test(imageKey)) {
+      throw new NotFoundException('Leaderboard profile image was not found.');
+    }
+    try {
+      const snapshot = await this.getLeaderboardSnapshot();
+      const entry = snapshot[period][Number(rank) - 1];
+      if (!entry) throw new NotFoundException('Leaderboard profile image was not found.');
+      const profiles = await this.app.getOpenPlayLeaderboardMembers([entry.memberId]);
+      const imageId = profiles.get(entry.memberId)?.profileImageId;
+      if (!imageId || createHash('sha256').update(imageId).digest('hex') !== imageKey) {
+        throw new NotFoundException('Leaderboard profile image was not found.');
+      }
+      return await this.app.getOpenPlayLeaderboardImage(entry.memberId, imageId);
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error('Unable to load Open Play leaderboard image.', error);
+      throw new BadGatewayException('Unable to load the leaderboard profile image.');
+    }
+  }
+
+  private getLeaderboardSnapshot(): Promise<LeaderboardSnapshot> {
+    if (!this.leaderboardSnapshotRequest) {
+      this.leaderboardSnapshotRequest = this.loadLeaderboardSnapshot().finally(() => { this.leaderboardSnapshotRequest = undefined; });
+    }
+    return this.leaderboardSnapshotRequest;
+  }
+
+  private async loadLeaderboardSnapshot(): Promise<LeaderboardSnapshot> {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const month = this.sessionActivityDate().slice(0, 7);
+      const year = month.slice(0, 4);
+      const cacheKey = `~leaderboard-cache:${month}`;
+      const version = (await this.leaderboardVersion())?.Version ?? '';
+      let cached: Record<string, unknown> | null = null;
+      try {
+        cached = await this.getHistoryTable().getEntity<Record<string, unknown>>('sessions', cacheKey);
+      } catch (error) {
+        if (!isMissingTableEntity(error)) throw error;
+      }
+      if (cached?.Version === version && cached.RulesVersion === leaderboardRulesVersion && typeof cached.Result === 'string') {
+        return JSON.parse(cached.Result) as LeaderboardSnapshot;
+      }
+      type Accumulator = { name: string; latest: number; wins: number; losses: number };
+      const monthly = new Map<string, Accumulator>();
+      const annual = new Map<string, Accumulator>();
+      const add = (map: Map<string, Accumulator>, player: OpenPlayMatchPlayer, won: boolean, completed: number) => {
+        if (!player.memberId) return;
+        let entry = map.get(player.memberId);
+        if (!entry) {
+          entry = { name: player.name, latest: completed, wins: 0, losses: 0 };
+          map.set(player.memberId, entry);
+        } else if (completed > entry.latest || (completed === entry.latest && player.name.localeCompare(entry.name) < 0)) {
+          entry.name = player.name;
+          entry.latest = completed;
+        }
+        if (won) entry.wins++;
+        else entry.losses++;
+      };
+      const entities = this.getHistoryTable().listEntities<Record<string, unknown>>({
+        queryOptions: { filter: "PartitionKey eq 'sessions' and RowKey ge '0' and RowKey lt 'g'" },
+      });
+      for await (const entity of entities) {
+        const count = entity.MatchPartCount;
+        if (typeof count !== 'number' || !Number.isInteger(count) || count < 1 || count > 14) throw new Error('Invalid archived match parts.');
+        const parts = Array.from({ length: count }, (_, index) => entity[`MatchPart${index}`]);
+        if (parts.some((part) => typeof part !== 'string')) throw new Error('Missing archived match part.');
+        const matches = this.validateMatches(JSON.parse(parts.join('')) as unknown);
+        for (const match of matches) {
+          if (match.status !== 'completed' || !match.winner || !match.completedAt) continue;
+          const completed = Date.parse(match.completedAt);
+          const date = this.sessionActivityDate(new Date(completed));
+          if (!date.startsWith(year)) continue;
+          for (const [index, team] of match.teams.entries()) {
+            for (const player of team) {
+              add(annual, player, match.winner === index + 1, completed);
+              if (date.startsWith(month)) add(monthly, player, match.winner === index + 1, completed);
+            }
+          }
+        }
+      }
+      const rank = (map: Map<string, Accumulator>): LeaderboardStatsEntry[] =>
+        [...map.entries()].map(([memberId, { name, wins, losses }]) => ({
+          memberId, name, wins, losses, games: wins + losses, percent: wins * 100 / (wins + losses),
+        })).filter((entry) => entry.games >= leaderboardMinimumGames)
+          .sort((left, right) => right.percent - left.percent || right.wins - left.wins || right.games - left.games || left.name.localeCompare(right.name))
+          .slice(0, 20)
+          .map(({ memberId, wins, losses, games, percent }) => ({ memberId, wins, losses, games, percent }));
+      const result = { month, year, monthly: rank(monthly), annual: rank(annual) };
+      if (((await this.leaderboardVersion())?.Version ?? '') !== version || this.sessionActivityDate().slice(0, 7) !== month) continue;
+      await this.getHistoryTable().upsertEntity({
+        partitionKey: 'sessions', rowKey: cacheKey, Version: version, RulesVersion: leaderboardRulesVersion, Result: JSON.stringify(result),
+      }, 'Replace');
+      return result;
+    }
+    throw new Error('Open Play history changed while building the leaderboard.');
   }
 
   async getImportPresets(token: string): Promise<OpenPlayImportPreset[]> {
@@ -565,13 +743,30 @@ export class OpenPlayService {
       TopFive: JSON.stringify(topFive), AwardReview: JSON.stringify(draft.session.awardReview), MatchPartCount: matchParts.length,
       ...Object.fromEntries(matchParts.map((part, index) => [`MatchPart${index}`, part])),
     };
-    try {
-      await history.createEntity(archiveEntity);
-    } catch (error) {
-      if (!(typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 409)) throw error;
-      const prior = await history.getEntity<Record<string, unknown>>('sessions', draft.session.id);
-      if (prior.SessionId !== draft.session.id) throw new ConflictException('An archive with this session ID already exists.');
+    let archived = false;
+    for (let attempt = 0; attempt < 4 && !archived; attempt++) {
+      const version = await this.leaderboardVersion();
+      if (version && typeof version.etag !== 'string') throw new ConflictException('The leaderboard version is invalid. Retry archiving.');
+      const versionEntity = { partitionKey: 'sessions', rowKey: leaderboardVersionKey, Version: randomUUID() };
+      const actions: TransactionAction[] = [
+        ['create', archiveEntity],
+        version ? ['update', versionEntity, 'Replace', { etag: version.etag }] : ['create', versionEntity],
+      ];
+      try {
+        await history.submitTransaction(actions);
+        archived = true;
+      } catch (error) {
+        if (!(typeof error === 'object' && error !== null && 'statusCode' in error && (error.statusCode === 409 || error.statusCode === 412))) throw error;
+        try {
+          const prior = await history.getEntity<Record<string, unknown>>('sessions', draft.session.id);
+          if (prior.SessionId !== draft.session.id) throw new ConflictException('An archive with this session ID already exists.');
+          archived = true;
+        } catch (readError) {
+          if (!isMissingTableEntity(readError)) throw readError;
+        }
+      }
     }
+    if (!archived) throw new ConflictException('Open Play history changed concurrently. Retry archiving.');
 
     const revision = randomUUID();
     const cleared = {

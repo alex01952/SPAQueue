@@ -91,6 +91,34 @@ export class RewardsController {
     return this.points.adminRedemptions(this.token(cookie), continuation);
   }
 
+  @Get('redemptions')
+  @Header('Cache-Control', 'private, no-store')
+  redemptions(
+    @Headers('cookie') cookie = '',
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('status') status?: string,
+    @Query('continuation') continuation?: string,
+  ) {
+    return this.points.staffRedemptions(
+      this.token(cookie),
+      from,
+      to,
+      status,
+      continuation,
+    );
+  }
+
+  @Post('redemptions/:memberId/:transactionId/used')
+  @Header('Cache-Control', 'private, no-store')
+  markRedemptionUsed(
+    @Param('memberId') memberId: string,
+    @Param('transactionId') transactionId: string,
+    @Headers('cookie') cookie = '',
+  ) {
+    return this.points.markRedemptionUsed(this.token(cookie), memberId, transactionId);
+  }
+
   @Post('admin/store')
   @Header('Cache-Control', 'private, no-store')
   create(@Body() input: unknown, @Headers('cookie') cookie = '') {
