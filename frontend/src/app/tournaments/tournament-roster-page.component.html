@@ -20,6 +20,21 @@
   @if (isLoading()) {
     <p class="empty-state">Loading roster...</p>
   } @else if (roster(); as current) {
+    @if (current.canManageRoster) {
+      <section class="manual-team-section" aria-labelledby="manual-team-title">
+        <h2 id="manual-team-title">Add a roster-only team</h2>
+        <p class="hint">Add player names directly to the approved roster. These entries do not create member accounts or go through registration and payment. Changing the roster can invalidate saved pools or a live draw.</p>
+        <form class="manual-team-form" (ngSubmit)="addManualTeam()">
+          @for (index of manualTeamNameFields.slice(0, manualTeamSize()); track index) {
+            <label>
+              <span>Player {{ index + 1 }} name</span>
+              <input [name]="'manualPlayer' + index" [(ngModel)]="manualTeamNames[index]" maxlength="120" required [disabled]="isManaging()" />
+            </label>
+          }
+          <button type="submit" class="action-button" [disabled]="!canAddManualTeam()">{{ isManaging() ? 'Adding...' : 'Add approved team' }}</button>
+        </form>
+      </section>
+    }
     <section class="roster-section" aria-labelledby="roster-title">
       <h2 id="roster-title">Confirmed teams</h2>
       <div class="team-list">
@@ -28,6 +43,7 @@
             <header>
               <strong>Team {{ index + 1 }}</strong>
               @if (team.isOwnTeam) { <span class="pill">Your team</span> }
+              @if (team.isRosterOnly) { <span class="pill">Roster-only</span> }
             </header>
             @if (current.canManageRoster) {
               <div class="roster-admin-actions">
@@ -37,7 +53,14 @@
             <ul>
               @for (player of team.players; track player.memberId) {
                 <li>
-                  <span class="player-copy"><button type="button" class="profile-link" (click)="showProfile(player)" [attr.aria-label]="'View ' + player.name + ' profile'">{{ player.name }}</button>@if (player.gender) { <small>{{ player.gender }}</small> }</span>
+                  <span class="player-copy">
+                    @if (player.isGuest) {
+                      {{ player.name }} <small>Guest player</small>
+                    } @else {
+                      <button type="button" class="profile-link" (click)="showProfile(player)" [attr.aria-label]="'View ' + player.name + ' profile'">{{ player.name }}</button>
+                      @if (player.gender) { <small>{{ player.gender }}</small> }
+                    }
+                  </span>
                   @if (canProtest(team)) {
                     @if (hasOpenProtest(player.memberId)) {
                       <span class="pill">Protest open</span>
@@ -45,7 +68,7 @@
                       <button type="button" class="quiet-button" [disabled]="isSubmitting()" (click)="beginProtest(player)">Protest</button>
                     }
                   }
-                  @if (current.canManageRoster) {
+                  @if (current.canManageRoster && !team.isRosterOnly) {
                     <button type="button" class="quiet-button" [disabled]="isManaging()" (click)="beginReplacement(team, player)">Replace</button>
                   }
                 </li>

@@ -139,6 +139,40 @@ describe('TournamentRosterPageComponent', () => {
     expect(component.feedbackMessage()).toContain('was replaced');
   });
 
+  it('lets an administrator add a roster-only team by name without member profiles', async () => {
+    roster.canManageRoster = true;
+    await render();
+    expect(element().querySelectorAll('.manual-team-form input')).toHaveLength(2);
+    expect(element().querySelectorAll('.team-card .profile-link')).toHaveLength(4);
+
+    const component = fixture.componentInstance as any;
+    component.manualTeamNames = ['Guest One', 'Guest Two', '', ''];
+    const team = {
+      registrationId: 'manual-team',
+      status: 'Approved',
+      isOwnTeam: false,
+      isRosterOnly: true,
+      players: [
+        { memberId: 'guest-one', name: 'Guest One', gender: '', isGuest: true },
+        { memberId: 'guest-two', name: 'Guest Two', gender: '', isGuest: true },
+      ],
+    };
+    http.post.mockReturnValueOnce(of(team));
+    component.addManualTeam();
+    fixture.detectChanges();
+
+    expect(http.post).toHaveBeenCalledWith(
+      expect.stringContaining('/admin/tournaments/event-1/roster/teams'),
+      { names: ['Guest One', 'Guest Two'] },
+      { withCredentials: true },
+    );
+    expect(component.roster().teams.at(-1)).toEqual(team);
+    expect(element().textContent).toContain('Roster-only');
+    expect(element().textContent).toContain('Guest player');
+    expect(element().querySelectorAll('.profile-link')).toHaveLength(4);
+    expect(component.feedbackMessage()).toContain('added to the tournament roster');
+  });
+
   it('removes a roster team through the admin registration endpoint', async () => {
     roster.canManageRoster = true;
     await render();
@@ -160,6 +194,44 @@ describe('TournamentRosterPageComponent', () => {
     const rival = [...element().querySelectorAll('.team-card li')].find((item) => item.textContent!.includes('Rival'))!;
     expect(rival.textContent).toContain('Protest open');
     expect(rival.querySelector('.quiet-button')).toBeNull();
+  });
+
+  it('lets a confirmed participant open a protest against a manually added guest', async () => {
+    roster.teams = [
+      ...roster.teams,
+      {
+        registrationId: 'manual-team',
+        status: 'Approved',
+        isOwnTeam: false,
+        isRosterOnly: true,
+        players: [
+          { memberId: 'guest-one', name: 'Guest One', gender: '', isGuest: true },
+          { memberId: 'guest-two', name: 'Guest Two', gender: '', isGuest: true },
+        ],
+      },
+    ];
+    await render();
+
+    startProtest('Guest One');
+    expect(element().textContent).toContain('Protest Guest One');
+    expect(element().textContent).toContain('Guest player');
+    const component = fixture.componentInstance as any;
+    const input = selectEvidence([new File(['pdf'], 'proof.pdf', { type: 'application/pdf' })]);
+    component.protestForm.eligibilityCategory = 'Other';
+    component.protestForm.reason = reason;
+    const created = {
+      protestId: 'guest-protest',
+      protestedMemberId: 'guest-one',
+      protestedMemberName: 'Guest One',
+      status: 'Open',
+      evidence: [],
+    } as unknown as TournamentProtest;
+    http.post.mockReturnValueOnce(of(created));
+    component.submitProtest(input);
+
+    const body = http.post.mock.calls[0][1] as FormData;
+    expect(body.get('protestedMemberId')).toBe('guest-one');
+    expect(component.feedbackMessage()).toContain('Guest One');
   });
 
   it('requires a category, a detailed reason, and evidence before submitting', async () => {

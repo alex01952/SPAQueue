@@ -18,7 +18,7 @@ describe('TournamentRegistrationsPageComponent', () => {
     http.expectOne(({ url }) => url.endsWith('/tournaments')).flush([
       {
         tournamentId: 'event-1', name: 'Club Open', category: 'Mixed Doubles', level: 'Intermediate',
-        maxSlots: 12, date: '', location: '', registrationCount: 1, pendingRegistrationCount: 2, createdAt: '2026-10-01',
+        maxSlots: 12, date: '', location: '', registrationCount: 2, pendingRegistrationCount: 2, createdAt: '2026-10-01',
       },
     ]);
     http.expectOne(({ url }) => url.endsWith('/admin/tournament-registrations')).flush([
@@ -33,7 +33,7 @@ describe('TournamentRegistrationsPageComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Awaiting partner');
     expect(fixture.nativeElement.textContent).toContain('Accepted · awaiting admin');
     expect(fixture.nativeElement.textContent).toContain('Approved');
-    expect(component.approvedTeamCount()).toBe(1);
+    expect(component.approvedTeamCount()).toBe(2);
     expect(component.pendingTeamCount()).toBe(2);
 
     const profileLinks = fixture.nativeElement.querySelectorAll('.member-profile-link') as NodeListOf<HTMLAnchorElement>;

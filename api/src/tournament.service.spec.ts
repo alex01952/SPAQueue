@@ -1764,6 +1764,96 @@ describe('AppService tournament registration', () => {
     });
 
     describe('roster', () => {
+      it('adds a names-only team as an approved roster-only entry without changing existing registrations', async () => {
+        jest.spyOn(service as any, 'requireAdminSession').mockResolvedValue(memberSession('admin', 'Male', 'admin'));
+        jest.spyOn(service as any, 'getTournamentRegistrationEntities').mockResolvedValue([
+          { rowKey: 'existing-paid', Status: 'Paid', MemberId: 'member-a', PartnerId: 'member-b' },
+        ]);
+        const createEntity = jest.fn().mockResolvedValue(undefined);
+        jest.spyOn(service as any, 'getTournamentRegistrationsTableClient').mockReturnValue({ createEntity });
+
+        const team = await service.addTournamentRosterTeam(
+          'session',
+          tournament.tournamentId,
+          ['  Guest One  ', 'Guest   Two'],
+        );
+
+        expect(team).toMatchObject({
+          status: 'Approved',
+          isRosterOnly: true,
+          isOwnTeam: false,
+          players: [
+            { name: 'Guest One', gender: '', isGuest: true },
+            { name: 'Guest Two', gender: '', isGuest: true },
+          ],
+        });
+        expect(team.registrationId).toMatch(/^manual-/);
+        expect(createEntity).toHaveBeenCalledTimes(1);
+        const [entity] = createEntity.mock.calls[0];
+        expect(entity).toMatchObject({
+          partitionKey: tournament.tournamentId,
+          rowKey: team.registrationId,
+          RosterOnlyEntry: true,
+          Status: 'Approved',
+          MemberName: 'Guest One',
+          PartnerName: 'Guest Two',
+        });
+        expect(JSON.parse(entity.TeamMembers)).toEqual(team.players.map((player) => ({
+          ...player, accepted: true,
+        })));
+      });
+
+      it('requires the category team size and an available slot before adding roster-only teams', async () => {
+        jest.spyOn(service as any, 'requireAdminSession').mockResolvedValue(memberSession('admin', 'Male', 'admin'));
+        const createEntity = jest.fn().mockResolvedValue(undefined);
+        jest.spyOn(service as any, 'getTournamentRegistrationsTableClient').mockReturnValue({ createEntity });
+        jest.spyOn(service as any, 'getTournamentRegistrationEntities').mockResolvedValue([]);
+
+        await expect(service.addTournamentRosterTeam('session', tournament.tournamentId, ['One']))
+          .rejects.toBeInstanceOf(BadRequestException);
+        service['getTournament'] = jest.fn().mockResolvedValue(teamTournament);
+        await expect(service.addTournamentRosterTeam('session', tournament.tournamentId, ['One', 'Two']))
+          .rejects.toThrow('exactly 4 player names');
+
+        service['getTournament'] = jest.fn().mockResolvedValue(tournament);
+        service['getTournamentRegistrationEntities'] = jest.fn().mockResolvedValue(
+          Array.from({ length: tournament.maxSlots }, (_, index) => ({ Status: index ? 'Paid' : 'Approved' })),
+        );
+        await expect(service.addTournamentRosterTeam('session', tournament.tournamentId, ['One', 'Two']))
+          .rejects.toThrow('maximum number of team slots');
+        expect(createEntity).not.toHaveBeenCalled();
+      });
+
+      it('includes roster-only guests in the roster without member lookups', async () => {
+        const manualEntry = {
+          rowKey: 'manual-team',
+          Status: 'Approved',
+          RosterOnlyEntry: true,
+          TeamMembers: JSON.stringify([
+            { memberId: 'guest-one', name: 'Guest One', gender: '', accepted: true, isGuest: true },
+            { memberId: 'guest-two', name: 'Guest Two', gender: '', accepted: true, isGuest: true },
+          ]),
+        };
+        jest.spyOn(service as any, 'getMemberSession').mockResolvedValue(memberSession('admin', 'Male', 'admin'));
+        jest.spyOn(service as any, 'getTournamentRegistrationEntities').mockResolvedValue([manualEntry]);
+        jest.spyOn(service as any, 'getMembersTableClient').mockImplementation(() => {
+          throw new Error('Roster-only guests should not be looked up as website members.');
+        });
+
+        const roster = await service.getTournamentRoster('session', tournament.tournamentId);
+
+        expect(roster.teams).toEqual([{
+          registrationId: 'manual-team',
+          status: 'Approved',
+          isRosterOnly: true,
+          isOwnTeam: false,
+          players: [
+            { memberId: 'guest-one', name: 'Guest One', gender: '', isGuest: true },
+            { memberId: 'guest-two', name: 'Guest Two', gender: '', isGuest: true },
+          ],
+        }]);
+      });
+
       it('shows confirmed teams to confirmed participants after registration closes', async () => {
         const roster = await service.getTournamentRoster('session', tournament.tournamentId);
         expect(roster.teams).toEqual([
@@ -1933,6 +2023,45 @@ describe('AppService tournament registration', () => {
           expect.objectContaining({ fileName: 'evidence.pdf', url: expect.stringContaining('/evidence/0') }),
           expect.objectContaining({ fileName: 'photo.png', url: expect.stringContaining('/evidence/1') }),
         ]);
+      });
+
+      it('allows a confirmed member to protest a manually added guest player', async () => {
+        const guestEntry = {
+          rowKey: 'manual-team',
+          MemberId: 'guest-one',
+          MemberName: 'Guest One',
+          PartnerId: 'guest-two',
+          PartnerName: 'Guest Two',
+          Status: 'Approved',
+          RosterOnlyEntry: true,
+          TeamMembers: JSON.stringify([
+            { memberId: 'guest-one', name: 'Guest One', gender: '', accepted: true, isGuest: true },
+            { memberId: 'guest-two', name: 'Guest Two', gender: '', accepted: true, isGuest: true },
+          ]),
+        };
+        jest.spyOn(service as any, 'getTournamentRegistrationEntities').mockResolvedValue([...registrations, guestEntry]);
+        const guestProtestInput = { ...protestInput, protestedMemberId: 'guest-one' };
+
+        const protest = await service.createTournamentProtest(
+          'session',
+          tournament.tournamentId,
+          guestProtestInput,
+          [evidence()],
+        );
+
+        expect(protestsTable.createEntity).toHaveBeenCalledWith(expect.objectContaining({
+          ProtestedMemberId: 'guest-one',
+          ProtestedMemberName: 'Guest One',
+          ProtestedRegistrationId: 'manual-team',
+          ProtesterId: 'member-a',
+          Status: 'Open',
+        }));
+        expect(protest).toMatchObject({
+          protestedMemberId: 'guest-one',
+          protestedMemberName: 'Guest One',
+          protestedRegistrationId: 'manual-team',
+          status: 'Open',
+        });
       });
 
       it.each<[string, Record<string, unknown>[] | undefined, Record<string, unknown>]>([

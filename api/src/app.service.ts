@@ -386,6 +386,7 @@ export interface TournamentRosterPlayer {
   memberId: string;
   name: string;
   gender: string;
+  isGuest?: boolean;
 }
 
 export interface TournamentRosterTeam {
@@ -393,6 +394,7 @@ export interface TournamentRosterTeam {
   status: TournamentRegistrationStatus;
   players: TournamentRosterPlayer[];
   isOwnTeam: boolean;
+  isRosterOnly?: boolean;
 }
 
 export interface TournamentRoster {
@@ -558,6 +560,7 @@ export interface TournamentTeamMember {
   name: string;
   gender: string;
   accepted: boolean;
+  isGuest?: boolean;
   tshirtSize?: TournamentTshirtSize;
   experience?: TournamentExperienceDetails;
   termsAcceptedAt?: string;
@@ -2100,8 +2103,10 @@ export class AppService {
     if (!tournament) throw new BadGatewayException('Stored archived tournament is invalid.');
     const registrationEntities = await this.getArchivedTournamentChildren(tournamentId, 'registrations');
     const registrations = registrationEntities
+      .filter((item) => item.RosterOnlyEntry !== true)
       .map((item) => this.toTournamentRegistration({ ...item, partitionKey: tournamentId }, true))
       .filter((item): item is TournamentRegistration => !!item);
+    const rosterOnlyEntries = registrationEntities.filter((item) => item.RosterOnlyEntry === true);
     const protests = (await this.getArchivedTournamentChildren(tournamentId, 'protests'))
       .map((item) => this.toTournamentProtest({ ...item, partitionKey: tournamentId }))
       .filter((item): item is TournamentProtest => !!item);
@@ -2127,13 +2132,24 @@ export class AppService {
     const roster: TournamentRoster = {
       tournamentId, tournamentName: tournament.name, category: tournament.category,
       level: tournament.level, canManageRoster: false,
-      teams: registrations.filter((item) => this.isApprovedTournamentRegistration(item.status)).map((item) => ({
-        registrationId: item.registrationId, status: item.status, isOwnTeam: false,
-        players: item.teamMembers?.length
-          ? item.teamMembers.map(({ memberId, name, gender }) => ({ memberId, name, gender }))
-          : [{ memberId: item.memberId, name: item.memberName, gender: '' },
-            { memberId: item.partnerId, name: item.partnerName, gender: '' }],
-      })),
+      teams: [
+        ...registrations.filter((item) => this.isApprovedTournamentRegistration(item.status)).map((item) => ({
+          registrationId: item.registrationId, status: item.status, isOwnTeam: false,
+          players: item.teamMembers?.length
+            ? item.teamMembers.map(({ memberId, name, gender }) => ({ memberId, name, gender }))
+            : [{ memberId: item.memberId, name: item.memberName, gender: '' },
+              { memberId: item.partnerId, name: item.partnerName, gender: '' }],
+        })),
+        ...rosterOnlyEntries.map((item) => ({
+          registrationId: String(item.rowKey ?? item.RegistrationId ?? ''),
+          status: String(item.Status ?? 'Approved') as TournamentRegistrationStatus,
+          isOwnTeam: false,
+          isRosterOnly: true,
+          players: this.readTournamentTeamMembers(item).map(({ memberId, name, gender, isGuest }) => ({
+            memberId, name, gender, ...(isGuest ? { isGuest: true } : {}),
+          })),
+        })),
+      ],
     };
     tournament.registrationCount = roster.teams.length;
     tournament.pendingRegistrationCount = registrations.filter((item) =>
@@ -2867,6 +2883,7 @@ export class AppService {
     const registrations: TournamentRegistration[] = [];
     try {
       for await (const entity of this.getTournamentRegistrationsTableClient().listEntities()) {
+        if (entity.RosterOnlyEntry === true) continue;
         const registration = this.toTournamentRegistration(entity, true);
         if (registration) registrations.push(registration);
       }
@@ -2949,6 +2966,7 @@ export class AppService {
   }
 
   private toTournamentPrintingPlayers(entity: Record<string, unknown>): TournamentPrintingPlayer[] {
+    if (entity.RosterOnlyEntry === true) return [];
     const registration = this.toTournamentRegistration(entity);
     if (!registration || !this.isApprovedTournamentRegistration(registration.status)) return [];
     if (typeof entity.etag !== 'string' || !entity.etag || entity.etag === '*') {
@@ -3001,6 +3019,9 @@ export class AppService {
     const entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
     if (!['Invitation Pending', 'Pending Approval', 'Approved', 'Payment Submitted'].includes(String(entity.Status ?? '')) || !entity.etag) {
       throw new ConflictException('Only unpaid, active tournament registrations can be declined. Refresh and retry.');
+    }
+    if (entity.RosterOnlyEntry === true) {
+      throw new ConflictException('Roster-only teams cannot be declined as registrations.');
     }
     const memberIds = [...new Set(this.tournamentRegistrationMemberIds(entity).filter(Boolean))];
     if (!memberIds.length) throw new BadRequestException('This registration has no recipients.');
@@ -3215,6 +3236,9 @@ export class AppService {
     const session = await this.requireAdminSession(sessionToken);
     await this.getTournament(tournamentId);
     const entity = await this.getTournamentRegistrationEntity(tournamentId, registrationId);
+    if (entity.RosterOnlyEntry === true) {
+      throw new ConflictException('Roster-only teams do not have registration payments.');
+    }
     if (!['Approved', 'Payment Submitted'].includes(String(entity.Status ?? ''))) {
       throw new ConflictException('Only approved registrations can be marked as paid.');
     }
@@ -3427,6 +3451,85 @@ export class AppService {
     const session = await this.getMemberSession(sessionToken);
     const tournament = await this.getTournament(tournamentId);
     return this.getTournamentRosterForMember(tournament, session.member);
+  }
+
+  async addTournamentRosterTeam(
+    sessionToken: string,
+    tournamentId: string,
+    namesInput: unknown,
+  ): Promise<TournamentRosterTeam> {
+    await this.requireAdminSession(sessionToken);
+    const tournament = await this.getTournament(tournamentId);
+    if (tournament.lifecycleState) {
+      throw new ConflictException('This tournament is being archived or deleted.');
+    }
+
+    const expectedPlayerCount = tournament.category === 'Team Tournament' ? 4 : 2;
+    if (!Array.isArray(namesInput) || namesInput.length !== expectedPlayerCount) {
+      throw new BadRequestException(`Enter exactly ${expectedPlayerCount} player names.`);
+    }
+    const names = namesInput.map((value) =>
+      typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '',
+    );
+    if (names.some((name) => !name || name.length > 120)) {
+      throw new BadRequestException('Each player name is required and must be 120 characters or fewer.');
+    }
+
+    const registrations = await this.getTournamentRegistrationEntities(tournamentId);
+    const approvedCount = registrations.filter((entity) =>
+      this.isApprovedTournamentRegistration(String(entity.Status ?? '')),
+    ).length;
+    if (approvedCount >= tournament.maxSlots) {
+      throw new ConflictException('This tournament has reached its maximum number of team slots.');
+    }
+
+    const registrationId = `manual-${randomUUID()}`;
+    const players = names.map((name) => ({
+      memberId: `guest-${randomUUID()}`,
+      name,
+      gender: '',
+      accepted: true,
+      isGuest: true,
+    }));
+    const registeredAt = new Date().toISOString();
+    const entity = {
+      partitionKey: tournamentId,
+      rowKey: registrationId,
+      TournamentId: tournamentId,
+      RegistrationId: registrationId,
+      TournamentName: tournament.name,
+      Category: tournament.category,
+      Level: tournament.level,
+      MemberId: players[0].memberId,
+      MemberName: players[0].name,
+      PartnerId: players[1].memberId,
+      PartnerName: players[1].name,
+      TeamMembers: JSON.stringify(players),
+      RosterOnlyEntry: true,
+      Status: 'Approved',
+      RegisteredAt: registeredAt,
+      ApprovedAt: registeredAt,
+      PartnerAccepted: true,
+      TermsRequired: false,
+    };
+    try {
+      await this.getTournamentRegistrationsTableClient().createEntity(entity);
+    } catch (error) {
+      if (this.isAzureConflict(error)) {
+        throw new ConflictException('Unable to add this roster team. Refresh and retry.');
+      }
+      throw this.createMemberAuthenticationStorageException(error);
+    }
+
+    return {
+      registrationId,
+      status: 'Approved',
+      isOwnTeam: false,
+      isRosterOnly: true,
+      players: players.map(({ memberId, name, gender, isGuest }) => ({
+        memberId, name, gender, isGuest,
+      })),
+    };
   }
 
   private async getTournamentRosterForMember(
@@ -3770,6 +3873,9 @@ export class AppService {
       tournamentId,
       registrationId,
     );
+    if (registration.RosterOnlyEntry === true) {
+      throw new ConflictException('Roster-only teams cannot use member replacement.');
+    }
     this.assertConfirmedRosterPlayer(registration, memberId);
     const registrations = await this.getTournamentRegistrationEntities(tournamentId);
     const currentPlayers = await this.getTournamentRosterRegistrationPlayers(
@@ -3850,6 +3956,9 @@ export class AppService {
       tournamentId,
       registrationId,
     );
+    if (registration.RosterOnlyEntry === true) {
+      throw new ConflictException('Roster-only teams cannot use member replacement.');
+    }
     this.assertConfirmedRosterPlayer(registration, memberId);
     if (this.tournamentRegistrationMemberIds(registration).includes(replacementMemberId)) {
       throw new BadRequestException('Choose a player who is not already on this team.');
@@ -6703,7 +6812,12 @@ export class AppService {
     const teams = await Promise.all(confirmed.map(async (entity) => {
       const teamMembers = this.readTournamentTeamMembers(entity);
       const players: TournamentRosterPlayer[] = teamMembers.length
-        ? teamMembers.map((member) => ({ memberId: member.memberId, name: member.name, gender: member.gender }))
+        ? teamMembers.map((member) => ({
+            memberId: member.memberId,
+            name: member.name,
+            gender: member.gender,
+            ...(member.isGuest ? { isGuest: true } : {}),
+          }))
         : await Promise.all([
           [String(entity.MemberId ?? ''), String(entity.MemberName ?? '')],
           [String(entity.PartnerId ?? ''), String(entity.PartnerName ?? '')],
@@ -6715,6 +6829,7 @@ export class AppService {
       return {
         registrationId: String(entity.rowKey ?? ''),
         status: String(entity.Status ?? '') as TournamentRegistrationStatus,
+        ...(entity.RosterOnlyEntry === true ? { isRosterOnly: true } : {}),
         players,
       };
     }));

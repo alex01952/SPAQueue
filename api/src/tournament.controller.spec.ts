@@ -24,6 +24,7 @@ describe('Tournament payment HTTP endpoints', () => {
     respondToTournamentInvitation: jest.fn(),
     setTournamentRegistrationClosed: jest.fn(),
     getTournamentRoster: jest.fn(),
+    addTournamentRosterTeam: jest.fn(),
     getTournamentRosterReplacementCandidates: jest.fn(),
     replaceTournamentRosterPlayer: jest.fn(),
     getTournamentPlanning: jest.fn(),
@@ -126,6 +127,23 @@ describe('Tournament payment HTTP endpoints', () => {
     await request(app.getHttpServer()).patch('/admin/tournaments/event-1/tshirt-sizes').set('Cookie', cookie)
       .send({ tshirtSizes: ['XS', 'M', 'XXXL'] }).expect(200, { tshirtSizes: ['XS', 'M', 'XXXL'] });
     expect(service.setTournamentTshirtSizes).toHaveBeenCalledWith('member-session', 'event-1', ['XS', 'M', 'XXXL']);
+  });
+
+  it('adds a names-only roster team through the authenticated admin endpoint', async () => {
+    const team = {
+      registrationId: 'manual-team',
+      status: 'Approved',
+      isOwnTeam: false,
+      isRosterOnly: true,
+      players: [{ memberId: 'guest-player', name: 'Guest Player', gender: '', isGuest: true }],
+    };
+    service.addTournamentRosterTeam.mockResolvedValue(team);
+    await request(app.getHttpServer()).post('/admin/tournaments/event-1/roster/teams')
+      .set('Cookie', cookie).send({ names: ['Guest Player', 'Guest Partner'] })
+      .expect(201, team);
+    expect(service.addTournamentRosterTeam).toHaveBeenCalledWith(
+      'member-session', 'event-1', ['Guest Player', 'Guest Partner'],
+    );
   });
 
   it('forwards authenticated live draw reads, presence, votes and scheduling without caching', async () => {

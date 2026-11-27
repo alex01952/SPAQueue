@@ -61,6 +61,7 @@ import type {
   TournamentPartnerSearchResult,
   TournamentRoster,
   TournamentRosterPlayer,
+  TournamentRosterTeam,
   TournamentPlanningState,
   TournamentLiveDrawState,
   ArchivedTournament,
@@ -686,6 +687,19 @@ export class AppController {
   ): Promise<TournamentRoster> {
     return this.appService.getTournamentRoster(
       this.readCookie(cookieHeader, this.memberSessionCookieName), tournamentId,
+    );
+  }
+
+  @Post('admin/tournaments/:tournamentId/roster/teams')
+  addTournamentRosterTeam(
+    @Param('tournamentId') tournamentId: string,
+    @Body('names') names: unknown,
+    @Headers('cookie') cookieHeader = '',
+  ): Promise<TournamentRosterTeam> {
+    return this.appService.addTournamentRosterTeam(
+      this.readCookie(cookieHeader, this.memberSessionCookieName),
+      tournamentId,
+      names,
     );
   }
 

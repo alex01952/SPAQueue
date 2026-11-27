@@ -60,6 +60,8 @@ export class TournamentRosterPageComponent implements OnInit {
   } | null>(null);
   protected readonly replacementCandidates = signal<TournamentPartnerSearchResult[]>([]);
   protected readonly replacementError = signal('');
+  protected readonly manualTeamNameFields = [0, 1, 2, 3];
+  protected manualTeamNames = ['', '', '', ''];
   protected replacementSearch = '';
   protected protestForm: { eligibilityCategory: TournamentProtestCategory | ''; reason: string } = {
     eligibilityCategory: '',
@@ -187,7 +189,9 @@ export class TournamentRosterPageComponent implements OnInit {
     if (
       this.isManaging() ||
       !window.confirm(
-        `Remove this ${team.status === 'Paid' ? 'PAID ' : ''}team from the tournament roster? This removes the registration for every member and does not issue a refund.`,
+        team.isRosterOnly
+          ? 'Remove this manually added team from the tournament roster?'
+          : `Remove this ${team.status === 'Paid' ? 'PAID ' : ''}team from the tournament roster? This removes the registration for every member and does not issue a refund.`,
       )
     ) {
       return;
@@ -213,6 +217,40 @@ export class TournamentRosterPageComponent implements OnInit {
       },
       error: (error: HttpErrorResponse) => {
         this.errorMessage.set(this.errorText(error, 'Unable to remove this team.'));
+        this.isManagingRoster.set(false);
+      },
+    });
+  }
+
+  protected manualTeamSize(): number {
+    return this.roster()?.category === 'Team Tournament' ? 4 : 2;
+  }
+
+  protected canAddManualTeam(): boolean {
+    return !this.isManaging() &&
+      this.manualTeamNames.slice(0, this.manualTeamSize()).every((name) => !!name.trim());
+  }
+
+  protected addManualTeam() {
+    const roster = this.roster();
+    if (!roster || !roster.canManageRoster || !this.canAddManualTeam()) return;
+
+    this.isManagingRoster.set(true);
+    this.errorMessage.set('');
+    this.feedbackMessage.set('');
+    this.http.post<TournamentRosterTeam>(
+      `${this.apiUrl}/admin/tournaments/${encodeURIComponent(this.tournamentId)}/roster/teams`,
+      { names: this.manualTeamNames.slice(0, this.manualTeamSize()).map((name) => name.trim()) },
+      { withCredentials: true },
+    ).subscribe({
+      next: (team) => {
+        this.roster.update((current) => current && ({ ...current, teams: [...current.teams, team] }));
+        this.manualTeamNames = ['', '', '', ''];
+        this.feedbackMessage.set('The team was added to the tournament roster.');
+        this.isManagingRoster.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.errorMessage.set(this.errorText(error, 'Unable to add this roster team.'));
         this.isManagingRoster.set(false);
       },
     });

@@ -89,6 +89,7 @@ export interface TournamentRosterPlayer {
   memberId: string;
   name: string;
   gender: string;
+  isGuest?: boolean;
 }
 
 export interface ArchivedTournament extends Tournament {
@@ -117,6 +118,7 @@ export interface TournamentRosterTeam {
   status: string;
   players: TournamentRosterPlayer[];
   isOwnTeam: boolean;
+  isRosterOnly?: boolean;
 }
 
 export interface TournamentRoster {

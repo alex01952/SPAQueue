@@ -48,7 +48,8 @@ export class TournamentRegistrationsPageComponent implements OnInit {
     this.registrations().filter((item) => item.tournamentId === this.selectedTournamentId()),
   );
   protected readonly approvedTeamCount = computed(() =>
-    this.tournamentRegistrations().filter((item) => ['Approved', 'Payment Submitted', 'Paid'].includes(item.status)).length,
+    this.selectedTournament()?.registrationCount ??
+      this.tournamentRegistrations().filter((item) => ['Approved', 'Payment Submitted', 'Paid'].includes(item.status)).length,
   );
   protected readonly pendingTeamCount = computed(() =>
     this.tournamentRegistrations().filter((item) => ['Invitation Pending', 'Pending Approval'].includes(item.status)).length,
